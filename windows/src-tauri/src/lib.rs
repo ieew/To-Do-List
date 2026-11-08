@@ -44,8 +44,13 @@ fn app_info() -> AppInfo {
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
-            let data_dir = app.path().app_data_dir()?;
-            let conn = storage::open(&data_dir.join("todo.sqlite3"))?;
+            // 数据默认放在「软件同目录/data」；若该目录不可写（如安装在 Program Files），
+            // 回退到系统应用数据目录，并把旧版本库搬迁过来。
+            let legacy_dir = app.path().app_data_dir().ok();
+            let data_dir = storage::resolve_data_dir(legacy_dir.as_deref());
+            storage::migrate_legacy_database(&data_dir, legacy_dir.as_deref())?;
+            println!("数据目录: {}", data_dir.display());
+            let conn = storage::open(&data_dir.join(storage::DB_FILE))?;
             storage::seed_if_empty(&conn)?;
             app.manage(AppState {
                 db: Mutex::new(conn),
@@ -60,12 +65,12 @@ pub fn run() {
                 std::thread::spawn(move || {
                     std::thread::sleep(std::time::Duration::from_millis(2500));
                     let state = handle.state::<AppState>();
-                    let _ = windows::open_sticky_window(
+                    let _ = tauri::async_runtime::block_on(windows::open_sticky_window(
                         handle.clone(),
                         state,
                         "main".to_string(),
                         None,
-                    );
+                    ));
                     std::thread::sleep(std::time::Duration::from_millis(3000));
                     let mut labels: Vec<String> = handle.webview_windows().keys().cloned().collect();
                     labels.sort();

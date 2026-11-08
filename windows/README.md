@@ -30,6 +30,22 @@ npm run tauri dev
 
 > 说明：当前机器上 WebView2 的初始逻辑视口为 800×600，原生窗口的三栏布局在该视口下仍可用；若要看设计稿 1120×720 的完整比例，请使用浏览器预览（同一套前端）。
 
+## 数据位置
+
+原生版默认把数据放在**软件同目录下的 `data` 文件夹**：
+
+```text
+<软件目录>\data\todo.sqlite3        # 主库（WAL 模式）
+<软件目录>\data\todo.sqlite3-wal    # WAL 提交日志
+<软件目录>\data\todo.sqlite3-shm    # WAL 共享内存索引
+```
+
+- 可用环境变量 `TODO_DATA_DIR` 覆盖数据目录；[`start-desktop.bat`](start-desktop.bat) 会把它设为 `windows\data`，方便开发时查看与备份。
+- 直接执行 `npm run tauri dev` 时，「软件目录」是可执行文件所在目录，通常是 `src-tauri\target\debug`，或 `CARGO_TARGET_DIR` 指向的目录；启动时控制台会打印实际数据目录。
+- 若软件目录不可写（例如安装在 `Program Files`），启动时会自动回退到系统应用数据目录 `%APPDATA%\com.todo.windows`，避免无法启动。
+- 首次切换到新路径时，如果 `data` 里还没有数据库，会把旧版本 `%APPDATA%\com.todo.windows` 下的 `todo.sqlite3`（含 `-wal` / `-shm`）复制过来；已有数据不会被覆盖。
+- 备份或迁移时，关闭应用后整体拷贝 `data` 文件夹即可。
+
 ## 预览截图
 
 | 主界面 | 详情抽屉 |

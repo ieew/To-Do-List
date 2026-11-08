@@ -22,6 +22,8 @@ if not errorlevel 1 (
 
 set "CARGO_TARGET_DIR=%TEMP%\todo-target"
 set "CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=x86_64-w64-mingw32-gcc.exe"
+rem 开发模式把数据固定到 windows\data，避免落在临时构建目录里被清理。
+set "TODO_DATA_DIR=%~dp0data"
 
 echo Starting Tauri desktop app...
 call npm run tauri:dev

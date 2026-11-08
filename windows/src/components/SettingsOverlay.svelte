@@ -527,7 +527,7 @@
                 <div class="setting-desc">op_log 只追加；projection 由 reducer 确定性投影得出。</div>
               </div>
               <div class="code-path">
-                %APPDATA%\todo-app\todo.sqlite3
+                {`<软件目录>\\data\\todo.sqlite3`}
                 <button class="copy-btn" onclick={() => store.showToast('路径已复制（原型模拟）')}>复制</button>
               </div>
             </div>

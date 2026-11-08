@@ -3,5 +3,7 @@ dist/
 src-tauri/target/
 src-tauri/gen/
 desktop/
+data/
+src-tauri/data/
 *.log
 screenshot-main.png

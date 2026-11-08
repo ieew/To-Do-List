@@ -7,11 +7,107 @@ use anyhow::{Context, Result};
 use chrono::{Duration, Local, TimeZone};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{json, Value};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use uuid::Uuid;
+
+/// 数据目录名：位于可执行文件同级目录下。
+pub const DATA_DIR_NAME: &str = "data";
+/// 数据库文件名。
+pub const DB_FILE: &str = "todo.sqlite3";
 
 pub fn now_ms() -> i64 {
     Local::now().timestamp_millis()
+}
+
+/// 解析数据目录：默认使用「软件同目录/data」。
+///
+/// 优先级：
+/// 1. `TODO_DATA_DIR` 环境变量（开发脚本用它把数据固定到 `windows/data`）；
+/// 2. 可执行文件同级目录下的 `data`；
+/// 3. `fallback`（通常是系统应用数据目录），用于安装目录不可写的情况。
+pub fn resolve_data_dir(fallback: Option<&Path>) -> PathBuf {
+    if let Some(dir) = env_data_dir() {
+        return dir;
+    }
+    if let Some(dir) = exe_sibling_data_dir() {
+        return dir;
+    }
+    fallback
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from(DATA_DIR_NAME))
+}
+
+fn env_data_dir() -> Option<PathBuf> {
+    let raw = std::env::var_os("TODO_DATA_DIR")?;
+    if raw.is_empty() {
+        return None;
+    }
+    let dir = PathBuf::from(raw);
+    std::fs::create_dir_all(&dir).ok()?;
+    Some(dir)
+}
+
+fn exe_sibling_data_dir() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let candidate = exe.parent()?.join(DATA_DIR_NAME);
+    if std::fs::create_dir_all(&candidate).is_err() {
+        return None;
+    }
+    // 目录存在不代表可写，做一次真实写入探测再决定。
+    let probe = candidate.join(".write-probe");
+    match std::fs::write(&probe, b"ok") {
+        Ok(()) => {
+            let _ = std::fs::remove_file(&probe);
+            Some(candidate)
+        }
+        Err(_) => None,
+    }
+}
+
+/// 首次切换到 exe 同级目录时，把旧版本 `app_data_dir` 里的数据库搬迁过来，
+/// 避免升级后看起来像「数据丢了」。已有新库时不覆盖。
+pub fn migrate_legacy_database(data_dir: &Path, legacy_dir: Option<&Path>) -> Result<()> {
+    let Some(legacy_dir) = legacy_dir else {
+        return Ok(());
+    };
+    if same_path(data_dir, legacy_dir) {
+        return Ok(());
+    }
+
+    let target = data_dir.join(DB_FILE);
+    if target.exists() {
+        return Ok(());
+    }
+    let source = legacy_dir.join(DB_FILE);
+    if !source.exists() {
+        return Ok(());
+    }
+
+    std::fs::create_dir_all(data_dir)
+        .with_context(|| format!("创建数据目录失败: {}", data_dir.display()))?;
+
+    // WAL 模式下 -wal / -shm 必须和主库一起搬，否则最近的提交会丢失。
+    for suffix in ["", "-wal", "-shm"] {
+        let from = PathBuf::from(format!("{}{}", source.display(), suffix));
+        if !from.exists() {
+            continue;
+        }
+        let to = PathBuf::from(format!("{}{}", target.display(), suffix));
+        std::fs::copy(&from, &to)
+            .with_context(|| format!("迁移旧数据失败: {} -> {}", from.display(), to.display()))?;
+    }
+    Ok(())
+}
+
+fn same_path(a: &Path, b: &Path) -> bool {
+    let normalize = |path: &Path| {
+        path.canonicalize()
+            .unwrap_or_else(|_| path.to_path_buf())
+            .to_string_lossy()
+            .replace('/', "\\")
+            .to_lowercase()
+    };
+    normalize(a) == normalize(b)
 }
 
 pub fn open(path: &Path) -> Result<Connection> {
