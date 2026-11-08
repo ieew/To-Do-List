@@ -1,0 +1,2817 @@
+<!DOCTYPE html>
+<!-- saved from url=(0055)file:///D:/Downloads/deepseek_html_20261108_5b2f18.html -->
+<html lang="zh-CN"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>待办清单 · 界面草图</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --primary: #3B82F6;
+    --primary-50: #EFF6FF;
+    --success: #10B981;
+    --success-50: #ECFDF5;
+    --bg: #F8FAFC;
+    --card: #FFFFFF;
+    --text: #1F2937;
+    --text-2: #6B7280;
+    --text-3: #9CA3AF;
+    --border: #E5E7EB;
+    --border-2: #F1F5F9;
+    --danger: #EF4444;
+    --warning: #F59E0B;
+    --purple: #8B5CF6;
+    --r-sm: 8px; --r-md: 12px; --r-lg: 16px;
+    --shadow-sm: 0 1px 2px rgba(15,23,42,0.04);
+    --shadow-md: 0 4px 12px rgba(15,23,42,0.06);
+    --shadow-lg: 0 12px 32px rgba(15,23,42,0.10);
+    --shadow-xl: 0 24px 64px rgba(15,23,42,0.16);
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+
+  body {
+    font-family: var(--font);
+    background:
+      radial-gradient(1200px 600px at 10% -10%, #1E3A8A 0%, transparent 50%),
+      radial-gradient(1000px 500px at 110% 110%, #064E3B 0%, transparent 50%),
+      #0B1220;
+    color: #E2E8F0;
+    min-height: 100vh;
+    padding: 56px 32px 96px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page-header { max-width: 1240px; margin: 0 auto 56px; text-align: center; }
+  .page-header h1 {
+    font-size: 28px; font-weight: 700; letter-spacing: -0.02em;
+    background: linear-gradient(135deg, #DBEAFE 0%, #A7F3D0 100%);
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .page-header p { margin-top: 10px; font-size: 14px; color: #94A3B8; }
+
+  .gallery { max-width: 1240px; margin: 0 auto; display: flex; flex-direction: column; gap: 72px; }
+  .showcase { display: flex; flex-direction: column; align-items: center; gap: 20px; }
+  .showcase-title {
+    display: flex; align-items: center; gap: 10px;
+    font-size: 15px; font-weight: 600; color: #CBD5E1;
+  }
+  .showcase-title::before {
+    content: ""; width: 4px; height: 16px; border-radius: 2px;
+    background: linear-gradient(180deg, var(--primary), var(--success));
+  }
+  .showcase-desc {
+    font-size: 12px; color: #64748B; margin-top: -8px;
+    text-align: center; max-width: 760px; line-height: 1.7;
+  }
+  .showcase-desc code {
+    background: rgba(255,255,255,0.06); padding: 1px 5px;
+    border-radius: 4px; color: #A5B4FC; font-size: 11px;
+  }
+
+  .checkbox {
+    width: 20px; height: 20px; border-radius: 50%;
+    border: 2px solid #CBD5E1;
+    display: inline-flex; align-items: center; justify-content: center;
+    flex-shrink: 0; cursor: pointer; transition: all .2s ease; background: #fff;
+  }
+  .checkbox:hover { border-color: var(--primary); }
+  .task.done .checkbox, .app-task.done .checkbox,
+  .sticky-task.done .checkbox, .title-row.done .checkbox,
+  .mini-task.done .mini-check, .floating-task.done .mini-check {
+    background: var(--success); border-color: var(--success);
+  }
+  .task.done .checkbox::after, .app-task.done .checkbox::after,
+  .sticky-task.done .checkbox::after, .title-row.done .checkbox::after,
+  .mini-task.done .mini-check::after, .floating-task.done .mini-check::after {
+    content: ""; width: 5px; height: 10px;
+    border: solid #fff; border-width: 0 2px 2px 0;
+    transform: rotate(45deg) translate(-1px, -1px);
+  }
+  .task.done .task-title, .app-task.done .task-title,
+  .title-row.done .title-text, .mini-task.done .mini-task-title,
+  .floating-task.done .mini-task-title {
+    color: var(--text-3); text-decoration: line-through;
+  }
+
+  .priority { display: inline-block; width: 6px; height: 6px; border-radius: 50%; }
+  .priority.high { background: var(--danger); }
+  .priority.mid { background: var(--warning); }
+  .priority.low { background: var(--primary); }
+
+  .tag-chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 11px; padding: 1px 7px; border-radius: 999px;
+    background: var(--tag-bg, #EFF6FF); color: var(--tag-fg, var(--primary));
+    font-weight: 500;
+  }
+  .tag-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+
+  .ai-badge {
+    display: inline-flex; align-items: center; gap: 3px;
+    font-size: 10px; padding: 1px 6px; border-radius: 999px;
+    background: linear-gradient(135deg, #EDE9FE, #DBEAFE);
+    color: #6D28D9; font-weight: 600;
+  }
+
+  .progress-bar { height: 6px; background: #E2E8F0; border-radius: 999px; overflow: hidden; }
+  .progress-fill {
+    height: 100%; border-radius: 999px;
+    background: linear-gradient(90deg, var(--primary), var(--success));
+    transition: width .4s ease;
+  }
+
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 7px 12px; border-radius: var(--r-sm);
+    font-size: 12px; font-weight: 600; cursor: pointer;
+    border: 1px solid var(--border); background: #fff;
+    color: var(--text-2); font-family: var(--font);
+  }
+  .btn.primary {
+    background: var(--primary); color: #fff; border-color: var(--primary);
+    box-shadow: 0 2px 8px rgba(59,130,246,0.25);
+  }
+  .btn.danger-outline { color: var(--danger); border-color: #FCA5A5; background: #FEF2F2; }
+
+  /* ============ 电脑大界面 ============ */
+  .win-stage { position: relative; width: 1120px; max-width: 100%; margin: 0 auto; }
+  .win-window {
+    width: 100%; border-radius: 14px; background: var(--card);
+    box-shadow: var(--shadow-xl); overflow: hidden; color: var(--text);
+    border: 1px solid rgba(255,255,255,0.06);
+    transition: opacity .3s ease, transform .3s ease;
+  }
+  .win-window.is-hidden { opacity: 0; transform: scale(0.96); pointer-events: none; }
+
+  .win-titlebar {
+    height: 40px; background: #F1F5F9; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; padding: 0 16px; gap: 8px;
+  }
+  .win-titlebar .win-title { font-size: 12px; color: var(--text-2); font-weight: 500; margin-left: 8px; }
+  .win-titlebar .win-dots { display: flex; gap: 6px; }
+  .win-titlebar .win-dots span { width: 11px; height: 11px; border-radius: 50%; }
+  .win-titlebar .win-dots span:nth-child(1) { background: #FCA5A5; }
+  .win-titlebar .win-dots span:nth-child(2) { background: #FCD34D; }
+  .win-titlebar .win-dots span:nth-child(3) { background: #86EFAC; }
+  .win-titlebar .win-sync {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 11px; color: var(--success); font-weight: 500;
+  }
+  .win-titlebar .win-sync::before {
+    content: ""; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--success); box-shadow: 0 0 0 3px rgba(16,185,129,0.15);
+  }
+
+  .tb-actions { margin-left: auto; display: flex; gap: 6px; margin-right: 14px; }
+  .tb-btn {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 5px 10px; border-radius: 6px;
+    background: rgba(255,255,255,0.7); border: 1px solid var(--border);
+    color: var(--text-2); font-size: 11.5px; font-weight: 500;
+    cursor: pointer; font-family: var(--font);
+    transition: all .15s; white-space: nowrap;
+  }
+  .tb-btn:hover { background: #fff; color: var(--primary); border-color: #BFDBFE; }
+  .tb-btn .tb-icon { font-size: 12px; line-height: 1; }
+  .tb-btn.icon-btn { padding: 5px 8px; font-size: 13px; }
+
+  .win-body {
+    display: flex; height: 640px; position: relative;
+    --sidebar-w: 180px;
+  }
+
+  .sidebar {
+    width: var(--sidebar-w); flex-shrink: 0;
+    background: #FAFBFC; border-right: 1px solid var(--border);
+    display: flex; flex-direction: column;
+    padding: 16px 12px; gap: 4px;
+    overflow-y: auto; overflow-x: hidden;
+  }
+  .workspace-switch {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 10px; border-radius: var(--r-sm);
+    background: #fff; border: 1px solid var(--border);
+    margin-bottom: 12px; cursor: pointer;
+  }
+  .workspace-avatar {
+    width: 24px; height: 24px; border-radius: 7px;
+    background: linear-gradient(135deg, var(--primary), var(--purple));
+    color: #fff; display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 700; flex-shrink: 0;
+  }
+  .workspace-name {
+    font-size: 12.5px; font-weight: 600; flex: 1; min-width: 0;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .workspace-caret { color: var(--text-3); font-size: 10px; flex-shrink: 0; }
+
+  .side-section-label {
+    font-size: 10.5px; font-weight: 600; color: var(--text-3);
+    letter-spacing: 0.06em; text-transform: uppercase;
+    padding: 12px 10px 6px; white-space: nowrap;
+  }
+  .side-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 10px; border-radius: var(--r-sm);
+    font-size: 12.5px; color: var(--text-2);
+    cursor: pointer; transition: background .15s; white-space: nowrap;
+  }
+  .side-item:hover { background: #EEF2F7; }
+  .side-item.active { background: var(--primary-50); color: var(--primary); font-weight: 600; }
+  .side-item .count {
+    margin-left: auto; font-size: 10.5px; color: var(--text-3);
+    background: #fff; padding: 0 6px; border-radius: 999px;
+    line-height: 16px; border: 1px solid var(--border); flex-shrink: 0;
+  }
+  .side-item .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dot, var(--primary)); flex-shrink: 0; }
+  .side-item .side-icon { font-size: 12px; line-height: 1; width: 8px; text-align: center; flex-shrink: 0; }
+  .side-divider { height: 1px; background: var(--border-2); margin: 10px 10px; flex-shrink: 0; }
+  .member-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 5px 10px; font-size: 12px; color: var(--text-2); white-space: nowrap;
+  }
+  .member-avatar {
+    width: 22px; height: 22px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px; font-weight: 600; color: #fff; flex-shrink: 0;
+  }
+  .member-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .role-badge {
+    font-size: 9.5px; padding: 1px 6px; border-radius: 999px;
+    background: #F1F5F9; color: var(--text-2); font-weight: 500; flex-shrink: 0;
+  }
+  .role-badge.owner { background: #FEF3C7; color: #B45309; }
+
+  .ai-entry {
+    margin-top: auto; display: flex; align-items: center; gap: 8px;
+    padding: 9px 12px; border-radius: var(--r-md);
+    background: linear-gradient(135deg, #EDE9FE 0%, #DBEAFE 100%);
+    color: #5B21B6; font-size: 12px; font-weight: 600;
+    cursor: pointer; white-space: nowrap;
+  }
+  .ai-entry .spark { font-size: 14px; flex-shrink: 0; }
+  .ai-entry .ai-hint { margin-left: auto; font-size: 10px; opacity: .7; flex-shrink: 0; }
+
+  .sidebar-resizer {
+    position: absolute; top: 0; bottom: 0;
+    left: calc(var(--sidebar-w) - 4px);
+    width: 8px; cursor: col-resize; z-index: 30;
+    display: flex; align-items: center; justify-content: center;
+    touch-action: none;
+  }
+  .sidebar-resizer::after {
+    content: ""; width: 3px; height: 40px; border-radius: 999px;
+    background: transparent; transition: background .15s, height .15s;
+  }
+  .sidebar-resizer:hover::after, body.resizing .sidebar-resizer::after {
+    background: var(--primary); height: 56px;
+  }
+  body.resizing, body.resizing * {
+    cursor: col-resize !important; user-select: none !important;
+  }
+
+  .main-pane { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; background: #fff; }
+  .main-toolbar {
+    display: flex; align-items: center; gap: 10px;
+    padding: 14px 20px; border-bottom: 1px solid var(--border-2);
+  }
+  .search-box {
+    flex: 1; min-width: 60px; display: flex; align-items: center; gap: 8px;
+    padding: 7px 12px; border-radius: var(--r-sm);
+    background: #F1F5F9; color: var(--text-3); font-size: 12.5px;
+    white-space: nowrap; overflow: hidden;
+  }
+  .view-toggle {
+    display: flex; background: #F1F5F9; border-radius: var(--r-sm);
+    padding: 2px; flex-shrink: 0;
+  }
+  .view-toggle span {
+    padding: 5px 10px; font-size: 11.5px; border-radius: 6px;
+    color: var(--text-2); cursor: pointer; white-space: nowrap;
+  }
+  .view-toggle span.active {
+    background: #fff; color: var(--text); font-weight: 600;
+    box-shadow: var(--shadow-sm);
+  }
+
+  .main-scroll { flex: 1; overflow-y: auto; padding: 16px 20px 24px; }
+  .progress-card {
+    background: linear-gradient(135deg, #EFF6FF 0%, #ECFDF5 100%);
+    border-radius: var(--r-md); padding: 14px 16px;
+    margin-bottom: 18px; border: 1px solid #E0E7FF;
+  }
+  .progress-card-top {
+    display: flex; justify-content: space-between; align-items: baseline;
+    margin-bottom: 10px;
+  }
+  .progress-card-top strong { font-size: 13px; color: var(--text); }
+  .progress-card-top span { font-size: 12px; color: var(--text-2); font-weight: 600; }
+
+  .group-title {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 12px; font-weight: 600; color: var(--text-2);
+    margin: 18px 2px 8px;
+  }
+  .group-title .count { font-size: 10.5px; color: var(--text-3); font-weight: 500; }
+  .group-title .chev { color: var(--text-3); font-size: 10px; }
+
+  .task {
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 10px 12px; border-radius: var(--r-md);
+    cursor: pointer; transition: background .15s, border-color .15s;
+    border: 1px solid transparent;
+  }
+  .task:hover { background: #F8FAFC; border-color: var(--border-2); }
+  .task + .task { margin-top: 2px; }
+  .task.active {
+    background: var(--primary-50); border-color: #BFDBFE;
+    box-shadow: inset 3px 0 0 var(--primary);
+  }
+  .task-body { flex: 1; min-width: 0; }
+  .task-title {
+    font-size: 13.5px; font-weight: 500; color: var(--text);
+    line-height: 1.4; display: flex; align-items: center; gap: 6px;
+  }
+  .task-meta {
+    display: flex; align-items: center; gap: 8px;
+    margin-top: 4px; font-size: 11px; color: var(--text-3); flex-wrap: wrap;
+  }
+  .task-meta .meta-item { display: inline-flex; align-items: center; gap: 3px; }
+  .task-meta .meta-item.urgent { color: var(--danger); font-weight: 600; }
+
+  .subtask-progress {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 10.5px; color: var(--text-3);
+    padding: 1px 6px; background: #F1F5F9; border-radius: 999px;
+  }
+
+  .detail-pane {
+    width: 0; flex-shrink: 0; overflow: hidden;
+    background: #fff; border-left: 1px solid transparent;
+    transition: width .28s cubic-bezier(.4,0,.2,1), border-color .28s ease;
+  }
+  .detail-pane.open { width: 320px; border-left-color: var(--border); }
+  .detail-inner { width: 320px; height: 100%; display: flex; flex-direction: column; }
+  .detail-head {
+    display: flex; align-items: center; padding: 8px 12px 8px 20px;
+    border-bottom: 1px solid var(--border-2);
+    flex-shrink: 0; gap: 8px;
+  }
+  .detail-tabs { display: flex; gap: 2px; flex: 1; }
+  .detail-tab {
+    padding: 6px 10px; font-size: 12.5px; color: var(--text-2);
+    cursor: pointer; border-radius: 6px; font-weight: 500; transition: all .15s;
+  }
+  .detail-tab:hover { background: #F1F5F9; color: var(--text); }
+  .detail-tab.active { color: var(--primary); background: var(--primary-50); font-weight: 600; }
+  .detail-close {
+    width: 28px; height: 28px; border: none; background: transparent;
+    border-radius: 7px; color: var(--text-2); font-size: 14px; cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center;
+    flex-shrink: 0; font-family: var(--font); transition: background .15s, color .15s;
+  }
+  .detail-close:hover { background: #F1F5F9; color: var(--text); }
+
+  .detail-panel {
+    flex: 1; overflow-y: auto; padding: 18px 20px 24px;
+    display: flex; flex-direction: column; gap: 16px;
+  }
+  .detail-header { display: flex; align-items: flex-start; gap: 10px; }
+  .detail-title { font-size: 16px; font-weight: 600; color: var(--text); line-height: 1.4; flex: 1; }
+  .detail-meta-row { display: flex; gap: 6px; flex-wrap: wrap; }
+  .field-group {
+    display: flex; flex-direction: column; gap: 8px;
+    padding: 12px; background: #FAFBFC;
+    border-radius: var(--r-md); border: 1px solid var(--border-2);
+  }
+  .field-row { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-2); }
+  .field-row .field-label { width: 48px; color: var(--text-3); font-size: 11.5px; flex-shrink: 0; }
+  .field-row .field-value { color: var(--text); font-weight: 500; }
+  .field-row .field-value.muted { color: var(--text-3); font-weight: 400; }
+
+  .detail-section-title {
+    font-size: 11px; font-weight: 600; color: var(--text-3);
+    letter-spacing: 0.05em; text-transform: uppercase;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .detail-section-title .add-btn { font-size: 11px; color: var(--primary); cursor: pointer; font-weight: 500; }
+
+  .subtask-list { display: flex; flex-direction: column; gap: 2px; }
+  .subtask {
+    display: flex; align-items: center; gap: 8px;
+    padding: 5px 6px; border-radius: 6px;
+    font-size: 12px; color: var(--text); cursor: pointer;
+  }
+  .subtask:hover { background: #F1F5F9; }
+  .subtask .mini-check {
+    width: 14px; height: 14px; border-radius: 50%;
+    border: 1.5px solid #CBD5E1; flex-shrink: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .subtask.done .mini-check { background: var(--success); border-color: var(--success); }
+  .subtask.done .mini-check::after {
+    content: ""; width: 3px; height: 6px;
+    border: solid #fff; border-width: 0 1.5px 1.5px 0;
+    transform: rotate(45deg) translate(-0.5px, -0.5px);
+  }
+  .subtask.done span:last-child { color: var(--text-3); text-decoration: line-through; }
+
+  .detail-actions {
+    display: flex; gap: 8px; margin-top: auto;
+    padding-top: 12px; border-top: 1px solid var(--border-2);
+  }
+  .detail-actions .btn { flex: 1; justify-content: center; }
+
+  .history-header {
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 11.5px; color: var(--text-3);
+  }
+  .history-filters { display: flex; gap: 4px; }
+  .history-filters span {
+    font-size: 10.5px; padding: 2px 8px; border-radius: 999px;
+    color: var(--text-2); background: #F1F5F9; cursor: pointer; font-weight: 500;
+  }
+  .history-filters span.active { background: var(--primary-50); color: var(--primary); font-weight: 600; }
+  .history-note {
+    font-size: 10.5px; color: var(--text-3); line-height: 1.6;
+    padding: 8px 10px; background: #F8FAFC; border-radius: var(--r-sm);
+    border: 1px dashed var(--border);
+  }
+  .history-list { position: relative; display: flex; flex-direction: column; padding-left: 4px; }
+  .history-item {
+    position: relative; padding: 0 0 20px 22px;
+    border-left: 1.5px solid var(--border); margin-left: 5px;
+  }
+  .history-item:last-child { border-left-color: transparent; padding-bottom: 0; }
+  .history-dot {
+    position: absolute; left: -6px; top: 1px;
+    width: 11px; height: 11px; border-radius: 50%;
+    background: #fff; border: 2px solid var(--primary);
+  }
+  .history-item.ai .history-dot { border-color: var(--purple); background: #F5F3FF; }
+  .history-item.system .history-dot { border-color: var(--text-3); background: #F8FAFC; }
+  .history-top { display: flex; align-items: center; gap: 6px; margin-bottom: 3px; }
+  .history-time { font-size: 10.5px; color: var(--text-3); font-weight: 500; }
+  .history-actor { font-size: 10.5px; color: var(--text-2); font-weight: 600; }
+  .history-action { font-size: 12.5px; color: var(--text); font-weight: 500; }
+  .history-diff {
+    font-size: 11px; color: var(--text-2); margin-top: 4px;
+    background: #F8FAFC; padding: 3px 8px; border-radius: 6px;
+    display: inline-block; font-family: var(--mono);
+    border: 1px solid var(--border-2); max-width: 100%; overflow-wrap: anywhere;
+  }
+  .diff-old { color: var(--text-3); text-decoration: line-through; }
+  .diff-new { color: var(--success); font-weight: 600; }
+  .history-meta { font-size: 9.5px; color: var(--text-3); margin-top: 4px; font-family: var(--mono); }
+  .history-undo {
+    margin-top: 7px; font-size: 10.5px; color: var(--text-2);
+    background: #fff; border: 1px solid var(--border); border-radius: 6px;
+    padding: 3px 10px; cursor: pointer; font-weight: 500;
+    font-family: var(--font); transition: all .15s;
+  }
+  .history-undo:hover { color: var(--danger); border-color: #FCA5A5; background: #FEF2F2; }
+  .history-undo:disabled { color: var(--text-3); border-color: var(--border-2); background: #F8FAFC; cursor: default; }
+
+  /* ============ 设置覆盖层 ============ */
+  .settings-overlay {
+    position: absolute; inset: 0; z-index: 60;
+    background: var(--bg); display: flex;
+    transform: translateX(100%);
+    transition: transform 300ms cubic-bezier(.4,0,.2,1);
+    pointer-events: none;
+  }
+  .settings-overlay.open { transform: translateX(0); pointer-events: auto; }
+
+  .settings-nav {
+    width: 200px; flex-shrink: 0;
+    background: #FAFBFC; border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; padding: 12px 10px 12px;
+    overflow-y: auto;
+  }
+  .settings-nav-head { padding: 4px 6px 12px; border-bottom: 1px solid var(--border-2); margin-bottom: 8px; }
+  .settings-back {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 6px 8px; border: none; background: transparent;
+    border-radius: var(--r-sm); color: var(--text-2);
+    font-size: 12.5px; font-weight: 500; cursor: pointer;
+    font-family: var(--font); transition: all .15s;
+  }
+  .settings-back:hover { background: #EEF2F7; color: var(--text); }
+  .settings-back .chev { font-size: 16px; line-height: 1; margin-top: -1px; }
+  .settings-nav-items { display: flex; flex-direction: column; gap: 1px; }
+  .settings-nav-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 10px; border: none; background: transparent;
+    border-radius: var(--r-sm); font-size: 12.5px; color: var(--text-2);
+    cursor: pointer; font-family: var(--font); text-align: left;
+    transition: background .15s; white-space: nowrap;
+  }
+  .settings-nav-item:hover { background: #EEF2F7; }
+  .settings-nav-item.active { background: var(--primary-50); color: var(--primary); font-weight: 600; }
+  .settings-nav-item .nav-icon { width: 16px; text-align: center; font-size: 13px; flex-shrink: 0; }
+
+  .settings-main { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg); }
+  .settings-header {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 14px 20px; border-bottom: 1px solid var(--border);
+    background: #fff; flex-shrink: 0;
+  }
+  .settings-header-left { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .settings-header h2 {
+    font-size: 15px; font-weight: 700; color: var(--text); letter-spacing: -0.01em;
+    margin: 0;
+  }
+  .dirty-badge {
+    display: none; align-items: center; gap: 4px;
+    font-size: 10.5px; color: var(--warning); background: #FEF3C7;
+    padding: 2px 8px; border-radius: 999px; font-weight: 500;
+  }
+  .dirty-badge.visible { display: inline-flex; }
+  .dirty-badge::before {
+    content: ""; width: 5px; height: 5px; border-radius: 50%; background: var(--warning);
+  }
+  .settings-actions { display: flex; gap: 8px; flex-shrink: 0; }
+
+  .settings-content { flex: 1; overflow-y: auto; padding: 20px; }
+
+  .settings-panel { display: none; animation: fadeIn 250ms cubic-bezier(.4,0,.2,1); }
+  .settings-panel.active { display: block; }
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .panel-desc {
+    font-size: 12px; color: var(--text-2); line-height: 1.7;
+    margin-bottom: 16px; max-width: 620px;
+  }
+  .setting-group {
+    background: #fff; border: 1px solid var(--border);
+    border-radius: var(--r-md); overflow: hidden; margin-bottom: 14px;
+  }
+  .setting-group-title {
+    font-size: 10.5px; font-weight: 600; color: var(--text-3);
+    letter-spacing: 0.05em; text-transform: uppercase;
+    padding: 12px 16px 0;
+  }
+  .setting-row {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 16px; padding: 12px 16px; border-bottom: 1px solid var(--border-2);
+  }
+  .setting-row:last-child { border-bottom: none; }
+  .setting-row.vertical { flex-direction: column; align-items: stretch; gap: 8px; }
+  .setting-label { flex: 1; min-width: 0; }
+  .setting-title { font-size: 12.5px; font-weight: 500; color: var(--text); line-height: 1.4; }
+  .setting-desc { font-size: 11px; color: var(--text-3); line-height: 1.5; margin-top: 2px; }
+  .setting-control { flex-shrink: 0; display: flex; align-items: center; gap: 8px; }
+  .setting-row.danger .setting-title { color: var(--danger); }
+
+  .input, .select {
+    font-family: var(--font); font-size: 12px; color: var(--text);
+    background: #fff; border: 1px solid var(--border);
+    border-radius: var(--r-sm); padding: 6px 10px;
+    outline: none; transition: border-color .15s, box-shadow .15s;
+    min-width: 130px;
+  }
+  .input:hover, .select:hover { border-color: var(--text-3); }
+  .input:focus, .select:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-50); }
+  .input:disabled { background: var(--border-2); color: var(--text-3); cursor: not-allowed; }
+  .input.wide { width: 260px; }
+  .input.mono { font-family: var(--mono); font-size: 11px; }
+  .input.narrow { width: 80px; min-width: 80px; }
+  .select {
+    appearance: none; -webkit-appearance: none; padding-right: 26px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%236B7280' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 9px center; cursor: pointer;
+  }
+
+  .input-with-action { display: flex; align-items: center; gap: 6px; }
+  .input-icon-btn {
+    width: 28px; height: 28px; border: 1px solid var(--border);
+    background: #fff; border-radius: var(--r-sm); cursor: pointer;
+    color: var(--text-2); font-size: 11px;
+    display: inline-flex; align-items: center; justify-content: center;
+    transition: all .15s; font-family: var(--font);
+  }
+  .input-icon-btn:hover { color: var(--primary); border-color: #BFDBFE; }
+
+  .toggle {
+    position: relative; display: inline-block;
+    width: 36px; height: 20px; flex-shrink: 0; cursor: pointer;
+  }
+  .toggle input { position: absolute; opacity: 0; width: 0; height: 0; }
+  .toggle-track {
+    position: absolute; inset: 0; background: var(--border);
+    border-radius: 999px; transition: background .15s;
+  }
+  .toggle-thumb {
+    position: absolute; top: 2px; left: 2px;
+    width: 16px; height: 16px; background: #fff;
+    border-radius: 50%; box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+    transition: transform .15s;
+  }
+  .toggle input:checked + .toggle-track { background: var(--primary); }
+  .toggle input:checked + .toggle-track .toggle-thumb { transform: translateX(16px); }
+
+  .segmented {
+    display: inline-flex; background: #F1F5F9;
+    border-radius: var(--r-sm); padding: 2px; gap: 2px;
+  }
+  .segmented button {
+    padding: 5px 11px; border: none; background: transparent;
+    border-radius: 6px; font-size: 11.5px; color: var(--text-2);
+    cursor: pointer; font-family: var(--font); font-weight: 500;
+    transition: all .15s; white-space: nowrap;
+  }
+  .segmented button:hover { color: var(--text); }
+  .segmented button.active {
+    background: #fff; color: var(--text); font-weight: 600;
+    box-shadow: 0 1px 2px rgba(15,23,42,0.06);
+  }
+
+  .range-wrap { display: flex; align-items: center; gap: 10px; min-width: 160px; }
+  .range-value {
+    font-size: 11.5px; color: var(--text-2); font-weight: 600;
+    min-width: 40px; text-align: right; font-family: var(--mono);
+  }
+  input[type="range"] {
+    -webkit-appearance: none; appearance: none;
+    width: 110px; height: 4px; background: var(--border);
+    border-radius: 999px; outline: none; cursor: pointer;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 14px; height: 14px; border-radius: 50%;
+    background: var(--primary); border: 2px solid #fff;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2); cursor: pointer;
+  }
+  input[type="range"]::-moz-range-thumb {
+    width: 14px; height: 14px; border-radius: 50%;
+    background: var(--primary); border: 2px solid #fff; cursor: pointer;
+  }
+
+  .member-list { display: flex; flex-direction: column; }
+  .member-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 16px; border-bottom: 1px solid var(--border-2);
+  }
+  .member-item:last-child { border-bottom: none; }
+  .member-avatar-lg {
+    width: 30px; height: 30px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 600; color: #fff; flex-shrink: 0;
+  }
+  .member-info { flex: 1; min-width: 0; }
+  .member-name-lg {
+    font-size: 12.5px; font-weight: 500; color: var(--text);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .member-email {
+    font-size: 10.5px; color: var(--text-3);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .role-badge-lg {
+    font-size: 9.5px; padding: 2px 8px; border-radius: 999px;
+    background: #F1F5F9; color: var(--text-2); font-weight: 500; flex-shrink: 0;
+  }
+  .role-badge-lg.owner { background: #FEF3C7; color: #B45309; }
+  .role-badge-lg.editor { background: var(--primary-50); color: var(--primary); }
+
+  .shortcut-table { width: 100%; border-collapse: collapse; }
+  .shortcut-table tr { border-bottom: 1px solid var(--border-2); }
+  .shortcut-table tr:last-child { border-bottom: none; }
+  .shortcut-table td { padding: 9px 16px; font-size: 12px; }
+  .shortcut-table td:first-child { color: var(--text-2); }
+  .shortcut-table td:last-child { text-align: right; }
+  .kbd {
+    display: inline-block; font-family: var(--mono); font-size: 10.5px;
+    padding: 1px 5px; background: #F1F5F9;
+    border: 1px solid var(--border); border-radius: 4px;
+    color: var(--text); box-shadow: 0 1px 0 var(--border);
+  }
+
+  .info-banner {
+    display: flex; gap: 8px; padding: 9px 12px;
+    border-radius: var(--r-sm); background: var(--primary-50);
+    border: 1px solid #BFDBFE; font-size: 11px;
+    color: var(--text-2); line-height: 1.6; margin-bottom: 14px;
+  }
+  .info-banner.warning { background: #FEF3C7; border-color: #FCD34D; color: #92400E; }
+  .info-banner .info-icon { flex-shrink: 0; font-size: 12px; }
+
+  .code-path {
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 11px; background: #F1F5F9;
+    border: 1px solid var(--border); border-radius: var(--r-sm);
+    font-family: var(--mono); font-size: 11px; color: var(--text-2);
+    word-break: break-all;
+  }
+  .code-path .copy-btn {
+    margin-left: auto; flex-shrink: 0; font-size: 10.5px;
+    color: var(--primary); cursor: pointer; font-weight: 600;
+    font-family: var(--font); background: none; border: none;
+  }
+
+  /* ============ 模态 + Toast（用于设置页） ============ */
+  .settings-modal-overlay {
+    position: absolute; inset: 0; background: rgba(15,23,42,0.5);
+    backdrop-filter: blur(2px); display: none;
+    align-items: center; justify-content: center;
+    z-index: 80; opacity: 0;
+    transition: opacity .25s ease;
+  }
+  .settings-modal-overlay.open { display: flex; opacity: 1; }
+  .settings-modal {
+    width: 380px; max-width: calc(100% - 40px);
+    background: #fff; border-radius: var(--r-md);
+    box-shadow: var(--shadow-xl); overflow: hidden;
+    transform: scale(0.96); transition: transform .25s ease;
+  }
+  .settings-modal-overlay.open .settings-modal { transform: scale(1); }
+  .settings-modal-header { padding: 16px 20px 0; font-size: 14px; font-weight: 600; color: var(--text); }
+  .settings-modal-body { padding: 10px 20px 18px; font-size: 12px; color: var(--text-2); line-height: 1.7; }
+  .settings-modal-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 0 20px 16px; }
+
+  .settings-toast {
+    position: absolute; bottom: 20px; left: 50%;
+    transform: translateX(-50%) translateY(12px);
+    background: var(--text); color: #fff;
+    padding: 8px 16px; border-radius: 999px;
+    font-size: 12px; font-weight: 500;
+    box-shadow: var(--shadow-lg); opacity: 0;
+    pointer-events: none; transition: all .25s ease;
+    z-index: 90; white-space: nowrap;
+  }
+  .settings-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  /* ============ 深色模式（只影响 win-window 内部） ============ */
+  .win-window[data-theme="dark"] { --text: #F1F5F9; --text-2: #94A3B8; --text-3: #64748B; --border: #334155; --border-2: #1E293B; }
+  .win-window[data-theme="dark"] { background: #0F172A; border-color: #334155; }
+  .win-window[data-theme="dark"] .win-titlebar { background: #111827; border-color: #334155; }
+  .win-window[data-theme="dark"] .win-titlebar .win-dots span:nth-child(1) { background: #7F1D1D; }
+  .win-window[data-theme="dark"] .win-titlebar .win-dots span:nth-child(2) { background: #78350F; }
+  .win-window[data-theme="dark"] .win-titlebar .win-dots span:nth-child(3) { background: #14532D; }
+  .win-window[data-theme="dark"] .tb-btn { background: #1E293B; border-color: #334155; }
+  .win-window[data-theme="dark"] .tb-btn:hover { background: #0F172A; color: #60A5FA; }
+  .win-window[data-theme="dark"] .sidebar { background: #111827; border-color: #334155; }
+  .win-window[data-theme="dark"] .workspace-switch { background: #1E293B; border-color: #334155; }
+  .win-window[data-theme="dark"] .side-item:hover { background: #1E293B; }
+  .win-window[data-theme="dark"] .side-item.active { background: rgba(59,130,246,0.15); color: #60A5FA; }
+  .win-window[data-theme="dark"] .side-item .count { background: #1E293B; border-color: #334155; }
+  .win-window[data-theme="dark"] .role-badge { background: #1E293B; }
+  .win-window[data-theme="dark"] .main-pane { background: #1E293B; }
+  .win-window[data-theme="dark"] .main-toolbar { border-color: #334155; }
+  .win-window[data-theme="dark"] .search-box { background: #0F172A; }
+  .win-window[data-theme="dark"] .view-toggle { background: #0F172A; }
+  .win-window[data-theme="dark"] .view-toggle span.active { background: #1E293B; color: #F1F5F9; }
+  .win-window[data-theme="dark"] .progress-card { background: rgba(59,130,246,0.10); border-color: rgba(59,130,246,0.25); }
+  .win-window[data-theme="dark"] .progress-bar { background: #334155; }
+  .win-window[data-theme="dark"] .task:hover { background: #0F172A; border-color: #334155; }
+  .win-window[data-theme="dark"] .task.active { background: rgba(59,130,246,0.15); border-color: rgba(59,130,246,0.35); }
+  .win-window[data-theme="dark"] .checkbox { background: #1E293B; border-color: #475569; }
+  .win-window[data-theme="dark"] .subtask-progress { background: #0F172A; }
+  .win-window[data-theme="dark"] .detail-pane { background: #1E293B; border-color: #334155; }
+  .win-window[data-theme="dark"] .detail-head { border-color: #334155; }
+  .win-window[data-theme="dark"] .detail-tab:hover { background: #0F172A; }
+  .win-window[data-theme="dark"] .detail-tab.active { background: rgba(59,130,246,0.15); color: #60A5FA; }
+  .win-window[data-theme="dark"] .field-group { background: #0F172A; border-color: #334155; }
+  .win-window[data-theme="dark"] .subtask:hover { background: #0F172A; }
+  .win-window[data-theme="dark"] .subtask .mini-check { border-color: #475569; }
+  .win-window[data-theme="dark"] .detail-actions { border-color: #334155; }
+  .win-window[data-theme="dark"] .history-note { background: #0F172A; border-color: #334155; }
+  .win-window[data-theme="dark"] .history-diff { background: #0F172A; border-color: #334155; }
+  .win-window[data-theme="dark"] .btn { background: #1E293B; border-color: #334155; color: #94A3B8; }
+  .win-window[data-theme="dark"] .btn:hover { color: #F1F5F9; }
+  .win-window[data-theme="dark"] .btn.primary { background: #3B82F6; color: #fff; border-color: #3B82F6; }
+  /* 设置覆盖层的深色 */
+  .win-window[data-theme="dark"] .settings-overlay { background: #0F172A; }
+  .win-window[data-theme="dark"] .settings-nav { background: #111827; border-color: #334155; }
+  .win-window[data-theme="dark"] .settings-back:hover { background: #1E293B; color: #F1F5F9; }
+  .win-window[data-theme="dark"] .settings-nav-item:hover { background: #1E293B; }
+  .win-window[data-theme="dark"] .settings-nav-item.active { background: rgba(59,130,246,0.15); color: #60A5FA; }
+  .win-window[data-theme="dark"] .settings-header { background: #1E293B; border-color: #334155; }
+  .win-window[data-theme="dark"] .setting-group { background: #1E293B; border-color: #334155; }
+  .win-window[data-theme="dark"] .input,
+  .win-window[data-theme="dark"] .select { background: #0F172A; border-color: #334155; color: #F1F5F9; }
+  .win-window[data-theme="dark"] .input:focus,
+  .win-window[data-theme="dark"] .select:focus { border-color: #60A5FA; box-shadow: 0 0 0 3px rgba(59,130,246,0.20); }
+  .win-window[data-theme="dark"] .segmented { background: #0F172A; }
+  .win-window[data-theme="dark"] .segmented button.active { background: #1E293B; color: #F1F5F9; }
+  .win-window[data-theme="dark"] .kbd { background: #0F172A; border-color: #334155; color: #F1F5F9; }
+  .win-window[data-theme="dark"] .code-path { background: #0F172A; border-color: #334155; }
+  .win-window[data-theme="dark"] .member-item { border-color: #334155; }
+  .win-window[data-theme="dark"] .role-badge-lg { background: #0F172A; }
+  .win-window[data-theme="dark"] .info-banner { background: rgba(59,130,246,0.10); border-color: rgba(59,130,246,0.30); }
+  .win-window[data-theme="dark"] .info-banner.warning { background: rgba(245,158,11,0.10); border-color: rgba(245,158,11,0.30); color: #FCD34D; }
+  .win-window[data-theme="dark"] input[type="range"] { background: #334155; }
+  .win-window[data-theme="dark"] .settings-modal { background: #1E293B; }
+
+  /* ============ 电脑便利贴 ============ */
+  .desktop-stage {
+    width: 640px; height: 480px; border-radius: 20px;
+    background:
+      radial-gradient(600px 300px at 20% 20%, rgba(59,130,246,0.25), transparent 60%),
+      radial-gradient(500px 300px at 80% 80%, rgba(16,185,129,0.20), transparent 60%),
+      linear-gradient(135deg, #1E293B 0%, #0F172A 100%);
+    position: relative; overflow: hidden;
+    box-shadow: var(--shadow-xl); border: 1px solid rgba(255,255,255,0.06);
+  }
+  .fake-icon {
+    position: absolute; width: 56px; height: 56px; border-radius: 14px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px; color: rgba(255,255,255,0.6);
+  }
+  .fake-icon:nth-child(1) { top: 24px; left: 24px; background: rgba(59,130,246,0.25); }
+  .fake-icon:nth-child(2) { top: 24px; left: 96px; background: rgba(16,185,129,0.25); }
+  .fake-icon:nth-child(3) { top: 24px; left: 168px; background: rgba(139,92,246,0.25); }
+
+  .sticky-note {
+    position: absolute; top: 90px; right: 60px;
+    width: 320px; height: 420px;
+    background: rgba(255,255,255,0.92);
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-xl), 0 0 0 1px rgba(255,255,255,0.6) inset;
+    color: var(--text); display: flex; flex-direction: column; overflow: hidden;
+  }
+  .sticky-header {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 14px; border-bottom: 1px solid rgba(226,232,240,0.7);
+    cursor: grab;
+  }
+  .sticky-handle { display: flex; flex-direction: column; gap: 2.5px; padding: 2px 0; opacity: 0.5; }
+  .sticky-handle span { width: 12px; height: 1.5px; border-radius: 1px; background: var(--text-2); }
+  .sticky-title { font-size: 12.5px; font-weight: 600; color: var(--text); flex: 1; }
+  .sticky-btn {
+    width: 24px; height: 24px; border-radius: 6px;
+    display: inline-flex; align-items: center; justify-content: center;
+    cursor: pointer; color: var(--text-2); font-size: 12px;
+    transition: background .15s;
+  }
+  .sticky-btn:hover { background: rgba(15,23,42,0.06); }
+  .sticky-btn.pinned { color: var(--primary); background: var(--primary-50); }
+  .sticky-progress { padding: 10px 14px 8px; }
+  .sticky-progress-row {
+    display: flex; justify-content: space-between;
+    font-size: 11px; color: var(--text-2); margin-bottom: 6px;
+  }
+  .sticky-progress-row strong { color: var(--text); font-weight: 600; }
+  .sticky-add {
+    margin: 6px 14px 8px; padding: 8px 12px;
+    border-radius: var(--r-sm); background: rgba(241,245,249,0.85);
+    color: var(--text-3); font-size: 12px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .sticky-tasks { flex: 1; overflow-y: auto; padding: 0 8px; }
+  .sticky-task {
+    display: flex; align-items: center; gap: 9px;
+    padding: 8px; border-radius: var(--r-sm);
+    cursor: pointer; font-size: 12.5px; color: var(--text);
+    transition: background .15s;
+  }
+  .sticky-task:hover { background: rgba(241,245,249,0.9); }
+  .sticky-task .checkbox { width: 17px; height: 17px; }
+  .sticky-task .sticky-task-title {
+    flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .sticky-task .sticky-task-meta {
+    font-size: 10.5px; color: var(--text-3); flex-shrink: 0;
+    display: inline-flex; align-items: center; gap: 4px;
+  }
+  .sticky-task .sticky-task-meta.urgent { color: var(--danger); font-weight: 600; }
+  .sticky-task.done .sticky-task-title { color: var(--text-3); text-decoration: line-through; }
+  .sticky-empty {
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+    padding: 8px 12px 14px; color: var(--text-3);
+    font-size: 11.5px; text-align: center;
+  }
+  .sticky-empty .emoji { font-size: 24px; }
+  .sticky-footer {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 9px 14px; border-top: 1px solid rgba(226,232,240,0.7);
+    background: rgba(248,250,252,0.6);
+  }
+  .sticky-list-switch {
+    display: flex; align-items: center; gap: 4px;
+    font-size: 11.5px; color: var(--text-2); cursor: pointer; font-weight: 500;
+  }
+  .sticky-expand {
+    font-size: 11.5px; color: var(--primary); font-weight: 600;
+    cursor: pointer; display: inline-flex; align-items: center; gap: 3px;
+  }
+
+  /* ============ mini-sticky（主窗口收起形态） ============ */
+  .mini-sticky {
+    position: absolute; top: 50%; left: 50%;
+    width: 340px; height: 440px;
+    transform: translate(-50%, -50%) scale(0.94);
+    opacity: 0; pointer-events: none;
+    background: rgba(255,255,255,0.97);
+    border-radius: var(--r-lg);
+    box-shadow: 0 24px 64px rgba(15,23,42,0.22), 0 0 0 1px rgba(255,255,255,0.7) inset;
+    display: flex; flex-direction: column; overflow: hidden;
+    color: var(--text); z-index: 50;
+    transition: opacity .3s ease, transform .3s ease;
+  }
+  .mini-sticky.visible { opacity: 1; transform: translate(-50%, -50%) scale(1); pointer-events: auto; }
+  .mini-header {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 14px; border-bottom: 1px solid rgba(226,232,240,0.7);
+    cursor: grab;
+  }
+  .mini-title { font-size: 12.5px; font-weight: 600; color: var(--text); flex: 1; }
+  .mini-btn {
+    width: 24px; height: 24px; border: none; background: transparent;
+    border-radius: 6px; cursor: pointer; font-size: 12px; color: var(--text-2);
+    display: inline-flex; align-items: center; justify-content: center;
+    transition: background .15s; font-family: var(--font);
+  }
+  .mini-btn:hover { background: rgba(15,23,42,0.06); }
+  .mini-btn.pinned { color: var(--primary); background: var(--primary-50); }
+  .mini-progress { padding: 10px 14px 8px; }
+  .mini-progress-row {
+    display: flex; justify-content: space-between;
+    font-size: 11px; color: var(--text-2); margin-bottom: 6px;
+  }
+  .mini-progress-row strong { color: var(--text); font-weight: 600; }
+  .mini-add {
+    margin: 6px 14px 8px; padding: 8px 12px;
+    border-radius: var(--r-sm); background: rgba(241,245,249,0.85);
+    color: var(--text-3); font-size: 12px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .mini-tasks { flex: 1; overflow-y: auto; padding: 0 8px; }
+  .mini-task {
+    display: flex; align-items: center; gap: 9px;
+    padding: 8px; border-radius: var(--r-sm);
+    cursor: pointer; font-size: 12.5px; color: var(--text);
+    transition: background .15s;
+  }
+  .mini-task:hover { background: rgba(241,245,249,0.9); }
+  .mini-check {
+    width: 16px; height: 16px; border-radius: 50%;
+    border: 1.5px solid #CBD5E1; flex-shrink: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .mini-task-title { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mini-task-meta {
+    font-size: 10.5px; color: var(--text-3); flex-shrink: 0;
+    display: inline-flex; align-items: center; gap: 4px;
+  }
+  .mini-task-meta.urgent { color: var(--danger); font-weight: 600; }
+  .mini-footer {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 9px 14px; border-top: 1px solid rgba(226,232,240,0.7);
+    background: rgba(248,250,252,0.6);
+    font-size: 11.5px; color: var(--text-2); font-weight: 500;
+  }
+
+  /* ============ 浮动便利贴 ============ */
+  .floating-sticky {
+    position: fixed; width: 300px; height: 380px;
+    background: rgba(255,255,255,0.97);
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    border-radius: 14px;
+    box-shadow: 0 20px 50px rgba(15,23,42,0.28), 0 0 0 1px rgba(255,255,255,0.75) inset;
+    display: flex; flex-direction: column; overflow: hidden;
+    z-index: 1000; color: var(--text);
+    opacity: 0; transform: translateY(16px) scale(0.96);
+    transition: opacity .25s ease, transform .25s ease;
+  }
+  .floating-sticky.visible { opacity: 1; transform: translateY(0) scale(1); }
+  .floating-header {
+    display: flex; align-items: center; gap: 7px;
+    padding: 10px 12px; border-bottom: 1px solid rgba(226,232,240,0.7);
+    cursor: grab;
+  }
+  .floating-title { font-size: 12px; font-weight: 600; flex: 1; }
+  .floating-close {
+    width: 22px; height: 22px; border: none; background: transparent;
+    border-radius: 5px; cursor: pointer; color: var(--text-2); font-size: 11px;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-family: var(--font); transition: background .15s;
+  }
+  .floating-close:hover { background: #FEE2E2; color: var(--danger); }
+  .floating-body { flex: 1; overflow-y: auto; padding: 8px 10px; }
+  .floating-task {
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 6px; border-radius: 7px; font-size: 12px;
+    cursor: pointer; transition: background .15s;
+  }
+  .floating-task:hover { background: #F1F5F9; }
+  .floating-task .mini-check { width: 15px; height: 15px; }
+  .floating-task.done .mini-check::after {
+    content: ""; width: 3px; height: 7px;
+    border: solid #fff; border-width: 0 1.5px 1.5px 0;
+    transform: rotate(45deg) translate(-1px, -1px);
+  }
+  .floating-footer {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 12px; border-top: 1px solid rgba(226,232,240,0.7);
+    background: rgba(248,250,252,0.6);
+    font-size: 11px; color: var(--text-2); font-weight: 500;
+  }
+  .floating-footer .expand-link { color: var(--primary); font-weight: 600; cursor: pointer; }
+
+  /* ============ 手机 App ============ */
+  .phone {
+    width: 375px; height: 812px; border-radius: 46px;
+    background: #0B1220; padding: 12px;
+    box-shadow: var(--shadow-xl), 0 0 0 1px rgba(255,255,255,0.08) inset;
+    position: relative; flex-shrink: 0;
+  }
+  .phone-screen {
+    width: 100%; height: 100%; border-radius: 36px;
+    background: var(--bg); overflow: hidden;
+    display: flex; flex-direction: column;
+    position: relative; color: var(--text);
+  }
+  .notch {
+    position: absolute; top: 10px; left: 50%;
+    transform: translateX(-50%); width: 110px; height: 26px;
+    background: #0B1220; border-radius: 999px; z-index: 10;
+  }
+  .status-bar {
+    height: 44px; display: flex; align-items: center; justify-content: space-between;
+    padding: 0 24px; font-size: 12px; font-weight: 600;
+    color: var(--text); flex-shrink: 0;
+  }
+  .status-bar .icons { display: flex; gap: 5px; font-size: 11px; }
+  .app-scroll { flex: 1; overflow-y: auto; padding: 6px 18px 12px; }
+  .app-greeting { margin-bottom: 16px; }
+  .app-greeting h2 { font-size: 19px; font-weight: 700; color: var(--text); letter-spacing: -0.01em; }
+  .app-greeting p { font-size: 12px; color: var(--text-3); margin-top: 3px; }
+  .app-progress-card {
+    background: linear-gradient(135deg, #EFF6FF 0%, #ECFDF5 100%);
+    border-radius: var(--r-lg); padding: 14px 16px;
+    border: 1px solid #E0E7FF; margin-bottom: 16px;
+  }
+  .app-progress-top {
+    display: flex; justify-content: space-between; align-items: baseline;
+    margin-bottom: 9px;
+  }
+  .app-progress-top strong { font-size: 13px; }
+  .app-progress-top span { font-size: 12px; color: var(--text-2); font-weight: 600; }
+  .app-history-btn {
+    font-size: 13px; cursor: pointer; opacity: 0.75;
+    line-height: 1; padding: 2px 4px; border-radius: 5px;
+    transition: background .15s;
+  }
+  .app-history-btn:hover { background: rgba(59,130,246,0.1); }
+  .app-add {
+    display: flex; align-items: center; gap: 8px;
+    padding: 11px 14px; background: #fff;
+    border-radius: var(--r-md); border: 1px dashed #CBD5E1;
+    color: var(--text-3); font-size: 13px; margin-bottom: 18px;
+  }
+  .app-add .plus {
+    width: 20px; height: 20px; border-radius: 50%;
+    background: var(--primary); color: #fff;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 600;
+  }
+  .app-section-title {
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 13px; font-weight: 600; color: var(--text-2);
+    margin: 4px 2px 8px;
+  }
+  .app-section-title .count { font-size: 11px; color: var(--text-3); font-weight: 500; }
+  .app-task {
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 11px 12px; background: #fff;
+    border-radius: var(--r-md); margin-bottom: 6px;
+    box-shadow: var(--shadow-sm); border: 1px solid var(--border-2);
+    cursor: pointer;
+  }
+  .app-task .task-title { font-size: 13px; }
+  .app-task .task-meta { font-size: 10.5px; margin-top: 3px; }
+  .app-tabbar {
+    display: flex; border-top: 1px solid var(--border);
+    background: rgba(255,255,255,0.94);
+    backdrop-filter: blur(20px);
+    padding: 8px 0 14px; flex-shrink: 0;
+  }
+  .app-tab {
+    flex: 1; display: flex; flex-direction: column; align-items: center;
+    gap: 3px; font-size: 10px; color: var(--text-3); cursor: pointer;
+  }
+  .app-tab .tab-icon { font-size: 16px; }
+  .app-tab.active { color: var(--primary); font-weight: 600; }
+
+  .detail-nav {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 18px 6px; font-size: 14px; color: var(--primary);
+    font-weight: 500; flex-shrink: 0;
+  }
+  .nav-back { cursor: pointer; display: flex; align-items: center; gap: 4px; }
+  .nav-back .chev { font-size: 20px; line-height: 1; margin-top: -2px; }
+  .nav-more { color: var(--text-2); font-size: 18px; cursor: pointer; }
+  .title-card {
+    background: #fff; border-radius: var(--r-lg);
+    padding: 16px; margin-bottom: 12px;
+    border: 1px solid var(--border-2); box-shadow: var(--shadow-sm);
+  }
+  .title-row { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; }
+  .title-row .checkbox { margin-top: 1px; }
+  .title-text { font-size: 17px; font-weight: 600; color: var(--text); line-height: 1.4; flex: 1; }
+  .title-badges { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 12px; padding-left: 30px; }
+  .meta-fields {
+    background: #fff; border-radius: var(--r-lg);
+    border: 1px solid var(--border-2);
+    margin-bottom: 12px; overflow: hidden;
+  }
+  .meta-row {
+    display: flex; align-items: center;
+    padding: 11px 16px; border-bottom: 1px solid var(--border-2); font-size: 13px;
+  }
+  .meta-row:last-child { border-bottom: none; }
+  .meta-label { color: var(--text-3); width: 60px; flex-shrink: 0; font-size: 12.5px; }
+  .meta-value {
+    color: var(--text); flex: 1;
+    display: flex; align-items: center; gap: 6px;
+    font-weight: 500; flex-wrap: wrap;
+  }
+  .meta-chev { color: var(--text-3); font-size: 12px; }
+  .section-card {
+    background: #fff; border-radius: var(--r-lg);
+    border: 1px solid var(--border-2); padding: 14px 16px; margin-bottom: 12px;
+  }
+  .section-card-head {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 12.5px; font-weight: 600; color: var(--text-2);
+    margin-bottom: 8px;
+  }
+  .section-card-head .section-progress { font-size: 11px; color: var(--text-3); font-weight: 500; }
+  .section-card-head .section-add {
+    margin-left: auto; color: var(--primary); font-size: 16px;
+    font-weight: 600; cursor: pointer; line-height: 1;
+  }
+  .app-subtask {
+    display: flex; align-items: center; gap: 9px;
+    padding: 7px 0; font-size: 13px; color: var(--text); cursor: pointer;
+  }
+  .app-subtask .mini-check {
+    width: 18px; height: 18px; border-radius: 50%;
+    border: 1.5px solid #CBD5E1; flex-shrink: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .app-subtask.done .mini-check { background: var(--success); border-color: var(--success); }
+  .app-subtask.done .mini-check::after {
+    content: ""; width: 4px; height: 8px;
+    border: solid #fff; border-width: 0 2px 2px 0;
+    transform: rotate(45deg) translate(-1px, -1px);
+  }
+  .app-subtask.done span:last-child { color: var(--text-3); text-decoration: line-through; }
+  .notes-placeholder { font-size: 12.5px; color: var(--text-3); line-height: 1.6; padding: 2px 0 4px; }
+  .history-entry {
+    display: flex; align-items: center; gap: 8px;
+    background: #fff; border-radius: var(--r-lg);
+    border: 1px solid var(--border-2); padding: 14px 16px;
+    font-size: 13px; color: var(--text); font-weight: 500;
+    cursor: pointer; margin-bottom: 12px;
+  }
+  .history-entry .history-count { margin-left: auto; font-size: 11px; color: var(--text-3); font-weight: 500; }
+  .history-entry .chev { color: var(--text-3); font-size: 12px; }
+  .detail-footer {
+    display: flex; gap: 10px;
+    padding: 10px 18px 14px; border-top: 1px solid var(--border);
+    background: rgba(255,255,255,0.94); backdrop-filter: blur(20px); flex-shrink: 0;
+  }
+  .detail-footer .btn { flex: 1; justify-content: center; padding: 11px; font-size: 13px; }
+
+  /* ============ 手机卡片 ============ */
+  .widget-stage {
+    width: 420px; border-radius: 24px;
+    background:
+      radial-gradient(300px 200px at 30% 10%, rgba(59,130,246,0.18), transparent 60%),
+      radial-gradient(300px 200px at 90% 90%, rgba(16,185,129,0.15), transparent 60%),
+      linear-gradient(160deg, #1E293B 0%, #0F172A 100%);
+    padding: 24px; display: flex; flex-direction: column; gap: 16px;
+    box-shadow: var(--shadow-xl); border: 1px solid rgba(255,255,255,0.06);
+  }
+  .widget-row { display: flex; gap: 16px; align-items: flex-start; }
+  .widget-label { font-size: 10px; color: rgba(226,232,240,0.45); text-align: center; margin-top: 6px; }
+  .widget {
+    background: rgba(255,255,255,0.94); backdrop-filter: blur(20px);
+    border-radius: var(--r-lg); padding: 12px; color: var(--text);
+    box-shadow: var(--shadow-lg); display: flex; flex-direction: column; overflow: hidden;
+  }
+  .widget.w2 { width: 160px; height: 160px; }
+  .widget.w4x2 { width: 336px; height: 160px; }
+  .widget.w4x4 { width: 336px; height: 336px; }
+  .widget-head {
+    display: flex; justify-content: space-between; align-items: baseline;
+    margin-bottom: 8px;
+  }
+  .widget-head strong { font-size: 12px; font-weight: 700; }
+  .widget-head span { font-size: 10px; color: var(--text-2); font-weight: 600; }
+  .ring-wrap { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .ring {
+    width: 38px; height: 38px; border-radius: 50%;
+    background: conic-gradient(var(--primary) 0% 37%, #E2E8F0 37% 100%);
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .ring-inner {
+    width: 30px; height: 30px; border-radius: 50%;
+    background: #fff; display: flex; align-items: center; justify-content: center;
+    font-size: 9px; font-weight: 700; color: var(--text);
+  }
+  .widget-task {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 11px; padding: 4px 0; color: var(--text);
+  }
+  .widget-task .checkbox { width: 13px; height: 13px; border-width: 1.5px; }
+  .widget-task .wtitle { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .widget-task .wmeta { font-size: 9.5px; color: var(--text-3); flex-shrink: 0; }
+  .widget-add {
+    margin-top: auto; font-size: 10.5px; color: var(--primary);
+    font-weight: 600; display: flex; align-items: center; gap: 4px; padding-top: 6px;
+  }
+
+  .footnote {
+    max-width: 900px; margin: 80px auto 0;
+    font-size: 12px; color: #64748B; line-height: 1.9;
+    text-align: center; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 28px;
+  }
+  .footnote code {
+    background: rgba(255,255,255,0.06); padding: 1px 6px;
+    border-radius: 4px; font-size: 11px; color: #A5B4FC;
+  }
+  .phone-pair { display: flex; gap: 40px; flex-wrap: wrap; justify-content: center; }
+  @media (max-width: 1180px) { .phone-pair { gap: 24px; } }
+</style>
+</head>
+<body>
+
+<header class="page-header">
+  <h1>待办清单 · 界面草图</h1>
+  <p>四种形态 · 一套数据 · 极简效率风 · 与设计文稿对齐</p>
+</header>
+
+<main class="gallery">
+
+  <!-- ========== 1. 电脑大界面 ========== -->
+  <section class="showcase">
+    <div class="showcase-title">电脑大界面 · 可调宽侧栏 + 可展开详情 + 便利贴切换 + 设置</div>
+    <div class="showcase-desc">
+      标题栏右侧有「📌 便利贴」「＋ 新便利贴」「⚙️ 设置」三个按钮。
+      「📌 便利贴」让主窗口收起为便利贴，「＋ 新便利贴」开浮动便利贴（最多 5 个），
+      「⚙️」滑入设置覆盖页（10 个分类，支持主题切换、脏状态提醒、Ctrl+, 打开、Esc 关闭、Ctrl+S 保存）。
+    </div>
+
+    <div class="win-stage">
+      <div class="win-window" id="full-view" data-theme="light" style="--motion: 1;">
+        <div class="win-titlebar">
+          <div class="win-dots"><span></span><span></span><span></span></div>
+          <span class="win-title">待办清单</span>
+
+          <div class="tb-actions">
+            <button class="tb-btn" onclick="switchToSticky()" title="收起为便利贴">
+              <span class="tb-icon">📌</span>便利贴
+            </button>
+            <button class="tb-btn" onclick="openFloatingSticky()" title="同时打开独立便利贴窗口">
+              <span class="tb-icon">＋</span>新便利贴
+            </button>
+            <button class="tb-btn icon-btn" onclick="openSettings()" title="设置 (Ctrl+,)">
+              <span class="tb-icon">⚙️</span>
+            </button>
+          </div>
+
+          <span class="win-sync">已同步</span>
+        </div>
+
+        <div class="win-body" style="--sidebar-w: 198px;">
+          <aside class="sidebar">
+            <div class="workspace-switch">
+              <div class="workspace-avatar">我</div>
+              <span class="workspace-name">我的空间</span>
+              <span class="workspace-caret">▾</span>
+            </div>
+
+            <div class="side-section-label">清单</div>
+            <div class="side-item active">
+              <span class="dot" style="--dot:#3B82F6"></span>今天
+              <span class="count">8</span>
+            </div>
+            <div class="side-item">
+              <span class="dot" style="--dot:#F59E0B"></span>工作
+              <span class="count">5</span>
+            </div>
+            <div class="side-item">
+              <span class="dot" style="--dot:#10B981"></span>生活
+              <span class="count">3</span>
+            </div>
+            <div class="side-item">
+              <span class="dot" style="--dot:#8B5CF6"></span>学习
+              <span class="count">2</span>
+            </div>
+
+            <div class="side-section-label">标签</div>
+            <div class="side-item">
+              <span class="dot" style="--dot:#EF4444"></span>重要
+            </div>
+            <div class="side-item">
+              <span class="dot" style="--dot:#F59E0B"></span>本周
+            </div>
+
+            <div class="side-divider"></div>
+
+            <div class="side-item">
+              <span class="side-icon">🕘</span>历史
+              <span class="count">全部</span>
+            </div>
+
+            <div class="side-divider"></div>
+
+            <div class="side-section-label">成员 · 3</div>
+            <div class="member-row">
+              <div class="member-avatar" style="background:#3B82F6">我</div>
+              <span class="member-name">我</span>
+              <span class="role-badge owner">owner</span>
+            </div>
+            <div class="member-row">
+              <div class="member-avatar" style="background:#10B981">明</div>
+              <span class="member-name">小明</span>
+              <span class="role-badge">editor</span>
+            </div>
+            <div class="member-row">
+              <div class="member-avatar" style="background:#8B5CF6">红</div>
+              <span class="member-name">小红</span>
+              <span class="role-badge">viewer</span>
+            </div>
+
+            <div class="ai-entry">
+              <span class="spark">✦</span>AI 助手
+              <span class="ai-hint">本地运行</span>
+            </div>
+          </aside>
+
+          <div class="sidebar-resizer" title="拖动调节宽度 · 双击恢复默认"></div>
+
+          <div class="main-pane">
+            <div class="main-toolbar">
+              <div class="search-box">🔍 搜索任务…</div>
+              <button class="btn primary">＋ 新建</button>
+              <div class="view-toggle">
+                <span class="active">今天</span>
+                <span>日历</span>
+                <span>统计</span>
+              </div>
+            </div>
+
+            <div class="main-scroll">
+              <div class="progress-card">
+                <div class="progress-card-top">
+                  <strong>今日进度</strong>
+                  <span>3 / 8 完成 · 37%</span>
+                </div>
+                <div class="progress-bar">
+                  <div class="progress-fill" style="width:37%"></div>
+                </div>
+              </div>
+
+              <div class="group-title">
+                <span class="chev">▾</span> 今天
+                <span class="count">5 项待办</span>
+              </div>
+
+              <div class="task active" data-title="写产品需求文档" onclick="openDetail(this)">
+                <span class="checkbox" onclick="event.stopPropagation(); toggleTask(this.closest('.task'))"></span>
+                <div class="task-body">
+                  <div class="task-title">
+                    写产品需求文档
+                    <span class="ai-badge">✦ AI</span>
+                  </div>
+                  <div class="task-meta">
+                    <span class="meta-item"><span class="priority high"></span>高</span>
+                    <span class="meta-item urgent">18:00 截止</span>
+                    <span class="meta-item">⏰ 17:30 提醒</span>
+                    <span class="tag-chip" style="--tag-bg:#EFF6FF;--tag-fg:#2563EB">
+                      <span class="tag-dot"></span>工作
+                    </span>
+                    <span class="subtask-progress">☑ 2 / 4</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="task" data-title="回复客户邮件" onclick="openDetail(this)">
+                <span class="checkbox" onclick="event.stopPropagation(); toggleTask(this.closest('.task'))"></span>
+                <div class="task-body">
+                  <div class="task-title">回复客户邮件</div>
+                  <div class="task-meta">
+                    <span class="meta-item"><span class="priority mid"></span>中</span>
+                    <span class="tag-chip" style="--tag-bg:#EFF6FF;--tag-fg:#2563EB">
+                      <span class="tag-dot"></span>工作
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="task" data-title="预约牙医" onclick="openDetail(this)">
+                <span class="checkbox" onclick="event.stopPropagation(); toggleTask(this.closest('.task'))"></span>
+                <div class="task-body">
+                  <div class="task-title">预约牙医</div>
+                  <div class="task-meta">
+                    <span class="meta-item"><span class="priority low"></span>低</span>
+                    <span class="meta-item">周四 · 14:00</span>
+                    <span class="tag-chip" style="--tag-bg:#ECFDF5;--tag-fg:#059669">
+                      <span class="tag-dot"></span>生活
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="task done" data-title="买咖啡豆" onclick="openDetail(this)">
+                <span class="checkbox" onclick="event.stopPropagation(); toggleTask(this.closest('.task'))"></span>
+                <div class="task-body">
+                  <div class="task-title">买咖啡豆</div>
+                  <div class="task-meta">
+                    <span class="meta-item">已完成 · 09:15</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="group-title">
+                <span class="chev">▾</span> 即将到来
+                <span class="count">2 项</span>
+              </div>
+
+              <div class="task" data-title="准备周会材料" onclick="openDetail(this)">
+                <span class="checkbox" onclick="event.stopPropagation(); toggleTask(this.closest('.task'))"></span>
+                <div class="task-body">
+                  <div class="task-title">准备周会材料</div>
+                  <div class="task-meta">
+                    <span class="meta-item"><span class="priority mid"></span>中</span>
+                    <span class="meta-item">明天 10:00</span>
+                    <span class="tag-chip" style="--tag-bg:#EFF6FF;--tag-fg:#2563EB">
+                      <span class="tag-dot"></span>工作
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="task" data-title="给妈妈打电话" onclick="openDetail(this)">
+                <span class="checkbox" onclick="event.stopPropagation(); toggleTask(this.closest('.task'))"></span>
+                <div class="task-body">
+                  <div class="task-title">给妈妈打电话</div>
+                  <div class="task-meta">
+                    <span class="meta-item"><span class="priority low"></span>低</span>
+                    <span class="meta-item">周六</span>
+                    <span class="tag-chip" style="--tag-bg:#ECFDF5;--tag-fg:#059669">
+                      <span class="tag-dot"></span>生活
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <aside class="detail-pane open" id="detail-pane">
+            <div class="detail-inner">
+              <div class="detail-head">
+                <div class="detail-tabs">
+                  <span class="detail-tab active" onclick="switchDetailTab(this,'detail')">详情</span>
+                  <span class="detail-tab" onclick="switchDetailTab(this,'history')">历史</span>
+                </div>
+                <button class="detail-close" onclick="closeDetail()" title="关闭详情 (Esc)">✕</button>
+              </div>
+
+              <div class="detail-panel" id="detail-panel">
+                <div class="detail-header">
+                  <span class="checkbox" style="margin-top:2px"></span>
+                  <div class="detail-title" id="detail-task-title">写产品需求文档</div>
+                </div>
+
+                <div class="detail-meta-row">
+                  <span class="ai-badge">✦ 由 AI 创建</span>
+                  <span class="tag-chip" style="--tag-bg:#EFF6FF;--tag-fg:#2563EB"><span class="tag-dot"></span>工作</span>
+                  <span class="tag-chip" style="--tag-bg:#FEF3C7;--tag-fg:#B45309"><span class="tag-dot"></span>重要</span>
+                </div>
+
+                <div class="field-group">
+                  <div class="field-row">
+                    <span class="field-label">优先级</span>
+                    <span class="field-value" style="display:inline-flex;align-items:center;gap:5px">
+                      <span class="priority high"></span>高
+                    </span>
+                  </div>
+                  <div class="field-row"><span class="field-label">截止</span><span class="field-value">今天 18:00</span></div>
+                  <div class="field-row"><span class="field-label">提醒</span><span class="field-value">今天 17:30</span></div>
+                  <div class="field-row"><span class="field-label">清单</span><span class="field-value">工作</span></div>
+                  <div class="field-row"><span class="field-label">备注</span><span class="field-value muted">点击添加备注…</span></div>
+                </div>
+
+                <div>
+                  <div class="detail-section-title">子任务 · 2/4<span class="add-btn">＋ 添加</span></div>
+                  <div class="subtask-list" style="margin-top:6px">
+                    <div class="subtask done"><span class="mini-check"></span><span>收集竞品数据</span></div>
+                    <div class="subtask done"><span class="mini-check"></span><span>整理用户反馈</span></div>
+                    <div class="subtask"><span class="mini-check"></span><span>写第一版初稿</span></div>
+                    <div class="subtask"><span class="mini-check"></span><span>和设计对齐交互</span></div>
+                  </div>
+                </div>
+
+                <div class="detail-actions">
+                  <button class="btn" onclick="closeDetail()">删除</button>
+                  <button class="btn primary">保存</button>
+                </div>
+              </div>
+
+              <div class="detail-panel" id="history-panel" style="display:none">
+                <div class="history-header">
+                  <span>此任务的全部变更</span>
+                  <div class="history-filters">
+                    <span class="active">全部</span><span>仅 AI</span><span>仅我</span>
+                  </div>
+                </div>
+                <div class="history-note">
+                  日志只追加：历史记录不可删除，只能以更高 HLC 的反向 op 撤销。AI 操作与手动操作在数据层等价。
+                </div>
+                <div class="history-list">
+                  <div class="history-item system">
+                    <span class="history-dot"></span>
+                    <div class="history-top"><span class="history-time">今天 17:20</span><span class="history-actor">系统</span></div>
+                    <div class="history-action">生成快照</div>
+                    <div class="history-diff">snapshot · seq 1284</div>
+                    <div class="history-meta">用于加速回放，不替代 op_log</div>
+                  </div>
+                  <div class="history-item">
+                    <span class="history-dot"></span>
+                    <div class="history-top"><span class="history-time">今天 17:05</span><span class="history-actor">小明</span></div>
+                    <div class="history-action">添加了标签</div>
+                    <div class="history-diff">__tag += <span class="diff-new">#重要</span></div>
+                    <div class="history-meta">op_2c9e71 · source=human</div>
+                  </div>
+                  <div class="history-item ai">
+                    <span class="history-dot"></span>
+                    <div class="history-top"><span class="history-time">今天 16:40</span><span class="ai-badge">✦ AI</span></div>
+                    <div class="history-action">修改了优先级</div>
+                    <div class="history-diff">priority: <span class="diff-old">中</span> → <span class="diff-new">高</span></div>
+                    <div class="history-meta">model: gpt-4o · op_8f2a1c · source=ai</div>
+                    <button class="history-undo" onclick="undoOp(this)">撤销此操作</button>
+                  </div>
+                  <div class="history-item">
+                    <span class="history-dot"></span>
+                    <div class="history-top"><span class="history-time">今天 15:12</span><span class="history-actor">我</span></div>
+                    <div class="history-action">添加了子任务</div>
+                    <div class="history-diff">__subtask += "收集竞品数据"</div>
+                    <div class="history-meta">op_1b7d04 · source=human</div>
+                  </div>
+                  <div class="history-item">
+                    <span class="history-dot"></span>
+                    <div class="history-top"><span class="history-time">今天 15:10</span><span class="history-actor">我</span></div>
+                    <div class="history-action">修改了截止时间</div>
+                    <div class="history-diff">due_at: <span class="diff-old">无</span> → <span class="diff-new">今天 18:00</span></div>
+                    <div class="history-meta">op_4a0f92 · source=human</div>
+                  </div>
+                  <div class="history-item ai">
+                    <span class="history-dot"></span>
+                    <div class="history-top"><span class="history-time">今天 14:32</span><span class="ai-badge">✦ AI</span></div>
+                    <div class="history-action">创建了任务</div>
+                    <div class="history-diff">title = "写产品需求文档"</div>
+                    <div class="history-meta">model: gpt-4o · op_9e3c55 · source=ai</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </aside>
+
+          <!-- ===== 设置覆盖层 ===== -->
+          <div class="settings-overlay" id="settingsOverlay" aria-hidden="true">
+            <aside class="settings-nav">
+              <div class="settings-nav-head">
+                <button class="settings-back" onclick="closeSettings()">
+                  <span class="chev">‹</span>返回主界面
+                </button>
+              </div>
+              <div class="settings-nav-items" id="settingsNavItems">
+                <button class="settings-nav-item active" data-panel="general"><span class="nav-icon">⚙️</span>通用</button>
+                <button class="settings-nav-item" data-panel="appearance"><span class="nav-icon">🎨</span>外观</button>
+                <button class="settings-nav-item" data-panel="sync"><span class="nav-icon">🔄</span>同步与账户</button>
+                <button class="settings-nav-item" data-panel="workspace"><span class="nav-icon">👥</span>工作区与成员</button>
+                <button class="settings-nav-item" data-panel="ai"><span class="nav-icon">✦</span>AI 助手</button>
+                <button class="settings-nav-item" data-panel="reminder"><span class="nav-icon">🔔</span>提醒</button>
+                <button class="settings-nav-item" data-panel="sticky"><span class="nav-icon">📌</span>便利贴</button>
+                <button class="settings-nav-item" data-panel="shortcuts"><span class="nav-icon">⌨️</span>快捷键</button>
+                <button class="settings-nav-item" data-panel="data"><span class="nav-icon">💾</span>数据与备份</button>
+                <button class="settings-nav-item" data-panel="about"><span class="nav-icon">ℹ️</span>关于</button>
+              </div>
+            </aside>
+
+            <main class="settings-main">
+              <header class="settings-header">
+                <div class="settings-header-left">
+                  <h2 id="settingsTitle">通用</h2>
+                  <span class="dirty-badge" id="dirtyBadge">有未保存的更改</span>
+                </div>
+                <div class="settings-actions">
+                  <button class="btn" onclick="resetSettings()">恢复默认</button>
+                  <button class="btn primary" onclick="saveSettings()">保存</button>
+                </div>
+              </header>
+
+              <div class="settings-content" id="settingsContent">
+
+                <!-- 通用 -->
+                <section class="settings-panel active" data-panel="general">
+                  <p class="panel-desc">基础行为、语言与窗口关闭方式。这些设置只影响当前设备，不参与同步。</p>
+
+                  <div class="setting-group">
+                    <div class="setting-group-title">语言与区域</div>
+                    <div class="setting-row">
+                      <div class="setting-label">
+                        <div class="setting-title">界面语言</div>
+                        <div class="setting-desc">MVP 仅支持中文（简体）</div>
+                      </div>
+                      <div class="setting-control">
+                        <select class="select" data-setting="language">
+                          <option value="zh-CN">中文（简体）</option>
+                          <option value="en" disabled="">English（暂未支持）</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div class="setting-row">
+                      <div class="setting-label">
+                        <div class="setting-title">日期格式</div>
+                        <div class="setting-desc">任务列表与详情中的日期显示方式</div>
+                      </div>
+                      <div class="setting-control">
+                        <select class="select" data-setting="dateFormat">
+                          <option value="zh-long">10月24日 星期四</option>
+                          <option value="zh-short">10月24日</option>
+                          <option value="iso">2024-10-24</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="setting-group">
+                    <div class="setting-group-title">启动与窗口</div>
+                    <div class="setting-row">
+                      <div class="setting-label">
+                        <div class="setting-title">启动时打开</div>
+                        <div class="setting-desc">应用启动后首先展示的形态</div>
+                      </div>
+                      <div class="setting-control">
+                        <div class="segmented" data-setting="startup" data-type="segment">
+                          <button data-value="main" class="active">主界面</button>
+                          <button data-value="sticky">便利贴</button>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="setting-row">
+                      <div class="setting-label">
+                        <div class="setting-title">默认视图</div>
+                        <div class="setting-desc">主界面打开时默认选中的分组</div>
+                      </div>
+                      <div class="setting-control">
+                        <select class="select" data-setting="defaultView">
+                          <option value="today">今天</option>
+                          <option value="all">全部任务</option>
+                          <option value="calendar">日历</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div class="setting-row">
+                      <div class="setting-label">
+                        <div class="setting-title">关闭主窗口时</div>
+                        <div class="setting-desc">点击窗口关闭按钮后的行为</div>
+                      </div>
+                      <div class="setting-control">
+                        <select class="select" data-setting="closeAction">
+                          <option value="tray">最小化到系统托盘</option>
+                          <option value="quit">退出应用</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
+                <!-- 外观 -->
+                <section class="settings-panel" data-panel="appearance">
+                  <p class="panel-desc">主题、密度与动效。切换主题会立即生效，但需要点击保存才会在下次启动时保持。</p>
+
+                  <div class="setting-group">
+                    <div class="setting-group-title">主题</div>
+                    <div class="setting-row">
+                      <div class="setting-label">
+                        <div class="setting-title">颜色主题</div>
+                        <div class="setting-desc">跟随系统时会自动响应 Windows 的深浅色设置</div>
+                      </div>
+                      <div class="setting-control">
+                        <div class="segmented" data-setting="theme" data-type="segment">
+                          <button data-value="light" class="active">浅色</button>
+                          <button data-value="dark">深色</button>
+                          <button data-value="system">跟随系统</button>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="setting-row">
+                      <div class="setting-label">
+                        <div class="setting-title">界面密度</div>
+                        <div class="setting-desc">紧凑模式会减小任务行间距，一屏显示更多内容</div>
+                      </div>
+                      <div class="setting-control">
+                        <div class="segmented" data-setting="density" data-type="segment">
+                          <button data-value="comfortable" class="active">舒适</button>
+                          <button data-value="compact">紧凑</button>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="setting-row">
+                      <div class="setting-label">
+                        <div class="setting-title">减少动效</div>
+                        <div class="setting-desc">关闭抽屉开合、进度条等过渡动画，适合低性能设备</div>
+                      </div>
+                      <div class="setting-control">
+                        <label class="toggle">
+                          <input type="checkbox" data-setting="reduceMotion">
+                          <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
+                <!-- 同步与账户 -->
+                <section class="settings-panel" data-panel="sync">
+                  <p class="panel-desc">同步采用 op-log 增量推送与拉取。冲突裁决由 HLC 与字段级 LWW 决定，无法手动更改。</p>
+
+                  <div class="setting-group">
+                    <div class="setting-group-title">账户</div>
+                    <div class="setting-row">
+                      <div class="setting-label">
+                        <div class="setting-title">当前账户</div>
+                        <div class="setting-desc">user_7f3a92 · 注册于 2024-10-01</div>
+                      </div>
+                      <div class="setting-control">
+                        <button class="btn" onclick="showSettingsConfirm('退出登录','退出后本地 op_log 与 pending_ops 会保留，下次登录继续同步。确认退出？','退出登录',true,()=&gt;showSettingsToast('已退出登录（模板模拟）'))">退出登录</button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="setting-group">
+                    <div class="setting-group-title">同步</div>
+                    <div class="setting-row">
+                      <div class="setting-label">
+                        <div class="setting-title">同步状态</div>
+                        <div class="setting-desc">已同步 · 上次同步 2 分钟前 · cursor seq 1284</div>
+                      </div>
+                      <div class="setting-control">
+                        <button class="btn" onclick="showSettingsToast('正在同步…');setTimeout(()=&gt;showSettingsToast('同步完成 · cursor seq 1285'),900)">立即同步</button>
+                      </div>
+                    </div>
+                    <div class="setting-row">
+                      <div class="setting-label">
+                        <div class="setting-title">同步间隔</div>
+                        <div class="setting-desc">手动模式下只在下拉刷新或点击「立即同步」时同步</div>
+                      </div>
+                      <div class="setting-control">
+                        <select class="select" data-setting="syncInterval">
+                          <option value="realtime">实时</option>
+                          <option value="5min">每 5 分钟</option>
+                          <option value="15min">每 15 分钟</option>
+                          <option value="manual">手动</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div class="setting-row">
+                      <div class="setting-label">
+                        <div class="setting-title">冲突裁决策略</div>
+                        <div class="setting-desc">字段级 LWW，按 (HLC, node_id, op_id) 全序；集合关联用 OR-Set，add-wins。只读。</div>
+                      </div>
+                      <div class="setting-control">
+                        <span class="role-badge">系统内置</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="info-banner">
+                    <span class="info-icon">ℹ️</span>
+                    <span>离线期间的修改会暂存在本地 pending_ops，重连后按 HLC 顺序推送。若权限被拒，op 标记为 REJECTED 并保留在本地供导出，不会自动重试。</span>
+                  </div>
+                </section>
+
+                <!-- 工作区与成员 -->
+                <section class="settings-panel" data-panel="workspace">
+                  <p class="panel-desc">工作区是协作边界。所有任务、标签、成员都按 workspace_id 隔离。</p>
+
+                  <div class="setting-group">
+                    <div class="setting-group-title">当前工作区</div>
+                    <div class="setting-row">
+                      <div class="setting-label">
+                        <div class="setting-title">我的空间</div>
+                        <div class="setting-desc">owner · 3 名成员 · 创建于 2024-10-01</div>
+                      </div>
+                      <div class="setting-control">
+                        <button class="btn" onclick="showSettingsConfirm('重命名工作区','MVP 模板中仅作占位。生产实现会弹出输入框，并写入 membership op。','知道了',false,()=&gt;{})">重命名</button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="setting-group">
+                    <div class="setting-group-title">成员</div>
+                    <div class="member-list">
+                      <div class="member-item">
+                        <div class="member-avatar-lg" style="background:#3B82F6">我</div>
+                        <div class="member-info">
+                          <div class="member-name-lg">我</div>
+                          <div class="member-email">me@example.com</div>
+                        </div>
+                        <span class="role-badge-lg owner">owner</span>
+                      </div>
+                      <div class="member-item">
+                        <div class="member-avatar-lg" style="background:#10B981">明</div>
+                        <div class="member-info">
+                          <div class="member-name-lg">小明</div>
+                          <div class="member-email">ming@example.com</div>
+                        </div>
+                        <span class="role-badge-lg editor">editor</span>
+                      </div>
+                      <div class="member-item">
+                        <div class="member-avatar-lg" style="background:#8B5CF6">红</div>
+                        <div class="member-info">
+                          <div class="member-name-lg">小红</div>
+                          <div class="member-email">hong@example.com</div>
+                        </div>
+                        <span class="role-badge-lg">viewer</span>
+                      </div>
+                    </div>
+                    <div class="setting-row">
+                      <div class="setting-label">
+                        <div class="setting-title">邀请成员</div>
+                        <div class="setting-desc">被邀请者需要先注册账户</div>
+                      </div>
+                      <div class="setting-control">
+                        <button class="btn primary" onclick="showSettingsConfirm('邀请成员','MVP 模板中仅作占位。生产实现会弹出用户名输入框，并写入 membership op。','知道了',false,()=&gt;{})">＋ 邀请</button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="info-banner warning">
+                    <span class="info-icon">⚠️</span>
+                    <span>权限变更通过 membership op 同步。降权与移除在授权校验上等价，以 op 的 HLC 时刻角色为准。</span>
+                  </div>
+                </section>
+
+                <!-- AI 助手 -->
+                <section class="settings-panel" data-panel="ai">
+                  <p class="panel-desc">AI 在客户端运行，产生的变更与手动操作完全等价。服务端不持有模型密钥，也不感知 op 是否来自 AI。</p>
+
+                  <div class="setting-group">
+                    <div class="setting-group-title">AI 能力</div>
+                    <div class="setting-row">
+                      <div class="setting-label">
+                        <div class="setting-title">启用 AI 助手</div>
+                        <div class="setting-desc">关闭后侧栏 AI 入口置灰，不影响已有 AI 产生的历史记录</div>
+                      </div>
+                      <div class="setting-control">
+                        <label class="toggle">
+                          <input type="checkbox" data-setting="aiEnabled">
+                          <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                        </label>
+                      </div>
+                    </div>
+                    <div class="setting-row">
+                      <div class="setting-label">
+                        <div class="setting-title">支持图片输入</div>
+                        <div class="setting-desc">允许粘贴截图或选择图片，交由模型解析为结构化意图</div>
+                      </div>
+                      <div class="setting-control">
+                        <label class="toggle">
+                          <input type="checkbox" data-setting="aiImage">
+                          <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="setting-group">
+                    <div class="setting-group-title">模型连接</div>
+                    <div class="setting-row">
+                      <div class="setting-label">
+                        <div class="setting-title">服务商 Base URL</div>
+                        <div class="setting-desc">兼容 OpenAI 协议的服务端点</div>
+                      </div>
+                      <div class="setting-control">
+                        <input class="input wide mono" type="text" data-setting="aiBaseUrl" placeholder="https://api.openai.com/v1">
+                      </div>
+                    </div>
+                    <div class="setting-row">
+                      <div class="setting-label">
+                        <div class="setting-title">模型名称</div>
+                        <div class="setting-desc">例如 gpt-4o、deepseek-chat、qwen-vl-max</div>
+                      </div>
+                      <div class="setting-control">
+                        <input class="input wide mono" type="text" data-setting="aiModel" placeholder="gpt-4o">
+                      </div>
+                    </div>
+                    <div class="setting-row">
+                      <div class="setting-label">
+                        <div class="setting-title">API 密钥</div>
+                        <div class="setting-desc">仅保存在本机 Windows 凭据管理器，不写入数据库、日志或备份</div>
+                      </div>
+                      <div class="setting-control">
+                        <div class="input-with-action">
+                          <input class="input wide mono" type="password" data-setting="aiKey" placeholder="sk-..." id="aiKeyInput">
+                          <button class="input-icon-btn" id="toggleKeyBtn" title="显示/隐藏">👁</button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="setting-group">
+                    <div class="setting-group-title">安全阈值</div>
+                    <div class="setting-row">
+                      <div class="setting-label">
+                        <div class="setting-title">批量确认阈值</div>
+                        <div class="setting-desc">AI 意图影响超过该数量的任务/子任务时，弹出确认摘要</div>
+                      </div>
+                      <div class="setting-control">
+                        <input class="input narrow" type="number" min="1" max="100" data-setting="aiBatchThreshold">
+                        <span style="font-size:12px;color:var(--text-3)">条</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="info-banner warning">
+                    <span class="info-icon">🔒</span>
+                    <span>密钥仅本机保存，AI 能力逐设备可用，换设备需重新填写。备份导出与迁移不会携带密钥。</span>
+                  </div>
+                </section>
+
+                <!-- 提醒 -->
+                <section class="settings-panel" data-panel="reminder">
+                  <p class="panel-desc">提醒由客户端本地调度，不依赖服务器推送。Windows 端使用系统通知 + 托盘计时循环。</p>
+
+                  <div class="setting-group">
+                    <div class="setting-group-title">通知</div>
+                    <div class="setting-row">
+                      <div class="setting-label">
+                        <div class="setting-title">系统通知</div>
+                        <div class="setting-desc">到点通过 Windows 通知中心弹出提醒</div>
+                      </div>
+                      <div class="setting-control">
+                        <label class="toggle">
+                          <input type="checkbox" data-setting="notifyEnabled">
+                          <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                        </label>
+                      </div>
+                    </div>
+                    <div class="setting-row">
+                      <div class="setting-label">
+                        <div class="setting-title">托盘常驻</div>
+                        <div class="setting-desc">关闭主窗口后仍在托盘运行，保证提醒不丢</div>
+                      </div>
+                      <div class="setting-control">
+                        <label class="toggle">
+                          <input type="checkbox" data-setting="trayEnabled">
+                          <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                        </label>
+                      </div>
+                    </div>
+                    <div class="setting-row">
+                      <div class="setting-label">
+                        <div class="setting-title">关机期间兜底</div>
+                        <div class="setting-desc">叠加 Windows 后台任务，开机后补发错过的提醒（误差约 5 分钟）</div>
+                      </div>
+                      <div class="setting-control">
+                        <label class="toggle">
+                          <input type="checkbox" data-setting="fallbackEnabled">
+                          <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                        </label>
+                      </div>
+                    </div>
+                    <div class="setting-row">
+                      <div class="setting-label">
+                        <div class="setting-title">测试通知</div>
+                        <div class="setting-desc">发送一条示例通知，验证系统权限与声音设置</div>
+                      </div>
+                      <div class="setting-control">
+                        <button class="btn" id="testNotifyBtn">发送测试</button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="setting-group">
+                    <div class="setting-group-title">免打扰</div>
+                    <div class="setting-row">
+                      <div class="setting-label">
+                        <div class="setting-title">启用免打扰时段</div>
+                        <div class="setting-desc">该时段内的提醒静默，不弹通知，但仍会记录 last_fired_at</div>
+                      </div>
+                      <div class="setting-control">
+                        <label class="toggle">
+                          <input type="checkbox" data-setting="dndEnabled">
+                          <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                        </label>
+                      </div>
+                    </div>
+                    <div class="setting-row">
+                      <div class="setting-label">
+                        <div class="setting-title">免打扰时段</div>
+                        <div class="setting-desc">开始与结束时间，跨天自动处理</div>
+                      </div>
+                      <div class="setting-control">
+                        <input class="input" type="time" data-setting="dndStart" style="min-width:100px">
+                        <span style="color:var(--text-3);font-size:12px">至</span>
+                        <input class="input" type="time" data-setting="dndEnd" style="min-width:100px">
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="info-banner">
+                    <span class="info-icon">ℹ️</span>
+                    <span>客户端每次增量拉取并应用 op 后，会对投影中 remind_at ≤ now 且 last_fired_at 为空的活跃任务补发提醒。纯客户端逻辑，服务器不介入。</span>
+                  </div>
+                </section>
+
+                <!-- 便利贴 -->
+                <section class="settings-panel" data-panel="sticky">
+                  <p class="panel-desc">便利贴是独立窗口，只显示「今天」的未完成任务。窗口位置、尺寸、置顶状态存在本地，不参与同步。</p>
+
+                  <div class="setting-group">
+                    <div class="setting-group-title">行为</div>
+                    <div class="setting-row">
+                      <div class="setting-label">
+                        <div class="setting-title">默认置顶</div>
+                        <div class="setting-desc">新建便利贴时默认开启置顶，可在便利贴上单独切换</div>
+                      </div>
+                      <div class="setting-control">
+                        <label class="toggle">
+                          <input type="checkbox" data-setting="stickyDefaultPin">
+                          <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                        </label>
+                      </div>
+                    </div>
+                    <div class="setting-row">
+                      <div class="setting-label">
+                        <div class="setting-title">同时存在上限</div>
+                        <div class="setting-desc">超过上限时提示而非静默创建，范围 1–5</div>
+                      </div>
+                      <div class="setting-control">
+                        <input class="input narrow" type="number" min="1" max="5" data-setting="stickyMax">
+                        <span style="font-size:12px;color:var(--text-3)">个</span>
+                      </div>
+                    </div>
+                    <div class="setting-row">
+                      <div class="setting-label">
+                        <div class="setting-title">新建位置</div>
+                        <div class="setting-desc">决定新便利贴窗口出现在屏幕的哪个位置</div>
+                      </div>
+                      <div class="setting-control">
+                        <select class="select" data-setting="stickyPosition">
+                          <option value="bottom-right">屏幕右下角</option>
+                          <option value="cursor">鼠标当前位置</option>
+                          <option value="center">屏幕中央</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="setting-group">
+                    <div class="setting-group-title">外观</div>
+                    <div class="setting-row">
+                      <div class="setting-label">
+                        <div class="setting-title">背景透明度</div>
+                        <div class="setting-desc">越低越通透，但文字对比度会下降</div>
+                      </div>
+                      <div class="setting-control">
+                        <div class="range-wrap">
+                          <input type="range" min="60" max="100" step="1" data-setting="stickyOpacity" id="opacityRange">
+                          <span class="range-value" id="opacityValue">92%</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="setting-row">
+                      <div class="setting-label">
+                        <div class="setting-title">每条任务显示</div>
+                        <div class="setting-desc">只显示标题更简洁，带时间更实用</div>
+                      </div>
+                      <div class="setting-control">
+                        <div class="segmented" data-setting="stickyContent" data-type="segment">
+                          <button data-value="title">仅标题</button>
+                          <button data-value="title-time" class="active">标题 + 时间</button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="info-banner">
+                    <span class="info-icon">📌</span>
+                    <span>便利贴同时存在的窗口上限为 5 个。窗口位置、尺寸、置顶状态、透明度、被钉的 task_id 都存在客户端本地表，不进 op_log，不参与同步。</span>
+                  </div>
+                </section>
+
+                <!-- 快捷键 -->
+                <section class="settings-panel" data-panel="shortcuts">
+                  <p class="panel-desc">当前版本快捷键为固定映射，暂不支持自定义。后续版本会开放编辑。</p>
+
+                  <div class="setting-group">
+                    <div class="setting-group-title">全局</div>
+                    <table class="shortcut-table">
+                      <tbody><tr><td>打开设置</td><td><span class="kbd">Ctrl</span> + <span class="kbd">,</span></td></tr>
+                      <tr><td>关闭抽屉 / 对话框 / 设置</td><td><span class="kbd">Esc</span></td></tr>
+                      <tr><td>保存设置</td><td><span class="kbd">Ctrl</span> + <span class="kbd">S</span></td></tr>
+                      <tr><td>主窗口 ⇄ 便利贴切换</td><td><span class="kbd">Ctrl</span> + <span class="kbd">Shift</span> + <span class="kbd">T</span></td></tr>
+                    </tbody></table>
+                  </div>
+
+                  <div class="setting-group">
+                    <div class="setting-group-title">任务</div>
+                    <table class="shortcut-table">
+                      <tbody><tr><td>新建任务</td><td><span class="kbd">Ctrl</span> + <span class="kbd">N</span></td></tr>
+                      <tr><td>聚焦搜索</td><td><span class="kbd">Ctrl</span> + <span class="kbd">F</span></td></tr>
+                      <tr><td>保存详情</td><td><span class="kbd">Ctrl</span> + <span class="kbd">Enter</span></td></tr>
+                      <tr><td>在列表中上下移动</td><td><span class="kbd">↑</span> / <span class="kbd">↓</span></td></tr>
+                      <tr><td>打开焦点任务详情</td><td><span class="kbd">Enter</span></td></tr>
+                      <tr><td>切换焦点任务完成态</td><td><span class="kbd">Space</span></td></tr>
+                    </tbody></table>
+                  </div>
+                </section>
+
+                <!-- 数据与备份 -->
+                <section class="settings-panel" data-panel="data">
+                  <p class="panel-desc">本地数据存于 SQLite。备份导出为单文件，不包含 API 密钥、登录令牌与设备本地偏好。</p>
+
+                  <div class="setting-group">
+                    <div class="setting-group-title">备份</div>
+                    <div class="setting-row">
+                      <div class="setting-label">
+                        <div class="setting-title">导出备份</div>
+                        <div class="setting-desc">WAL checkpoint 后导出业务数据与 op_log，排除密钥与令牌</div>
+                      </div>
+                      <div class="setting-control">
+                        <button class="btn" onclick="showSettingsConfirm('导出备份','备份将导出业务数据与 op_log，不包含 API 密钥、登录令牌与设备本地偏好。确认导出？','导出',false,()=&gt;showSettingsToast('备份已导出（模板模拟）'))">导出备份</button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="setting-group">
+                    <div class="setting-group-title">本地存储</div>
+                    <div class="setting-row vertical">
+                      <div class="setting-label">
+                        <div class="setting-title">日志目录</div>
+                        <div class="setting-desc">AI 调用失败、schema 校验失败、同步错误会写入此处</div>
+                      </div>
+                      <div class="code-path">
+                        <span id="logPath">%APPDATA%\todo-app\logs</span>
+                        <button class="copy-btn" id="copyLogPathBtn">复制</button>
+                      </div>
+                    </div>
+                    <div class="setting-row">
+                      <div class="setting-label">
+                        <div class="setting-title">数据库大小</div>
+                        <div class="setting-desc">含 op_log 与投影表，约 12.4 MB</div>
+                      </div>
+                      <div class="setting-control">
+                        <span class="role-badge">12.4 MB</span>
+                      </div>
+                    </div>
+                    <div class="setting-row danger">
+                      <div class="setting-label">
+                        <div class="setting-title">清除本地缓存</div>
+                        <div class="setting-desc">删除投影表与本地偏好，保留 op_log 与 pending_ops，下次启动重新投影</div>
+                      </div>
+                      <div class="setting-control">
+                        <button class="btn danger-outline" onclick="showSettingsConfirm('清除本地缓存','将删除投影表与本地偏好，保留 op_log 与 pending_ops，下次启动重新投影。此操作不可撤销。','清除缓存',true,()=&gt;showSettingsToast('本地缓存已清除（模板模拟）'))">清除缓存</button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="info-banner warning">
+                    <span class="info-icon">⚠️</span>
+                    <span>迁移到新设备时，AI 配置与登录令牌不随备份恢复，需重新填写密钥并登录。便利贴布局属于设备本地偏好，不参与同步。</span>
+                  </div>
+                </section>
+
+                <!-- 关于 -->
+                <section class="settings-panel" data-panel="about">
+                  <p class="panel-desc">版本信息、更新检查与开源许可。</p>
+
+                  <div class="setting-group">
+                    <div class="setting-group-title">版本</div>
+                    <div class="setting-row">
+                      <div class="setting-label">
+                        <div class="setting-title">待办清单</div>
+                        <div class="setting-desc">0.1.0 (MVP) · Windows x64 · Tauri 2</div>
+                      </div>
+                      <div class="setting-control">
+                        <button class="btn" onclick="showSettingsToast('正在检查更新…');setTimeout(()=&gt;showSettingsToast('当前已是最新版本 0.1.0'),900)">检查更新</button>
+                      </div>
+                    </div>
+                    <div class="setting-row">
+                      <div class="setting-label">
+                        <div class="setting-title">构建时间</div>
+                        <div class="setting-desc">2024-10-24 14:32:08 · commit 8f2a1c</div>
+                      </div>
+                      <div class="setting-control">
+                        <span class="role-badge" style="font-family:var(--mono);font-size:10px">8f2a1c</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="setting-group">
+                    <div class="setting-group-title">资源</div>
+                    <div class="setting-row">
+                      <div class="setting-label">
+                        <div class="setting-title">工程规范</div>
+                        <div class="setting-desc">docs/conventions.md</div>
+                      </div>
+                      <div class="setting-control">
+                        <button class="btn" onclick="showSettingsToast('将打开 docs/conventions.md')">打开</button>
+                      </div>
+                    </div>
+                    <div class="setting-row">
+                      <div class="setting-label">
+                        <div class="setting-title">设计令牌</div>
+                        <div class="setting-desc">docs/design-tokens.md</div>
+                      </div>
+                      <div class="setting-control">
+                        <button class="btn" onclick="showSettingsToast('将打开 docs/design-tokens.md')">打开</button>
+                      </div>
+                    </div>
+                    <div class="setting-row">
+                      <div class="setting-label">
+                        <div class="setting-title">界面实现规格</div>
+                        <div class="setting-desc">docs/ui-implementation-spec.md</div>
+                      </div>
+                      <div class="setting-control">
+                        <button class="btn" onclick="showSettingsToast('将打开 docs/ui-implementation-spec.md')">打开</button>
+                      </div>
+                    </div>
+                    <div class="setting-row">
+                      <div class="setting-label">
+                        <div class="setting-title">开源许可</div>
+                        <div class="setting-desc">MIT License</div>
+                      </div>
+                      <div class="setting-control">
+                        <button class="btn" onclick="showSettingsToast('将打开 LICENSE')">查看</button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="info-banner">
+                    <span class="info-icon">ℹ️</span>
+                    <span>本应用的数据层以 op_log 为唯一真相，所有状态由确定性投影得出。历史记录只追加，撤销通过更高 HLC 的反向 op 实现。</span>
+                  </div>
+                </section>
+
+              </div>
+            </main>
+
+            <!-- 设置内模态 + Toast -->
+            <div class="settings-modal-overlay" id="settingsModalOverlay">
+              <div class="settings-modal">
+                <div class="settings-modal-header" id="settingsModalTitle">确认</div>
+                <div class="settings-modal-body" id="settingsModalBody"></div>
+                <div class="settings-modal-actions">
+                  <button class="btn" id="settingsModalCancel">取消</button>
+                  <button class="btn primary" id="settingsModalConfirm">确认</button>
+                </div>
+              </div>
+            </div>
+            <div class="settings-toast" id="settingsToast"></div>
+          </div>
+          <!-- ===== 设置覆盖层结束 ===== -->
+        </div>
+      </div>
+
+      <!-- 主窗口收起后的便利贴形态 -->
+      <div class="mini-sticky" id="mini-sticky">
+        <div class="mini-header">
+          <div class="sticky-handle"><span></span><span></span><span></span></div>
+          <span class="mini-title">今天</span>
+          <button class="mini-btn" onclick="switchToFull()" title="展开大界面">↗</button>
+          <button class="mini-btn" onclick="this.classList.toggle('pinned')" title="置顶">📌</button>
+          <button class="mini-btn" onclick="openFloatingSticky()" title="再开一个新便利贴">＋</button>
+        </div>
+
+        <div class="mini-progress">
+          <div class="mini-progress-row">
+            <span><strong>3</strong> / 8 完成</span>
+            <span>37%</span>
+          </div>
+          <div class="progress-bar"><div class="progress-fill" style="width:37%"></div></div>
+        </div>
+
+        <div class="mini-add">＋ 添加待办…</div>
+
+        <div class="mini-tasks">
+          <div class="mini-task" onclick="this.classList.toggle('done')">
+            <span class="mini-check"></span>
+            <span class="mini-task-title">写产品需求文档</span>
+            <span class="mini-task-meta urgent">18:00</span>
+          </div>
+          <div class="mini-task" onclick="this.classList.toggle('done')">
+            <span class="mini-check"></span>
+            <span class="mini-task-title">回复客户邮件</span>
+            <span class="mini-task-meta">🟡 工作</span>
+          </div>
+          <div class="mini-task" onclick="this.classList.toggle('done')">
+            <span class="mini-check"></span>
+            <span class="mini-task-title">准备周会材料</span>
+            <span class="mini-task-meta">明天</span>
+          </div>
+          <div class="mini-task" onclick="this.classList.toggle('done')">
+            <span class="mini-check"></span>
+            <span class="mini-task-title">预约牙医</span>
+            <span class="mini-task-meta">🔵 周四</span>
+          </div>
+          <div class="mini-task" onclick="this.classList.toggle('done')">
+            <span class="mini-check"></span>
+            <span class="mini-task-title">给妈妈打电话</span>
+          </div>
+        </div>
+
+        <div class="mini-footer">
+          <span>今天 ▾</span>
+          <span>↗ 展开大界面</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  
+  
+
+  
+  
+
+  
+  
+
+</main>
+
+<div class="footnote">
+  本页为纯静态 UI 草图，用于对齐视觉与信息结构。技术细节以
+  <code>todo-app-plan.md</code> 与 <code>docs/conventions.md</code> 为准：
+  任务数据由 <code>op_log</code> 确定性投影，AI 产物走普通 op 管道，
+  便利贴为独立 <code>WebviewWindow</code>，布局为设备本地偏好不参与同步。
+</div>
+
+<script>
+  /* ===== 基础交互 ===== */
+  function toggleTask(el) { el.classList.toggle('done'); }
+
+  /* ===== 详情抽屉 ===== */
+  function openDetail(el) {
+    document.querySelectorAll('.main-scroll .task').forEach(t => t.classList.remove('active'));
+    el.classList.add('active');
+    document.getElementById('detail-task-title').textContent = el.dataset.title || '';
+    document.getElementById('detail-pane').classList.add('open');
+    switchDetailTab(document.querySelector('.detail-tab'), 'detail');
+  }
+  function closeDetail() {
+    document.getElementById('detail-pane').classList.remove('open');
+    document.querySelectorAll('.main-scroll .task').forEach(t => t.classList.remove('active'));
+  }
+  function switchDetailTab(el, name) {
+    const tabs = el.parentElement.querySelectorAll('.detail-tab');
+    tabs.forEach(t => t.classList.remove('active'));
+    const target = Array.from(tabs).find(t => t.textContent.trim() === (name === 'history' ? '历史' : '详情'));
+    if (target) target.classList.add('active');
+    document.getElementById('detail-panel').style.display = name === 'detail' ? 'flex' : 'none';
+    document.getElementById('history-panel').style.display = name === 'history' ? 'flex' : 'none';
+  }
+  function undoOp(el) { el.textContent = '已生成撤销 op'; el.disabled = true; }
+
+  /* ===== 主窗口 ⇄ 便利贴 互斥切换 ===== */
+  function switchToSticky() {
+    document.getElementById('full-view').classList.add('is-hidden');
+    document.getElementById('mini-sticky').classList.add('visible');
+  }
+  function switchToFull() {
+    document.getElementById('full-view').classList.remove('is-hidden');
+    document.getElementById('mini-sticky').classList.remove('visible');
+  }
+
+  /* ===== 浮动便利贴 ===== */
+  let floatingCount = 0;
+  const MAX_FLOATING = 5;
+  function openFloatingSticky() {
+    if (floatingCount >= MAX_FLOATING) {
+      alert('同时最多 5 个便利贴窗口，请先关闭一个。');
+      return;
+    }
+    floatingCount++;
+    const id = 'fs-' + Date.now() + '-' + floatingCount;
+    const offset = (floatingCount - 1) * 24;
+    const div = document.createElement('div');
+    div.className = 'floating-sticky';
+    div.id = id;
+    div.style.right = (24 + offset) + 'px';
+    div.style.bottom = (24 + offset) + 'px';
+    div.innerHTML = `
+      <div class="floating-header">
+        <div class="sticky-handle"><span></span><span></span><span></span></div>
+        <span class="floating-title">今天 · 便利贴 ${floatingCount}</span>
+        <button class="floating-close" onclick="closeFloatingSticky('${id}')" title="关闭">✕</button>
+      </div>
+      <div class="floating-body">
+        <div class="floating-task" onclick="this.classList.toggle('done')">
+          <span class="mini-check"></span><span class="mini-task-title">写产品需求文档</span>
+          <span class="mini-task-meta urgent">18:00</span>
+        </div>
+        <div class="floating-task" onclick="this.classList.toggle('done')">
+          <span class="mini-check"></span><span class="mini-task-title">回复客户邮件</span>
+        </div>
+        <div class="floating-task" onclick="this.classList.toggle('done')">
+          <span class="mini-check"></span><span class="mini-task-title">准备周会材料</span>
+          <span class="mini-task-meta">明天</span>
+        </div>
+        <div class="floating-task" onclick="this.classList.toggle('done')">
+          <span class="mini-check"></span><span class="mini-task-title">预约牙医</span>
+          <span class="mini-task-meta">🔵 周四</span>
+        </div>
+      </div>
+      <div class="floating-footer">
+        <span>今天 ▾</span>
+        <span class="expand-link" onclick="expandFromFloating('${id}')">展开大界面 ↗</span>
+      </div>
+    `;
+    document.body.appendChild(div);
+    requestAnimationFrame(() => div.classList.add('visible'));
+  }
+  function closeFloatingSticky(id) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.classList.remove('visible');
+    setTimeout(() => { el.remove(); floatingCount = Math.max(0, floatingCount - 1); }, 250);
+  }
+  function expandFromFloating(id) {
+    closeFloatingSticky(id);
+    switchToFull();
+  }
+
+  /* ===== 侧栏拖拽调宽 ===== */
+  (function () {
+    const winBody = document.querySelector('.win-body');
+    const resizer = document.querySelector('.sidebar-resizer');
+    const sidebar = document.querySelector('.sidebar');
+    if (!winBody || !resizer || !sidebar) return;
+    const MIN = 150, MAX = 300, DEFAULT = 180;
+    const STORAGE_KEY = 'todo-sidebar-w';
+    try {
+      const saved = parseInt(localStorage.getItem(STORAGE_KEY), 10);
+      if (!isNaN(saved) && saved >= MIN && saved <= MAX) winBody.style.setProperty('--sidebar-w', saved + 'px');
+    } catch (e) {}
+    let dragging = false, startX = 0, startW = 0;
+    resizer.addEventListener('pointerdown', (e) => {
+      dragging = true; startX = e.clientX; startW = sidebar.getBoundingClientRect().width;
+      resizer.setPointerCapture(e.pointerId);
+      document.body.classList.add('resizing'); e.preventDefault();
+    });
+    resizer.addEventListener('pointermove', (e) => {
+      if (!dragging) return;
+      const w = Math.max(MIN, Math.min(MAX, Math.round(startW + (e.clientX - startX))));
+      winBody.style.setProperty('--sidebar-w', w + 'px');
+    });
+    function stopDrag() {
+      if (!dragging) return;
+      dragging = false; document.body.classList.remove('resizing');
+      try { localStorage.setItem(STORAGE_KEY, String(Math.round(sidebar.getBoundingClientRect().width))); } catch (e) {}
+    }
+    resizer.addEventListener('pointerup', stopDrag);
+    resizer.addEventListener('pointercancel', stopDrag);
+    resizer.addEventListener('dblclick', () => {
+      winBody.style.setProperty('--sidebar-w', DEFAULT + 'px');
+      try { localStorage.setItem(STORAGE_KEY, String(DEFAULT)); } catch (e) {}
+    });
+  })();
+
+  /* ============================================================
+   * 设置页面
+   * 说明：本模板用 localStorage 模拟本地偏好持久化。
+   * 生产环境必须改为客户端 SQLite 本地偏好表，不写 localStorage，
+   * 不进 op_log，不参与同步（见 sticky-note-spec.md 第四节）。
+   * ============================================================ */
+  const STORAGE_KEY = 'todo-app-settings-v1';
+
+  const DEFAULT_SETTINGS = {
+    language: 'zh-CN', dateFormat: 'zh-long',
+    startup: 'main', defaultView: 'today', closeAction: 'tray',
+    theme: 'light', density: 'comfortable', reduceMotion: false,
+    syncInterval: 'realtime',
+    aiEnabled: true, aiImage: true,
+    aiBaseUrl: 'https://api.openai.com/v1',
+    aiModel: 'gpt-4o', aiKey: '', aiBatchThreshold: 10,
+    notifyEnabled: true, trayEnabled: true, fallbackEnabled: true,
+    dndEnabled: false, dndStart: '22:00', dndEnd: '08:00',
+    stickyDefaultPin: true, stickyMax: 5, stickyPosition: 'bottom-right',
+    stickyOpacity: 92, stickyContent: 'title-time'
+  };
+
+  const PANEL_TITLES = {
+    general: '通用', appearance: '外观', sync: '同步与账户', workspace: '工作区与成员',
+    ai: 'AI 助手', reminder: '提醒', sticky: '便利贴', shortcuts: '快捷键',
+    data: '数据与备份', about: '关于'
+  };
+
+  let currentState = { ...DEFAULT_SETTINGS };
+  let savedState = { ...DEFAULT_SETTINGS };
+  let activePanel = 'general';
+
+  const settingsOverlay = document.getElementById('settingsOverlay');
+  const settingsTitle = document.getElementById('settingsTitle');
+  const settingsContent = document.getElementById('settingsContent');
+  const settingsNavItems = document.getElementById('settingsNavItems');
+  const dirtyBadge = document.getElementById('dirtyBadge');
+  const settingsModalOverlay = document.getElementById('settingsModalOverlay');
+  const settingsModalTitle = document.getElementById('settingsModalTitle');
+  const settingsModalBody = document.getElementById('settingsModalBody');
+  const settingsModalConfirm = document.getElementById('settingsModalConfirm');
+  const settingsModalCancel = document.getElementById('settingsModalCancel');
+  const settingsToast = document.getElementById('settingsToast');
+  const fullView = document.getElementById('full-view');
+
+  function loadSettings() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return { ...DEFAULT_SETTINGS };
+      const parsed = JSON.parse(raw);
+      return { ...DEFAULT_SETTINGS, ...parsed };
+    } catch (e) { return { ...DEFAULT_SETTINGS }; }
+  }
+  function persistSettings(state) {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+    catch (e) { showSettingsToast('保存失败：本地存储不可用'); }
+  }
+
+  function getControlValue(el) {
+    const setting = el.dataset.setting;
+    if (!setting) return null;
+    if (el.classList.contains('segmented')) {
+      const active = el.querySelector('button.active');
+      return active ? active.dataset.value : null;
+    }
+    if (el.type === 'checkbox') return el.checked;
+    if (el.type === 'number' || el.type === 'range') {
+      const n = Number(el.value); return isNaN(n) ? 0 : n;
+    }
+    return el.value;
+  }
+  function setControlValue(el, value) {
+    if (el.classList.contains('segmented')) {
+      el.querySelectorAll('button').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.value === String(value));
+      });
+      return;
+    }
+    if (el.type === 'checkbox') { el.checked = Boolean(value); return; }
+    el.value = value;
+  }
+  function initControls(state) {
+    document.querySelectorAll('[data-setting]').forEach(el => {
+      const setting = el.dataset.setting;
+      if (!(setting in state)) return;
+      setControlValue(el, state[setting]);
+    });
+    updateOpacityLabel(state.stickyOpacity);
+  }
+
+  const systemDarkQuery = window.matchMedia('(prefers-color-scheme: dark)');
+  function resolveTheme(theme) {
+    if (theme === 'system') return systemDarkQuery.matches ? 'dark' : 'light';
+    return theme;
+  }
+  function applyTheme(theme) { fullView.dataset.theme = resolveTheme(theme); }
+  systemDarkQuery.addEventListener('change', () => {
+    if (currentState.theme === 'system') applyTheme('system');
+  });
+
+  function applyReduceMotion(enabled) {
+    // 只对 win-window 内部做降级，避免影响草图层
+    fullView.style.setProperty('--motion', enabled ? '0' : '1');
+    if (enabled) fullView.classList.add('reduce-motion');
+    else fullView.classList.remove('reduce-motion');
+  }
+
+  function isDirty() {
+    return Object.keys(DEFAULT_SETTINGS).some(k => {
+      const a = currentState[k], b = savedState[k];
+      if (typeof a === 'number' && typeof b === 'number') return a !== b;
+      return String(a) !== String(b);
+    });
+  }
+  function refreshDirtyBadge() {
+    dirtyBadge.classList.toggle('visible', isDirty());
+  }
+
+  function bindControlEvents() {
+    document.querySelectorAll('[data-setting]').forEach(el => {
+      const setting = el.dataset.setting;
+      if (el.classList.contains('segmented')) {
+        el.querySelectorAll('button').forEach(btn => {
+          btn.addEventListener('click', () => {
+            el.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            currentState[setting] = btn.dataset.value;
+            onSettingChanged(setting, btn.dataset.value);
+            refreshDirtyBadge();
+          });
+        });
+        return;
+      }
+      const eventName = (el.type === 'checkbox' || el.tagName === 'SELECT') ? 'change' : 'input';
+      el.addEventListener(eventName, () => {
+        const value = getControlValue(el);
+        currentState[setting] = value;
+        onSettingChanged(setting, value);
+        refreshDirtyBadge();
+      });
+    });
+  }
+
+  function onSettingChanged(setting, value) {
+    if (setting === 'theme') applyTheme(value);
+    if (setting === 'reduceMotion') applyReduceMotion(value);
+    if (setting === 'stickyOpacity') updateOpacityLabel(value);
+    if (setting === 'aiEnabled') {
+      document.querySelectorAll('[data-setting="aiBaseUrl"], [data-setting="aiModel"], [data-setting="aiKey"], [data-setting="aiImage"], [data-setting="aiBatchThreshold"]').forEach(input => {
+        input.disabled = !value;
+      });
+    }
+  }
+  function updateOpacityLabel(value) {
+    const label = document.getElementById('opacityValue');
+    if (label) label.textContent = value + '%';
+  }
+
+  function switchPanel(name, skipDirtyCheck) {
+    if (!skipDirtyCheck && isDirty() && activePanel !== name) {
+      showSettingsConfirm('有未保存的更改', '当前设置尚未保存，切换分类会丢弃这些更改。是否继续？', '丢弃并切换', true, () => switchPanel(name, true));
+      return;
+    }
+    activePanel = name;
+    settingsTitle.textContent = PANEL_TITLES[name] || '设置';
+    document.querySelectorAll('.settings-nav-item').forEach(item => {
+      item.classList.toggle('active', item.dataset.panel === name);
+    });
+    document.querySelectorAll('.settings-panel', settingsContent).forEach(panel => {
+      panel.classList.toggle('active', panel.dataset.panel === name);
+    });
+    settingsContent.scrollTop = 0;
+  }
+
+  function openSettings() {
+    if (!settingsOverlay.classList.contains('open')) {
+      // 打开设置时如果抽屉开着，不动它（overlay 会盖住）
+      initControls(savedState);
+      currentState = { ...savedState };
+      refreshDirtyBadge();
+      settingsOverlay.classList.add('open');
+      settingsOverlay.setAttribute('aria-hidden', 'false');
+      setTimeout(() => switchPanel(activePanel, true), 20);
+    }
+  }
+  function closeSettings(skipDirtyCheck) {
+    if (!skipDirtyCheck && isDirty()) {
+      showSettingsConfirm('有未保存的更改', '离开设置页面会丢弃未保存的更改。是否继续？', '丢弃并离开', true, () => {
+        currentState = { ...savedState };
+        initControls(savedState);
+        refreshDirtyBadge();
+        settingsOverlay.classList.remove('open');
+        settingsOverlay.setAttribute('aria-hidden', 'true');
+      });
+      return;
+    }
+    settingsOverlay.classList.remove('open');
+    settingsOverlay.setAttribute('aria-hidden', 'true');
+  }
+
+  function saveSettings() {
+    savedState = { ...currentState };
+    persistSettings(savedState);
+    refreshDirtyBadge();
+    showSettingsToast('设置已保存');
+  }
+  function resetSettings() {
+    showSettingsConfirm('恢复默认设置', '所有设置项将恢复为默认值。点击「保存」后才会真正生效。', '恢复默认', false, () => {
+      currentState = { ...DEFAULT_SETTINGS };
+      initControls(DEFAULT_SETTINGS);
+      applyTheme(DEFAULT_SETTINGS.theme);
+      applyReduceMotion(DEFAULT_SETTINGS.reduceMotion);
+      onSettingChanged('aiEnabled', DEFAULT_SETTINGS.aiEnabled);
+      refreshDirtyBadge();
+      showSettingsToast('已恢复默认值，点击保存生效');
+    });
+  }
+
+  let settingsConfirmCallback = null;
+  function showSettingsConfirm(title, message, confirmText, danger, onConfirm) {
+    settingsModalTitle.textContent = title;
+    settingsModalBody.textContent = message;
+    settingsModalConfirm.textContent = confirmText;
+    settingsModalConfirm.className = 'btn ' + (danger ? 'danger-outline' : 'primary');
+    settingsConfirmCallback = onConfirm;
+    settingsModalOverlay.classList.add('open');
+    setTimeout(() => settingsModalCancel.focus(), 50);
+  }
+  function closeSettingsModal() {
+    settingsModalOverlay.classList.remove('open');
+    settingsConfirmCallback = null;
+  }
+  settingsModalConfirm.addEventListener('click', () => {
+    const cb = settingsConfirmCallback; closeSettingsModal(); if (cb) cb();
+  });
+  settingsModalCancel.addEventListener('click', closeSettingsModal);
+  settingsModalOverlay.addEventListener('click', (e) => {
+    if (e.target === settingsModalOverlay) closeSettingsModal();
+  });
+
+  let settingsToastTimer = null;
+  function showSettingsToast(message, duration) {
+    duration = duration || 2000;
+    settingsToast.textContent = message;
+    settingsToast.classList.add('show');
+    clearTimeout(settingsToastTimer);
+    settingsToastTimer = setTimeout(() => settingsToast.classList.remove('show'), duration);
+  }
+
+  function bindSettingsEvents() {
+    settingsNavItems.addEventListener('click', (e) => {
+      const item = e.target.closest('.settings-nav-item');
+      if (!item) return;
+      switchPanel(item.dataset.panel);
+    });
+
+    document.getElementById('toggleKeyBtn').addEventListener('click', () => {
+      const input = document.getElementById('aiKeyInput');
+      const isPassword = input.type === 'password';
+      input.type = isPassword ? 'text' : 'password';
+      document.getElementById('toggleKeyBtn').textContent = isPassword ? '🙈' : '👁';
+    });
+
+    document.getElementById('testNotifyBtn').addEventListener('click', () => {
+      if ('Notification' in window) {
+        if (Notification.permission === 'granted') {
+          new Notification('待办清单', { body: '这是一条测试提醒 · 18:00 写产品需求文档' });
+          showSettingsToast('测试通知已发送');
+        } else if (Notification.permission !== 'denied') {
+          Notification.requestPermission().then(p => {
+            if (p === 'granted') {
+              new Notification('待办清单', { body: '这是一条测试提醒' });
+              showSettingsToast('测试通知已发送');
+            } else showSettingsToast('通知权限被拒绝');
+          });
+        } else showSettingsToast('通知权限被拒绝，请在系统设置中开启');
+      } else showSettingsToast('当前环境不支持系统通知');
+    });
+
+    document.getElementById('copyLogPathBtn').addEventListener('click', () => {
+      const path = document.getElementById('logPath').textContent;
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(path).then(() => showSettingsToast('路径已复制')).catch(() => showSettingsToast('复制失败'));
+      } else showSettingsToast('复制失败：剪贴板不可用');
+    });
+  }
+
+  /* ===== 键盘快捷键（统一处理 Esc 优先级） ===== */
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') {
+      // 优先级：设置内模态 > 设置页面 > 详情抽屉
+      if (settingsModalOverlay.classList.contains('open')) { closeSettingsModal(); return; }
+      if (settingsOverlay.classList.contains('open')) { closeSettings(); return; }
+      closeDetail();
+      return;
+    }
+    // Ctrl+, 打开设置
+    if ((e.ctrlKey || e.metaKey) && e.key === ',') {
+      e.preventDefault();
+      if (!settingsOverlay.classList.contains('open')) openSettings();
+      return;
+    }
+    // Ctrl+S 保存设置（仅在设置打开时）
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's' && settingsOverlay.classList.contains('open')) {
+      e.preventDefault();
+      saveSettings();
+      return;
+    }
+    // Ctrl+Shift+T 主窗口 ⇄ 便利贴
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 't') {
+      e.preventDefault();
+      if (fullView.classList.contains('is-hidden')) switchToFull();
+      else switchToSticky();
+    }
+  });
+
+  /* ===== 启动 ===== */
+  (function init() {
+    const loaded = loadSettings();
+    currentState = { ...loaded };
+    savedState = { ...loaded };
+    initControls(loaded);
+    applyTheme(loaded.theme);
+    applyReduceMotion(loaded.reduceMotion);
+    onSettingChanged('aiEnabled', loaded.aiEnabled);
+    bindControlEvents();
+    bindSettingsEvents();
+    refreshDirtyBadge();
+  })();
+</script>
+
+</body></html>

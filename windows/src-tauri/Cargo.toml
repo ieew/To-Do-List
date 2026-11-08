@@ -1,0 +1,20 @@
+[package]
+name = "todo-windows"
+version = "0.1.0"
+description = "待办清单 Windows 桌面端"
+authors = ["Todo Team"]
+edition = "2021"
+rust-version = "1.77.2"
+
+[lib]
+name = "todo_windows_lib"
+# 桌面端仅需 rlib；MinGW/UCRT 下 cdylib 会触发导出序号过大。
+crate-type = ["rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
