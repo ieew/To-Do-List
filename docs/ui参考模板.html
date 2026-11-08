@@ -147,16 +147,18 @@
 
   .win-titlebar {
     height: 40px; background: #F1F5F9; border-bottom: 1px solid var(--border);
-    display: flex; align-items: center; padding: 0 16px; gap: 8px;
+    display: flex; align-items: stretch; padding-left: 12px; gap: 8px;
   }
-  .win-titlebar .win-title { font-size: 12px; color: var(--text-2); font-weight: 500; margin-left: 8px; }
-  .win-titlebar .win-dots { display: flex; gap: 6px; }
-  .win-titlebar .win-dots span { width: 11px; height: 11px; border-radius: 50%; }
-  .win-titlebar .win-dots span:nth-child(1) { background: #FCA5A5; }
-  .win-titlebar .win-dots span:nth-child(2) { background: #FCD34D; }
-  .win-titlebar .win-dots span:nth-child(3) { background: #86EFAC; }
+  .win-titlebar .tb-brand { display: flex; align-items: center; gap: 8px; }
+  .win-titlebar .tb-logo {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 18px; height: 18px; border-radius: 5px;
+    background: #EFF6FF; color: #3B82F6; font-size: 11px;
+  }
+  .win-titlebar .win-title { font-size: 12px; color: var(--text-2); font-weight: 500; }
+  .win-titlebar .tb-drag-space { flex: 1; min-width: 16px; }
   .win-titlebar .win-sync {
-    display: flex; align-items: center; gap: 6px;
+    display: flex; align-items: center; gap: 6px; margin-left: 4px;
     font-size: 11px; color: var(--success); font-weight: 500;
   }
   .win-titlebar .win-sync::before {
@@ -164,7 +166,22 @@
     background: var(--success); box-shadow: 0 0 0 3px rgba(16,185,129,0.15);
   }
 
-  .tb-actions { margin-left: auto; display: flex; gap: 6px; margin-right: 14px; }
+  .tb-actions { display: flex; align-items: center; gap: 6px; }
+
+  /* Windows 11 窗口控制：右上角、贴边、无圆角 */
+  .win-controls { display: flex; align-items: stretch; margin-left: 4px; }
+  .win-controls::before {
+    content: ""; align-self: center; width: 1px; height: 16px;
+    margin-right: 4px; background: var(--border);
+  }
+  .wc-btn {
+    width: 46px; border: none; background: transparent; color: var(--text-2);
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 11px; line-height: 1; cursor: pointer; font-family: var(--font);
+    transition: background .15s, color .15s;
+  }
+  .wc-btn:hover { background: #E5E7EB; color: var(--text); }
+  .wc-close:hover { background: #E81123; color: #FFFFFF; }
   .tb-btn {
     display: inline-flex; align-items: center; gap: 5px;
     padding: 5px 10px; border-radius: 6px;
@@ -749,9 +766,8 @@
   .win-window[data-theme="dark"] { --text: #F1F5F9; --text-2: #94A3B8; --text-3: #64748B; --border: #334155; --border-2: #1E293B; }
   .win-window[data-theme="dark"] { background: #0F172A; border-color: #334155; }
   .win-window[data-theme="dark"] .win-titlebar { background: #111827; border-color: #334155; }
-  .win-window[data-theme="dark"] .win-titlebar .win-dots span:nth-child(1) { background: #7F1D1D; }
-  .win-window[data-theme="dark"] .win-titlebar .win-dots span:nth-child(2) { background: #78350F; }
-  .win-window[data-theme="dark"] .win-titlebar .win-dots span:nth-child(3) { background: #14532D; }
+  .win-window[data-theme="dark"] .wc-btn:hover { background: rgba(255,255,255,0.1); color: #F1F5F9; }
+  .win-window[data-theme="dark"] .wc-close:hover { background: #C42B1C; color: #FFFFFF; }
   .win-window[data-theme="dark"] .tb-btn { background: #1E293B; border-color: #334155; }
   .win-window[data-theme="dark"] .tb-btn:hover { background: #0F172A; color: #60A5FA; }
   .win-window[data-theme="dark"] .sidebar { background: #111827; border-color: #334155; }
@@ -1265,8 +1281,12 @@
     <div class="win-stage">
       <div class="win-window" id="full-view" data-theme="light">
         <div class="win-titlebar">
-          <div class="win-dots"><span></span><span></span><span></span></div>
-          <span class="win-title">待办清单</span>
+          <div class="tb-brand">
+            <span class="tb-logo">✓</span>
+            <span class="win-title">待办清单</span>
+            <span class="win-sync">已同步</span>
+          </div>
+          <div class="tb-drag-space"></div>
 
           <div class="tb-actions">
             <button class="tb-btn" onclick="switchToSticky()" title="收起为便利贴">
@@ -1280,7 +1300,11 @@
             </button>
           </div>
 
-          <span class="win-sync">已同步</span>
+          <div class="win-controls">
+            <button class="wc-btn" title="最小化">—</button>
+            <button class="wc-btn" title="最大化">□</button>
+            <button class="wc-btn wc-close" title="关闭">✕</button>
+          </div>
         </div>
 
         <div class="win-body" style="--sidebar-w: 180px">
