@@ -25,7 +25,8 @@
     if (!demo) return;
     setTimeout(() => {
       if (demo === 'detail' || demo === 'history') {
-        store.openTask('task-write-prd', demo === 'history' ? 'history' : 'detail');
+        const firstTask = store.tasks[0];
+        if (firstTask) store.openTask(firstTask.id, demo === 'history' ? 'history' : 'detail');
       }
       if (demo === 'settings') store.settingsOpen = true;
       if (demo === 'ai') store.aiOpen = true;

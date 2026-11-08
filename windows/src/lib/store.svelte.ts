@@ -5,9 +5,6 @@ import {
   seedMembers,
   seedTags,
   seedTasks,
-  seedTeamLists,
-  seedTeamTags,
-  seedTeamTasks,
   seedWorkspaces
 } from './demo-data';
 import { errorMessage, ipc, isTauri } from './ipc';
@@ -449,21 +446,15 @@ class TodoStore {
   }
 
   private applyBrowserWorkspace(id: string): void {
+    // 浏览器预览与 Tauri 首次启动一致：保留默认清单与标签，但不注入任何演示任务。
+    this.tasks = [];
+    this.history = [];
     if (id === 'ws-me') {
-      this.tasks = seedTasks();
       this.lists = seedLists;
       this.tags = seedTags;
-      this.history = seedHistory();
-    } else if (id === 'ws-team') {
-      this.tasks = seedTeamTasks();
-      this.lists = seedTeamLists;
-      this.tags = seedTeamTags;
-      this.history = [];
     } else {
-      this.tasks = [];
-      this.tags = [];
-      this.history = [];
       this.lists = [{ id: `${id}-today`, name: '今天', color: '#3B82F6', smart: true }];
+      this.tags = [];
     }
     this.activeListId = this.todayListId;
   }

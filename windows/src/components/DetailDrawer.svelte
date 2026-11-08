@@ -230,14 +230,16 @@
             <input class="field-input field-input-sm" type="datetime-local" value={toLocalInput(draft.remindAt)} oninput={setRemind} />
           </label>
 
-          <label class="field-row">
-            <span class="field-label">清单</span>
-            <select class="field-select field-input-sm" value={draft.listId} onchange={setList}>
-              {#each store.lists.filter((list) => !list.smart) as list (list.id)}
-                <option value={list.id}>{list.name}</option>
-              {/each}
-            </select>
-          </label>
+          {#if store.lists.some((list) => !list.smart)}
+            <label class="field-row">
+              <span class="field-label">清单</span>
+              <select class="field-select field-input-sm" value={draft.listId} onchange={setList}>
+                {#each store.lists.filter((list) => !list.smart) as list (list.id)}
+                  <option value={list.id}>{list.name}</option>
+                {/each}
+              </select>
+            </label>
+          {/if}
         </div>
 
         <div class="detail-section">

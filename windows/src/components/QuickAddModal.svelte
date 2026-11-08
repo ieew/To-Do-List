@@ -2,10 +2,10 @@
   import { Plus, X } from 'lucide-svelte';
   import { store } from '../lib/store.svelte';
   import type { Priority } from '../lib/types';
-  import { fromLocalInput, todayAt, toLocalInput } from '../lib/utils';
+  import { defaultDueAt, fromLocalInput, toLocalInput } from '../lib/utils';
 
   let title = $state('');
-  let listId = $state('work');
+  let listId = $state('');
   let priority = $state<Priority>('mid');
   let due = $state('');
   let titleInput = $state<HTMLInputElement | null>(null);
@@ -21,7 +21,7 @@
           ? store.lists.find((list) => !list.smart)?.id ?? store.todayListId
           : store.activeListId;
       priority = store.settings.defaultPriority;
-      due = toLocalInput(todayAt(18, 0));
+      due = toLocalInput(defaultDueAt());
       setTimeout(() => titleInput?.focus(), 30);
     }
   });
@@ -86,14 +86,16 @@
         </label>
 
         <div class="form-grid">
-          <label class="form-row">
-            <span class="form-label">清单</span>
-            <select class="field-select" bind:value={listId}>
-              {#each store.lists.filter((list) => !list.smart) as list (list.id)}
-                <option value={list.id}>{list.name}</option>
-              {/each}
-            </select>
-          </label>
+          {#if store.lists.some((list) => !list.smart)}
+            <label class="form-row">
+              <span class="form-label">清单</span>
+              <select class="field-select" bind:value={listId}>
+                {#each store.lists.filter((list) => !list.smart) as list (list.id)}
+                  <option value={list.id}>{list.name}</option>
+                {/each}
+              </select>
+            </label>
+          {/if}
 
           <label class="form-row">
             <span class="form-label">截止</span>

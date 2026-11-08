@@ -700,7 +700,8 @@ impl Projection {
                 color: state
                     .text("list", id, "color")
                     .unwrap_or_else(|| "#3B82F6".into()),
-                smart: Some(id == "today"),
+                // 默认清单 id 为 `today`，新建工作区为 `<workspace>-today`，两者都视为智能清单。
+                smart: Some(id == "today" || id.ends_with("-today")),
             });
         }
         lists.sort_by(|a, b| {

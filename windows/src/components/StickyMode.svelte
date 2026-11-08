@@ -2,7 +2,7 @@
   import { Calendar, ChevronDown, Coffee, FileText, Folder, Maximize2, Pin, Plus, X } from 'lucide-svelte';
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { store } from '../lib/store.svelte';
-  import { formatDueShort, isOverdue, isUrgent, todayAt } from '../lib/utils';
+  import { defaultDueAt, formatDueShort, isOverdue, isUrgent } from '../lib/utils';
 
   const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
   let { standalone = false }: { standalone?: boolean } = $props();
@@ -35,7 +35,7 @@
     store.createTask({
       title: newTask,
       listId,
-      dueAt: todayAt(18, 0),
+      dueAt: defaultDueAt(),
       source: 'human'
     });
     newTask = '';

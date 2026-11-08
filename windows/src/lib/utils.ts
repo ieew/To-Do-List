@@ -102,6 +102,13 @@ export function todayAt(hour: number, minute = 0, base = new Date()): string {
   return d.toISOString();
 }
 
+/** 新任务默认截止时间：当前时间 + 7 天 */
+export function defaultDueAt(base = new Date()): string {
+  const d = new Date(base);
+  d.setDate(d.getDate() + 7);
+  return d.toISOString();
+}
+
 export function plusDaysAt(days: number, hour = 9, minute = 0, base = new Date()): string {
   const d = new Date(base);
   d.setDate(d.getDate() + days);

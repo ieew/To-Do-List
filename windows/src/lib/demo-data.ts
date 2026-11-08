@@ -1,15 +1,10 @@
 import type { HistoryOp, Member, Settings, Tag, Task, TodoList, Workspace } from './types';
-import {
-  daysAgoAt,
-  daysAgoISO,
-  daysAgoLabel,
-  minutesAgoLabel,
-  nextWeekdayAt,
-  plusDaysAt,
-  todayAt
-} from './utils';
 
-const BASE = new Date();
+/*
+ * 浏览器预览使用的初始投影。
+ * 与 Tauri 首次启动保持一致：默认工作区、默认清单与常用标签，
+ * 不包含任何演示任务、协作成员或历史。
+ */
 
 export const seedLists: TodoList[] = [
   { id: 'today', name: '今天', color: '#3B82F6', smart: true },
@@ -26,10 +21,7 @@ export const seedTags: Tag[] = [
   { id: 'tag-week', name: '本周', bg: '#FEF3C7', fg: '#B45309', showInSidebar: true }
 ];
 
-export const seedWorkspaces: Workspace[] = [
-  { id: 'ws-me', name: '我的空间' },
-  { id: 'ws-team', name: '产品团队' }
-];
+export const seedWorkspaces: Workspace[] = [{ id: 'ws-me', name: '我的空间' }];
 
 export function seedMembers(): Member[] {
   return [
@@ -41,448 +33,29 @@ export function seedMembers(): Member[] {
       role: 'owner',
       email: 'me@todo.local',
       workspaceId: 'ws-me'
-    },
-    {
-      id: 'u-ming',
-      name: '小明',
-      initial: '明',
-      color: '#10B981',
-      role: 'editor',
-      email: 'ming@todo.local',
-      workspaceId: 'ws-me'
-    },
-    {
-      id: 'u-hong',
-      name: '小红',
-      initial: '红',
-      color: '#8B5CF6',
-      role: 'viewer',
-      email: 'hong@todo.local',
-      workspaceId: 'ws-me'
-    },
-    {
-      id: 'u-me',
-      name: '我',
-      initial: '我',
-      color: '#3B82F6',
-      role: 'owner',
-      email: 'me@todo.local',
-      workspaceId: 'ws-team'
-    },
-    {
-      id: 'u-lin',
-      name: '林可',
-      initial: '林',
-      color: '#F59E0B',
-      role: 'editor',
-      email: 'lin@todo.local',
-      workspaceId: 'ws-team'
-    },
-    {
-      id: 'u-chen',
-      name: '陈晨',
-      initial: '陈',
-      color: '#EC4899',
-      role: 'viewer',
-      email: 'chen@todo.local',
-      workspaceId: 'ws-team'
-    }
-  ];
-}
-
-export const seedTeamLists: TodoList[] = [
-  { id: 'team-today', name: '今天', color: '#3B82F6', smart: true },
-  { id: 'team-work', name: '迭代', color: '#F59E0B' },
-  { id: 'team-research', name: '调研', color: '#8B5CF6' }
-];
-
-export const seedTeamTags: Tag[] = [
-  { id: 'team-tag-api', name: '接口', bg: '#EFF6FF', fg: '#2563EB' },
-  { id: 'team-tag-risk', name: '风险', bg: '#FEF2F2', fg: '#DC2626', showInSidebar: true }
-];
-
-export function seedTeamTasks(): Task[] {
-  return [
-    {
-      id: 'team-task-sync-api',
-      title: '对齐同步接口字段',
-      notes: 'push/pull 的 op 信封与错误码需要和客户端一致。',
-      dueAt: todayAt(17, 0, BASE),
-      remindAt: todayAt(16, 30, BASE),
-      priority: 'high',
-      status: 'todo',
-      listId: 'team-work',
-      tagIds: ['team-tag-api'],
-      subtasks: [
-        { id: 'team-sub-1', text: '整理字段清单', done: true },
-        { id: 'team-sub-2', text: '补错误码示例', done: false }
-      ],
-      source: 'human',
-      createdAt: todayAt(9, 20, BASE),
-      completedAt: null,
-      order: 0
-    },
-    {
-      id: 'team-task-review',
-      title: '评审离线冲突测试向量',
-      notes: '覆盖 LWW、OR-Set、子任务与权限撤回。',
-      dueAt: plusDaysAt(1, 11, 0, BASE),
-      remindAt: null,
-      priority: 'mid',
-      status: 'todo',
-      listId: 'team-work',
-      tagIds: ['team-tag-risk'],
-      subtasks: [],
-      source: 'human',
-      createdAt: todayAt(9, 30, BASE),
-      completedAt: null,
-      order: 1
-    },
-    {
-      id: 'team-task-research',
-      title: '调研 Windows 通知兼容性',
-      notes: '确认 tauri-plugin-notifications 在 Win10/11 的表现。',
-      dueAt: plusDaysAt(2, 15, 0, BASE),
-      remindAt: null,
-      priority: 'low',
-      status: 'todo',
-      listId: 'team-research',
-      tagIds: [],
-      subtasks: [],
-      source: 'human',
-      createdAt: todayAt(10, 0, BASE),
-      completedAt: null,
-      order: 2
-    },
-    {
-      id: 'team-task-archive',
-      title: '归档上一迭代文档',
-      notes: '',
-      dueAt: daysAgoISO(1, 10, 0, BASE),
-      remindAt: null,
-      priority: 'low',
-      status: 'done',
-      listId: 'team-work',
-      tagIds: [],
-      subtasks: [],
-      source: 'human',
-      createdAt: daysAgoISO(2, 10, 0, BASE),
-      completedAt: todayAt(9, 0, BASE),
-      order: 3
     }
   ];
 }
 
 export function seedTasks(): Task[] {
-  return [
-    {
-      id: 'task-write-prd',
-      title: '写产品需求文档',
-      notes: '对齐 MVP 范围、权限矩阵与同步流程，输出给设计与研发评审。',
-      dueAt: todayAt(18, 0, BASE),
-      remindAt: todayAt(17, 30, BASE),
-      priority: 'high',
-      status: 'todo',
-      listId: 'work',
-      tagIds: ['tag-work', 'tag-important'],
-      subtasks: [
-        { id: 'sub-1', text: '收集竞品数据', done: true },
-        { id: 'sub-2', text: '整理用户反馈', done: true },
-        { id: 'sub-3', text: '写第一版初稿', done: false },
-        { id: 'sub-4', text: '和设计对齐交互', done: false }
-      ],
-      source: 'ai',
-      createdAt: todayAt(9, 12, BASE),
-      completedAt: null,
-      order: 0,
-      model: 'gpt-4o'
-    },
-    {
-      id: 'task-reply-mail',
-      title: '回复客户邮件',
-      notes: '确认下周交付节点，说明离线合并的边界。',
-      dueAt: todayAt(20, 0, BASE),
-      remindAt: null,
-      priority: 'mid',
-      status: 'todo',
-      listId: 'work',
-      tagIds: ['tag-work'],
-      subtasks: [],
-      source: 'human',
-      createdAt: todayAt(8, 40, BASE),
-      completedAt: null,
-      order: 1
-    },
-    {
-      id: 'task-dentist',
-      title: '预约牙医',
-      notes: '',
-      dueAt: todayAt(16, 0, BASE),
-      remindAt: todayAt(15, 30, BASE),
-      priority: 'low',
-      status: 'todo',
-      listId: 'life',
-      tagIds: ['tag-life'],
-      subtasks: [],
-      source: 'human',
-      createdAt: todayAt(8, 20, BASE),
-      completedAt: null,
-      order: 2
-    },
-    {
-      id: 'task-weekly-meeting',
-      title: '准备周会材料',
-      notes: '同步本周进度、风险与下周计划。',
-      dueAt: plusDaysAt(1, 10, 0, BASE),
-      remindAt: plusDaysAt(1, 9, 30, BASE),
-      priority: 'mid',
-      status: 'todo',
-      listId: 'work',
-      tagIds: ['tag-work', 'tag-week'],
-      subtasks: [
-        { id: 'sub-5', text: '整理数据看板', done: false },
-        { id: 'sub-6', text: '列出风险项', done: false }
-      ],
-      source: 'human',
-      createdAt: daysAgoISO(1, 16, 20, BASE),
-      completedAt: null,
-      order: 3
-    },
-    {
-      id: 'task-call-mom',
-      title: '给妈妈打电话',
-      notes: '',
-      dueAt: nextWeekdayAt(6, 19, 0, BASE),
-      remindAt: null,
-      priority: 'low',
-      status: 'todo',
-      listId: 'life',
-      tagIds: ['tag-life'],
-      subtasks: [],
-      source: 'human',
-      createdAt: daysAgoISO(1, 18, 5, BASE),
-      completedAt: null,
-      order: 4
-    },
-    {
-      id: 'task-coffee',
-      title: '买咖啡豆',
-      notes: '',
-      dueAt: todayAt(9, 0, BASE),
-      remindAt: null,
-      priority: 'low',
-      status: 'done',
-      listId: 'life',
-      tagIds: ['tag-life'],
-      subtasks: [],
-      source: 'human',
-      createdAt: daysAgoISO(2, 20, 0, BASE),
-      completedAt: todayAt(9, 15, BASE),
-      order: 5
-    },
-    {
-      id: 'task-notes',
-      title: '整理会议笔记',
-      notes: '把决策项同步到项目空间。',
-      dueAt: daysAgoISO(1, 10, 0, BASE),
-      remindAt: null,
-      priority: 'mid',
-      status: 'done',
-      listId: 'work',
-      tagIds: ['tag-work'],
-      subtasks: [],
-      source: 'human',
-      createdAt: daysAgoISO(1, 14, 0, BASE),
-      completedAt: todayAt(10, 30, BASE),
-      order: 6
-    },
-    {
-      id: 'task-reading',
-      title: '看完《设计心理学》第一章',
-      notes: '记三条对当前界面有帮助的原则。',
-      dueAt: daysAgoISO(3, 8, 0, BASE),
-      remindAt: null,
-      priority: 'low',
-      status: 'done',
-      listId: 'study',
-      tagIds: ['tag-study', 'tag-week'],
-      subtasks: [],
-      source: 'human',
-      createdAt: daysAgoISO(3, 21, 0, BASE),
-      completedAt: todayAt(8, 10, BASE),
-      order: 7
-    }
-  ];
+  return [];
 }
 
 export function seedHistory(): HistoryOp[] {
-  const ops: HistoryOp[] = [
-    {
-      id: 'op_b7e210',
-      taskId: 'task-write-prd',
-      taskTitle: '写产品需求文档',
-      at: Date.now() - 44 * 60_000,
-      timeLabel: minutesAgoLabel(44, BASE),
-      actor: '系统',
-      source: 'human',
-      action: '生成快照',
-      system: true,
-      diff: { kind: 'snapshot', field: 'snapshot', text: 'snapshot · seq 1284' }
-    },
-    {
-      id: 'op_2c9e71',
-      taskId: 'task-write-prd',
-      taskTitle: '写产品需求文档',
-      at: Date.now() - 59 * 60_000,
-      timeLabel: minutesAgoLabel(59, BASE),
-      actor: '小明',
-      source: 'human',
-      action: '添加了标签',
-      diff: { kind: 'add', field: 'tagIds', text: '__tag += ', newText: '#重要' }
-    },
-    {
-      id: 'op_8f2a1c',
-      taskId: 'task-write-prd',
-      taskTitle: '写产品需求文档',
-      at: Date.now() - 84 * 60_000,
-      timeLabel: minutesAgoLabel(84, BASE),
-      actor: 'AI 助手',
-      source: 'ai',
-      action: '修改了优先级',
-      field: 'priority',
-      oldValue: 'mid',
-      newValue: 'high',
-      diff: { kind: 'change', field: 'priority', text: 'priority: ', oldText: '中', newText: '高' },
-      model: 'gpt-4o',
-      undoable: true
-    },
-    {
-      id: 'op_1b7d04',
-      taskId: 'task-write-prd',
-      taskTitle: '写产品需求文档',
-      at: Date.now() - 102 * 60_000,
-      timeLabel: minutesAgoLabel(102, BASE),
-      actor: '我',
-      source: 'human',
-      action: '添加了子任务',
-      diff: {
-        kind: 'add',
-        field: 'subtask',
-        text: '__subtask += ',
-        newText: '"收集竞品数据"'
-      }
-    },
-    {
-      id: 'op_4a0f92',
-      taskId: 'task-write-prd',
-      taskTitle: '写产品需求文档',
-      at: Date.now() - 104 * 60_000,
-      timeLabel: minutesAgoLabel(104, BASE),
-      actor: '我',
-      source: 'human',
-      action: '修改了截止时间',
-      field: 'dueAt',
-      oldValue: null,
-      newValue: todayAt(18, 0, BASE),
-      diff: { kind: 'change', field: 'dueAt', text: 'due_at: ', oldText: '无', newText: '今天 18:00' }
-    },
-    {
-      id: 'op_9e3c55',
-      taskId: 'task-write-prd',
-      taskTitle: '写产品需求文档',
-      at: Date.now() - 142 * 60_000,
-      timeLabel: minutesAgoLabel(142, BASE),
-      actor: 'AI 助手',
-      source: 'ai',
-      action: '创建了任务',
-      diff: {
-        kind: 'set',
-        field: 'title',
-        text: 'title = ',
-        newText: '"写产品需求文档"'
-      },
-      model: 'gpt-4o'
-    },
-    {
-      id: 'op_5d81aa',
-      taskId: 'task-notes',
-      taskTitle: '整理会议笔记',
-      at: Date.now() - 64 * 60_000,
-      timeLabel: minutesAgoLabel(64, BASE),
-      actor: '我',
-      source: 'human',
-      action: '完成了任务',
-      field: 'status',
-      oldValue: 'todo',
-      newValue: 'done',
-      diff: { kind: 'change', field: 'status', text: 'status: ', oldText: '未完成', newText: '已完成' }
-    },
-    {
-      id: 'op_0a4f67',
-      taskId: 'task-coffee',
-      taskTitle: '买咖啡豆',
-      at: Date.now() - 139 * 60_000,
-      timeLabel: minutesAgoLabel(139, BASE),
-      actor: '我',
-      source: 'human',
-      action: '完成了任务',
-      field: 'status',
-      oldValue: 'todo',
-      newValue: 'done',
-      diff: { kind: 'change', field: 'status', text: 'status: ', oldText: '未完成', newText: '已完成' }
-    },
-    {
-      id: 'op_33c0d2',
-      taskId: 'task-reading',
-      taskTitle: '看完《设计心理学》第一章',
-      at: Date.now() - 204 * 60_000,
-      timeLabel: minutesAgoLabel(204, BASE),
-      actor: '我',
-      source: 'human',
-      action: '完成了任务',
-      field: 'status',
-      oldValue: 'todo',
-      newValue: 'done',
-      diff: { kind: 'change', field: 'status', text: 'status: ', oldText: '未完成', newText: '已完成' }
-    },
-    {
-      id: 'op_c41b09',
-      taskId: 'task-weekly-meeting',
-      taskTitle: '准备周会材料',
-      at: daysAgoAt(1, 16, 20, BASE),
-      timeLabel: daysAgoLabel(1, 16, 20, BASE),
-      actor: '我',
-      source: 'human',
-      action: '创建了任务',
-      diff: { kind: 'set', field: 'title', text: 'title = ', newText: '"准备周会材料"' }
-    },
-    {
-      id: 'op_77e0fa',
-      taskId: 'task-call-mom',
-      taskTitle: '给妈妈打电话',
-      at: daysAgoAt(1, 18, 5, BASE),
-      timeLabel: daysAgoLabel(1, 18, 5, BASE),
-      actor: '我',
-      source: 'human',
-      action: '创建了任务',
-      diff: { kind: 'set', field: 'title', text: 'title = ', newText: '"给妈妈打电话"' }
-    }
-  ];
-
-  return ops.sort((a, b) => b.at - a.at);
+  return [];
 }
 
 export const defaultSettings: Settings = {
   theme: 'light',
   density: 'comfortable',
   notifications: true,
-  reminderLead: 15,
+  reminderLead: 10,
   dndEnabled: false,
   defaultPriority: 'mid',
   confirmDelete: true,
   autoArchive: false,
   syncInterval: 5,
-  serverUrl: 'https://sync.todo.local',
+  serverUrl: 'http://127.0.0.1:8000',
   aiEnabled: true,
   aiEndpoint: 'http://127.0.0.1:11434/v1',
   aiModel: 'qwen2.5-7b',

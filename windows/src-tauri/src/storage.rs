@@ -4,7 +4,7 @@
 
 use crate::core_domain::{Hlc, Op, Settings};
 use anyhow::{Context, Result};
-use chrono::{Duration, Local, TimeZone};
+use chrono::Local;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
@@ -311,15 +311,6 @@ pub fn save_settings(conn: &Connection, settings: &Settings) -> Result<()> {
     pref_set(conn, "settings", &serde_json::to_string(settings)?)
 }
 
-fn today_at(hour: u32, minute: u32, offset_days: i64) -> String {
-    let base = Local::now() + Duration::days(offset_days);
-    base.date_naive()
-        .and_hms_opt(hour, minute, 0)
-        .and_then(|naive| Local.from_local_datetime(&naive).single())
-        .map(|dt| dt.to_rfc3339())
-        .unwrap_or_else(|| Local::now().to_rfc3339())
-}
-
 struct SeedOp<'a> {
     workspace: &'a str,
     entity_type: &'a str,
@@ -383,35 +374,8 @@ fn seed_set(
     )
 }
 
-fn seed_collection(
-    conn: &Connection,
-    device: &str,
-    actor: &str,
-    workspace: &str,
-    entity_type: &str,
-    entity_id: &str,
-    operation: &str,
-    field: &str,
-    value: &str,
-) -> Result<()> {
-    seed_write(
-        conn,
-        device,
-        actor,
-        SeedOp {
-            workspace,
-            entity_type,
-            entity_id,
-            operation,
-            field,
-            value: json!(value),
-            source: "human",
-            model: None,
-        },
-    )
-}
-
-/// 首次启动写入演示 op。仅当 op_log 为空时执行。
+/// 首次启动写入最小可用骨架：默认工作区、当前用户、所有者关系、默认清单与常用标签。
+/// 不写入任何演示任务、协作成员或历史，保证用户首次打开就是干净的数据环境。
 pub fn seed_if_empty(conn: &Connection) -> Result<()> {
     let count: i64 = conn.query_row("SELECT COUNT(*) FROM op_log", [], |row| row.get(0))?;
     if count > 0 {
@@ -420,52 +384,35 @@ pub fn seed_if_empty(conn: &Connection) -> Result<()> {
 
     let device = device_id(conn)?;
     let me = "u-me";
+    let workspace = "ws-me";
 
-    seed_workspace(conn, &device, me, "ws-me", "我的空间")?;
-    seed_workspace(conn, &device, me, "ws-team", "产品团队")?;
+    seed_workspace(conn, &device, me, workspace, "我的空间")?;
+    seed_user(
+        conn, &device, me, workspace, me, "我", "我", "#3B82F6", "me@todo.local",
+    )?;
+    seed_membership(conn, &device, me, workspace, me, "owner")?;
 
-    seed_user(conn, &device, me, "ws-me", "u-me", "我", "我", "#3B82F6", "me@todo.local")?;
-    seed_user(conn, &device, me, "ws-me", "u-ming", "小明", "明", "#10B981", "ming@todo.local")?;
-    seed_user(conn, &device, me, "ws-me", "u-hong", "小红", "红", "#8B5CF6", "hong@todo.local")?;
-    seed_user(conn, &device, me, "ws-team", "u-me", "我", "我", "#3B82F6", "me@todo.local")?;
-    seed_user(conn, &device, me, "ws-team", "u-lin", "林可", "林", "#F59E0B", "lin@todo.local")?;
-    seed_user(conn, &device, me, "ws-team", "u-chen", "陈晨", "陈", "#EC4899", "chen@todo.local")?;
+    // 默认清单
+    seed_list(conn, &device, me, workspace, "me-today", "今天", "#3B82F6", 0.0)?;
+    seed_list(conn, &device, me, workspace, "me-work", "工作", "#F59E0B", 1.0)?;
+    seed_list(conn, &device, me, workspace, "me-life", "生活", "#10B981", 2.0)?;
+    seed_list(conn, &device, me, workspace, "me-study", "学习", "#8B5CF6", 3.0)?;
 
-    seed_membership(conn, &device, me, "ws-me", "u-me", "owner")?;
-    seed_membership(conn, &device, me, "ws-me", "u-ming", "editor")?;
-    seed_membership(conn, &device, me, "ws-me", "u-hong", "viewer")?;
-    seed_membership(conn, &device, me, "ws-team", "u-me", "owner")?;
-    seed_membership(conn, &device, me, "ws-team", "u-lin", "editor")?;
-    seed_membership(conn, &device, me, "ws-team", "u-chen", "viewer")?;
+    // 默认标签
+    seed_tag(conn, &device, me, workspace, "me-tag-work", "工作", "#EFF6FF", "#2563EB", false)?;
+    seed_tag(conn, &device, me, workspace, "me-tag-life", "生活", "#ECFDF5", "#059669", false)?;
+    seed_tag(conn, &device, me, workspace, "me-tag-study", "学习", "#F5F3FF", "#7C3AED", false)?;
+    seed_tag(conn, &device, me, workspace, "me-tag-important", "重要", "#FEF2F2", "#DC2626", true)?;
+    seed_tag(conn, &device, me, workspace, "me-tag-week", "本周", "#FEF3C7", "#B45309", true)?;
 
-    // 我的空间：清单与标签
-    seed_list(conn, &device, me, "ws-me", "me-today", "今天", "#3B82F6", 0.0)?;
-    seed_list(conn, &device, me, "ws-me", "me-work", "工作", "#F59E0B", 1.0)?;
-    seed_list(conn, &device, me, "ws-me", "me-life", "生活", "#10B981", 2.0)?;
-    seed_list(conn, &device, me, "ws-me", "me-study", "学习", "#8B5CF6", 3.0)?;
-    seed_tag(conn, &device, me, "ws-me", "me-tag-work", "工作", "#EFF6FF", "#2563EB", false)?;
-    seed_tag(conn, &device, me, "ws-me", "me-tag-life", "生活", "#ECFDF5", "#059669", false)?;
-    seed_tag(conn, &device, me, "ws-me", "me-tag-study", "学习", "#F5F3FF", "#7C3AED", false)?;
-    seed_tag(conn, &device, me, "ws-me", "me-tag-important", "重要", "#FEF2F2", "#DC2626", true)?;
-    seed_tag(conn, &device, me, "ws-me", "me-tag-week", "本周", "#FEF3C7", "#B45309", true)?;
-
-    // 产品团队：清单与标签
-    seed_list(conn, &device, me, "ws-team", "team-today", "今天", "#3B82F6", 0.0)?;
-    seed_list(conn, &device, me, "ws-team", "team-work", "迭代", "#F59E0B", 1.0)?;
-    seed_list(conn, &device, me, "ws-team", "team-research", "调研", "#8B5CF6", 2.0)?;
-    seed_tag(conn, &device, me, "ws-team", "team-tag-api", "接口", "#EFF6FF", "#2563EB", false)?;
-    seed_tag(conn, &device, me, "ws-team", "team-tag-risk", "风险", "#FEF2F2", "#DC2626", true)?;
-
-    seed_tasks_my_space(conn, &device, me)?;
-    seed_tasks_team(conn, &device, me)?;
-
-    pref_set(conn, "active_workspace_id", "ws-me")?;
+    pref_set(conn, "active_workspace_id", workspace)?;
     pref_set(conn, "current_user_id", me)?;
     Ok(())
 }
 
 fn seed_workspace(conn: &Connection, device: &str, actor: &str, id: &str, name: &str) -> Result<()> {
-    seed_set(conn, device, actor, id, "workspace", id, "__created", json!(today_at(9, 0, -30)), "human", None)?;
+    let created_at = Local::now().to_rfc3339();
+    seed_set(conn, device, actor, id, "workspace", id, "__created", json!(created_at), "human", None)?;
     seed_set(conn, device, actor, id, "workspace", id, "name", json!(name), "human", None)?;
     Ok(())
 }
@@ -511,7 +458,8 @@ fn seed_list(
     color: &str,
     order: f64,
 ) -> Result<()> {
-    seed_set(conn, device, actor, workspace, "list", id, "__created", json!(today_at(9, 0, -30)), "human", None)?;
+    let created_at = Local::now().to_rfc3339();
+    seed_set(conn, device, actor, workspace, "list", id, "__created", json!(created_at), "human", None)?;
     seed_set(conn, device, actor, workspace, "list", id, "workspace_id", json!(workspace), "human", None)?;
     seed_set(conn, device, actor, workspace, "list", id, "name", json!(name), "human", None)?;
     seed_set(conn, device, actor, workspace, "list", id, "color", json!(color), "human", None)?;
@@ -530,284 +478,12 @@ fn seed_tag(
     fg: &str,
     sidebar: bool,
 ) -> Result<()> {
-    seed_set(conn, device, actor, workspace, "tag", id, "__created", json!(today_at(9, 0, -30)), "human", None)?;
+    let created_at = Local::now().to_rfc3339();
+    seed_set(conn, device, actor, workspace, "tag", id, "__created", json!(created_at), "human", None)?;
     seed_set(conn, device, actor, workspace, "tag", id, "workspace_id", json!(workspace), "human", None)?;
     seed_set(conn, device, actor, workspace, "tag", id, "name", json!(name), "human", None)?;
     seed_set(conn, device, actor, workspace, "tag", id, "bg", json!(bg), "human", None)?;
     seed_set(conn, device, actor, workspace, "tag", id, "fg", json!(fg), "human", None)?;
     seed_set(conn, device, actor, workspace, "tag", id, "show_in_sidebar", json!(sidebar), "human", None)?;
-    Ok(())
-}
-
-struct SeedTask<'a> {
-    id: &'a str,
-    list: &'a str,
-    title: &'a str,
-    notes: &'a str,
-    due: Option<String>,
-    remind: Option<String>,
-    priority: &'a str,
-    status: &'a str,
-    tags: &'a [&'a str],
-    subtasks: &'a [(&'a str, &'a str, bool)],
-    order: f64,
-    source: &'a str,
-    model: Option<&'a str>,
-}
-
-fn seed_task(conn: &Connection, device: &str, actor: &str, workspace: &str, task: SeedTask<'_>) -> Result<()> {
-    seed_set(
-        conn, device, actor, workspace, "task", task.id, "__created",
-        json!(today_at(9, 12, -2)), task.source, task.model,
-    )?;
-    seed_set(conn, device, actor, workspace, "task", task.id, "title", json!(task.title), task.source, task.model)?;
-    seed_set(conn, device, actor, workspace, "task", task.id, "notes", json!(task.notes), task.source, task.model)?;
-    seed_set(conn, device, actor, workspace, "task", task.id, "due_at", json!(task.due), task.source, task.model)?;
-    seed_set(conn, device, actor, workspace, "task", task.id, "remind_at", json!(task.remind), task.source, task.model)?;
-    seed_set(conn, device, actor, workspace, "task", task.id, "priority", json!(task.priority), task.source, task.model)?;
-    seed_set(conn, device, actor, workspace, "task", task.id, "status", json!(task.status), task.source, task.model)?;
-    seed_set(conn, device, actor, workspace, "task", task.id, "list_id", json!(task.list), task.source, task.model)?;
-    seed_set(conn, device, actor, workspace, "task", task.id, "order", json!(task.order), task.source, task.model)?;
-
-    for tag in task.tags {
-        seed_collection(conn, device, actor, workspace, "task", task.id, "add", "__tag", tag)?;
-    }
-    for (index, (sub_id, text, done)) in task.subtasks.iter().enumerate() {
-        seed_collection(conn, device, actor, workspace, "task", task.id, "add", "__subtask", sub_id)?;
-        seed_set(conn, device, actor, workspace, "task", task.id, &format!("__subtask:{sub_id}:text"), json!(text), "human", None)?;
-        seed_set(conn, device, actor, workspace, "task", task.id, &format!("__subtask:{sub_id}:done"), json!(done), "human", None)?;
-        seed_set(conn, device, actor, workspace, "task", task.id, &format!("__subtask:{sub_id}:order"), json!(index as f64), "human", None)?;
-    }
-    Ok(())
-}
-
-fn seed_tasks_my_space(conn: &Connection, device: &str, actor: &str) -> Result<()> {
-    let ws = "ws-me";
-    seed_task(
-        conn, device, actor, ws,
-        SeedTask {
-            id: "me-task-write-prd",
-            list: "me-work",
-            title: "写产品需求文档",
-            notes: "对齐 MVP 范围、权限矩阵与同步流程，输出给设计与研发评审。",
-            due: Some(today_at(18, 0, 0)),
-            remind: Some(today_at(17, 30, 0)),
-            priority: "high",
-            status: "todo",
-            tags: &["me-tag-work", "me-tag-important"],
-            subtasks: &[
-                ("me-sub-1", "收集竞品数据", true),
-                ("me-sub-2", "整理用户反馈", true),
-                ("me-sub-3", "写第一版初稿", false),
-                ("me-sub-4", "和设计对齐交互", false),
-            ],
-            order: 0.0,
-            source: "ai",
-            model: Some("gpt-4o"),
-        },
-    )?;
-    seed_task(
-        conn, device, actor, ws,
-        SeedTask {
-            id: "me-task-reply-mail",
-            list: "me-work",
-            title: "回复客户邮件",
-            notes: "确认下周交付节点，说明离线合并的边界。",
-            due: Some(today_at(20, 0, 0)),
-            remind: None,
-            priority: "mid",
-            status: "todo",
-            tags: &["me-tag-work"],
-            subtasks: &[],
-            order: 1.0,
-            source: "human",
-            model: None,
-        },
-    )?;
-    seed_task(
-        conn, device, actor, ws,
-        SeedTask {
-            id: "me-task-dentist",
-            list: "me-life",
-            title: "预约牙医",
-            notes: "",
-            due: Some(today_at(16, 0, 0)),
-            remind: Some(today_at(15, 30, 0)),
-            priority: "low",
-            status: "todo",
-            tags: &["me-tag-life"],
-            subtasks: &[],
-            order: 2.0,
-            source: "human",
-            model: None,
-        },
-    )?;
-    seed_task(
-        conn, device, actor, ws,
-        SeedTask {
-            id: "me-task-weekly-meeting",
-            list: "me-work",
-            title: "准备周会材料",
-            notes: "同步本周进度、风险与下周计划。",
-            due: Some(today_at(10, 0, 1)),
-            remind: Some(today_at(9, 30, 1)),
-            priority: "mid",
-            status: "todo",
-            tags: &["me-tag-work", "me-tag-week"],
-            subtasks: &[("me-sub-5", "整理数据看板", false), ("me-sub-6", "列出风险项", false)],
-            order: 3.0,
-            source: "human",
-            model: None,
-        },
-    )?;
-    seed_task(
-        conn, device, actor, ws,
-        SeedTask {
-            id: "me-task-call-mom",
-            list: "me-life",
-            title: "给妈妈打电话",
-            notes: "",
-            due: Some(today_at(19, 0, 2)),
-            remind: None,
-            priority: "low",
-            status: "todo",
-            tags: &["me-tag-life"],
-            subtasks: &[],
-            order: 4.0,
-            source: "human",
-            model: None,
-        },
-    )?;
-    seed_task(
-        conn, device, actor, ws,
-        SeedTask {
-            id: "me-task-coffee",
-            list: "me-life",
-            title: "买咖啡豆",
-            notes: "",
-            due: Some(today_at(9, 0, 0)),
-            remind: None,
-            priority: "low",
-            status: "done",
-            tags: &["me-tag-life"],
-            subtasks: &[],
-            order: 5.0,
-            source: "human",
-            model: None,
-        },
-    )?;
-    seed_task(
-        conn, device, actor, ws,
-        SeedTask {
-            id: "me-task-notes",
-            list: "me-work",
-            title: "整理会议笔记",
-            notes: "把决策项同步到项目空间。",
-            due: Some(today_at(10, 0, -1)),
-            remind: None,
-            priority: "mid",
-            status: "done",
-            tags: &["me-tag-work"],
-            subtasks: &[],
-            order: 6.0,
-            source: "human",
-            model: None,
-        },
-    )?;
-    seed_task(
-        conn, device, actor, ws,
-        SeedTask {
-            id: "me-task-reading",
-            list: "me-study",
-            title: "看完《设计心理学》第一章",
-            notes: "记三条对当前界面有帮助的原则。",
-            due: Some(today_at(8, 0, -3)),
-            remind: None,
-            priority: "low",
-            status: "done",
-            tags: &["me-tag-study", "me-tag-week"],
-            subtasks: &[],
-            order: 7.0,
-            source: "human",
-            model: None,
-        },
-    )?;
-    Ok(())
-}
-
-fn seed_tasks_team(conn: &Connection, device: &str, actor: &str) -> Result<()> {
-    let ws = "ws-team";
-    seed_task(
-        conn, device, actor, ws,
-        SeedTask {
-            id: "team-task-sync-api",
-            list: "team-work",
-            title: "对齐同步接口字段",
-            notes: "push/pull 的 op 信封与错误码需要和客户端一致。",
-            due: Some(today_at(17, 0, 0)),
-            remind: Some(today_at(16, 30, 0)),
-            priority: "high",
-            status: "todo",
-            tags: &["team-tag-api"],
-            subtasks: &[("team-sub-1", "整理字段清单", true), ("team-sub-2", "补错误码示例", false)],
-            order: 0.0,
-            source: "human",
-            model: None,
-        },
-    )?;
-    seed_task(
-        conn, device, actor, ws,
-        SeedTask {
-            id: "team-task-review",
-            list: "team-work",
-            title: "评审离线冲突测试向量",
-            notes: "覆盖 LWW、OR-Set、子任务与权限撤回。",
-            due: Some(today_at(11, 0, 1)),
-            remind: None,
-            priority: "mid",
-            status: "todo",
-            tags: &["team-tag-risk"],
-            subtasks: &[],
-            order: 1.0,
-            source: "human",
-            model: None,
-        },
-    )?;
-    seed_task(
-        conn, device, actor, ws,
-        SeedTask {
-            id: "team-task-research",
-            list: "team-research",
-            title: "调研 Windows 通知兼容性",
-            notes: "确认 tauri-plugin-notifications 在 Win10/11 的表现。",
-            due: Some(today_at(15, 0, 2)),
-            remind: None,
-            priority: "low",
-            status: "todo",
-            tags: &[],
-            subtasks: &[],
-            order: 2.0,
-            source: "human",
-            model: None,
-        },
-    )?;
-    seed_task(
-        conn, device, actor, ws,
-        SeedTask {
-            id: "team-task-archive",
-            list: "team-work",
-            title: "归档上一迭代文档",
-            notes: "",
-            due: Some(today_at(10, 0, -1)),
-            remind: None,
-            priority: "low",
-            status: "done",
-            tags: &[],
-            subtasks: &[],
-            order: 3.0,
-            source: "human",
-            model: None,
-        },
-    )?;
     Ok(())
 }

@@ -2,7 +2,7 @@
 
 按 `docs/` 设计文档实现的 Windows 端界面原型：Tauri 2 + Svelte 5 + Vite，设计令牌与 `docs/design-tokens.md` 一致。
 
-> 数据层已切换为 **Rust + SQLite `op_log` 投影**：主窗口与所有便利贴窗口都通过 Tauri 命令读取同一份投影，写操作生成 op 并广播 `projection-updated`。浏览器预览（`npm run dev`）没有 Tauri 运行时，自动降级为内存演示数据，仅供视觉与交互验收。
+> 数据层已切换为 **Rust + SQLite `op_log` 投影**：主窗口与所有便利贴窗口都通过 Tauri 命令读取同一份投影，写操作生成 op 并广播 `projection-updated`。首次启动只生成默认工作区、默认清单（今天/工作/生活/学习）与常用标签，不写入任何演示任务或协作成员。浏览器预览（`npm run dev`）没有 Tauri 运行时，自动降级为同样的干净内存初始态，仅供视觉与交互验收。
 
 ## 快速查看
 
@@ -105,7 +105,7 @@ windows/
 │   ├── lib/
 │   │   ├── types.ts              Task / Workspace / Member / HistoryOp / Settings 等领域类型
 │   │   ├── utils.ts              时间、截止、优先级格式化
-│   │   ├── demo-data.ts          浏览器预览用的内存演示数据（Tauri 模式不加载）
+│   │   ├── demo-data.ts          浏览器预览用的干净初始数据（Tauri 模式不加载）
 │   │   ├── ipc.ts                Tauri 命令薄封装 + 浏览器降级路由
 │   │   └── store.svelte.ts       投影缓存、工作区切换、写操作、设置
 │   ├── components/               TitleBar / Sidebar / WorkspaceSwitcher / TaskRow / DetailDrawer …
