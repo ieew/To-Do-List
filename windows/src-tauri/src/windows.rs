@@ -26,8 +26,10 @@ fn close_window(app: &AppHandle, label: &str) {
     remove_context(app, label);
 }
 
+/// 必须为 async：同步命令在主线程执行，而 WebviewWindowBuilder::build()
+/// 需要主线程消息循环，会形成自锁并冻结所有窗口。
 #[tauri::command]
-pub fn open_sticky_window(
+pub async fn open_sticky_window(
     app: AppHandle,
     state: State<'_, AppState>,
     mode: String,
@@ -117,7 +119,7 @@ pub fn open_sticky_window(
 }
 
 #[tauri::command]
-pub fn close_sticky_window(app: AppHandle, label: String) -> Result<(), String> {
+pub async fn close_sticky_window(app: AppHandle, label: String) -> Result<(), String> {
     close_window(&app, &label);
     if label == "sticky-main" {
         show_main(&app);
@@ -126,7 +128,7 @@ pub fn close_sticky_window(app: AppHandle, label: String) -> Result<(), String> 
 }
 
 #[tauri::command]
-pub fn show_main_window(app: AppHandle) -> Result<(), String> {
+pub async fn show_main_window(app: AppHandle) -> Result<(), String> {
     close_window(&app, "sticky-main");
     show_main(&app);
     Ok(())
