@@ -39,7 +39,7 @@
       <CalendarClock size="14" />
       延期到明天
     </button>
-    <button class="menu-item" role="menuitem" onclick={() => run(() => store.addFloatingSticky(task.id))}>
+    <button class="menu-item" role="menuitem" onclick={() => run(() => store.openFloatingStickyWindow(task.id))}>
       <Pin size="14" />
       钉为便利贴
     </button>

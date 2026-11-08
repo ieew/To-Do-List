@@ -16,6 +16,12 @@ export default defineConfig({
     }
   },
   build: {
-    target: 'chrome105'
+    target: 'chrome105',
+    rollupOptions: {
+      input: {
+        main: 'index.html',
+        sticky: 'sticky.html'
+      }
+    }
   }
 });

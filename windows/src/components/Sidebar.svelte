@@ -1,14 +1,31 @@
 <script lang="ts">
-  import { ChevronDown, History, Sparkles } from 'lucide-svelte';
+  import { History, Sparkles } from 'lucide-svelte';
   import { store } from '../lib/store.svelte';
+  import WorkspaceSwitcher from './WorkspaceSwitcher.svelte';
+
+  let membersExpanded = $state(false);
+
+  const roleLabels: Record<string, string> = {
+    owner: '所有者',
+    editor: '可编辑',
+    viewer: '只读'
+  };
+
+  const visibleMembers = $derived(
+    membersExpanded ? store.members : store.members.slice(0, 5)
+  );
+  const otherMembers = $derived(
+    store.members.filter((member) => member.id !== store.currentUserId)
+  );
+
+  function openMembers(): void {
+    store.settingsSection = 'members';
+    store.settingsOpen = true;
+  }
 </script>
 
 <aside class="sidebar">
-  <button class="workspace-switch" title="切换工作区">
-    <span class="workspace-avatar">我</span>
-    <span class="workspace-name">我的空间</span>
-    <ChevronDown size="12" class="workspace-caret" />
-  </button>
+  <WorkspaceSwitcher />
 
   <div class="side-section-label">清单</div>
   {#each store.lists as list (list.id)}
@@ -47,15 +64,39 @@
   <div class="side-divider"></div>
 
   <div class="side-section-label">成员 · {store.members.length}</div>
-  {#each store.members as member (member.id)}
-    <div class="member-row" title="{member.name} · {member.email}">
-      <span class="member-avatar" style="background:{member.color}">{member.initial}</span>
-      <span class="member-name">{member.name}</span>
-      <span class="role-badge" class:owner={member.role === 'owner'} class:editor={member.role === 'editor'}>
-        {member.role}
-      </span>
+  {#if otherMembers.length === 0}
+    <div class="member-empty">
+      <span>还没有其他协作成员</span>
+      <button onclick={openMembers}>邀请成员</button>
     </div>
-  {/each}
+  {:else}
+    {#each visibleMembers as member (member.id)}
+      <button
+        class="member-row"
+        title="{member.name} · {member.email}"
+        onclick={openMembers}
+      >
+        <span class="member-avatar" style="background:{member.color}">{member.initial}</span>
+        <span class="member-name">
+          {member.name}
+          {#if member.id === store.currentUserId && member.name !== '我'}<span class="me-tag">我</span>{/if}
+        </span>
+        <span
+          class="role-badge"
+          class:owner={member.role === 'owner'}
+          class:editor={member.role === 'editor'}
+          class:viewer={member.role === 'viewer'}
+        >
+          {roleLabels[member.role] ?? member.role}
+        </span>
+      </button>
+    {/each}
+    {#if store.members.length > 5}
+      <button class="member-more" onclick={() => (membersExpanded = !membersExpanded)}>
+        {membersExpanded ? '收起成员' : `查看全部 ${store.members.length} 人`}
+      </button>
+    {/if}
+  {/if}
 
   <button class="ai-entry" onclick={() => (store.aiOpen = true)}>
     <Sparkles size="14" class="spark" />
@@ -66,7 +107,7 @@
 
 <style>
   .sidebar {
-    width: var(--sidebar-w, 198px);
+    width: var(--sidebar-w, 180px);
     flex-shrink: 0;
     display: flex;
     flex-direction: column;
@@ -77,44 +118,6 @@
     overflow-y: auto;
     overflow-x: hidden;
     transition: width var(--duration-fast) var(--ease-out);
-  }
-
-  .workspace-switch {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    padding: var(--space-2) 10px;
-    margin-bottom: var(--space-3);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-sm);
-    background: var(--color-card);
-    text-align: left;
-    min-width: 0;
-  }
-
-  .workspace-avatar {
-    width: 24px;
-    height: 24px;
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 7px;
-    background: linear-gradient(135deg, var(--color-primary), var(--color-purple));
-    color: #fff;
-    font-size: var(--text-sm);
-    font-weight: var(--weight-bold);
-  }
-
-  .workspace-name {
-    flex: 1;
-    min-width: 0;
-    font-size: var(--text-base);
-    font-weight: var(--weight-semibold);
-    color: var(--color-text);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
   }
 
   .side-section-label {
@@ -191,10 +194,19 @@
     display: flex;
     align-items: center;
     gap: var(--space-2);
+    width: 100%;
     padding: 4px 10px;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: transparent;
     font-size: var(--text-base);
     color: var(--color-text-2);
+    text-align: left;
     white-space: nowrap;
+  }
+
+  .member-row:hover {
+    background: var(--color-overlay);
   }
 
   .member-avatar {
@@ -228,13 +240,56 @@
   }
 
   .role-badge.owner {
-    background: #fef3c7;
-    color: #b45309;
+    background: var(--color-warning-50);
+    color: var(--color-warning-fg);
   }
 
   .role-badge.editor {
     background: var(--color-primary-50);
     color: var(--color-primary);
+  }
+
+  .role-badge.viewer {
+    background: var(--color-border-2);
+    color: var(--color-text-3);
+  }
+
+  .me-tag {
+    margin-left: 4px;
+    padding: 0 5px;
+    border-radius: var(--radius-full);
+    background: var(--color-primary-50);
+    color: var(--color-primary);
+    font-size: 9px;
+  }
+
+  .member-empty {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 6px 10px;
+    font-size: var(--text-sm);
+    color: var(--color-text-3);
+  }
+
+  .member-empty button {
+    align-self: flex-start;
+    padding: 3px 9px;
+    border: 1px dashed var(--color-border);
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--color-primary);
+    font-size: var(--text-sm);
+  }
+
+  .member-more {
+    align-self: flex-start;
+    margin: 2px 0 0 10px;
+    padding: 2px 0;
+    border: none;
+    background: transparent;
+    color: var(--color-primary);
+    font-size: var(--text-sm);
   }
 
   .ai-entry {

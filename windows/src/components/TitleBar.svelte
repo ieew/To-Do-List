@@ -1,9 +1,24 @@
 <script lang="ts">
-  import { Pin, Plus, Settings, Cloud, CloudOff, RefreshCw } from 'lucide-svelte';
+  import { onMount } from 'svelte';
+  import {
+    CheckSquare,
+    Cloud,
+    CloudOff,
+    Copy,
+    Minus,
+    Pin,
+    Plus,
+    RefreshCw,
+    Settings,
+    Square,
+    X
+  } from 'lucide-svelte';
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { store } from '../lib/store.svelte';
 
   const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+
+  let maximized = $state(false);
 
   const syncLabel = $derived(
     store.syncStatus === 'synced'
@@ -15,6 +30,33 @@
           : '重试中'
   );
 
+  onMount(() => {
+    if (!isTauri) return;
+    const win = getCurrentWindow();
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+
+    const refreshMaximized = async (): Promise<void> => {
+      const value = await win.isMaximized();
+      if (!disposed) maximized = value;
+    };
+
+    void refreshMaximized();
+    void win
+      .onResized(() => {
+        void refreshMaximized();
+      })
+      .then((fn) => {
+        if (disposed) fn();
+        else unlisten = fn;
+      });
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  });
+
   async function windowAction(action: 'minimize' | 'maximize' | 'close'): Promise<void> {
     if (!isTauri) {
       store.showToast('浏览器预览中，窗口控制仅在桌面端可用', 'info');
@@ -25,38 +67,52 @@
     if (action === 'maximize') await win.toggleMaximize();
     if (action === 'close') await win.close();
   }
+
+  function handleTitleDoubleClick(event: MouseEvent): void {
+    if ((event.target as HTMLElement).closest('button')) return;
+    void windowAction('maximize');
+  }
 </script>
 
-<header class="titlebar" data-tauri-drag-region>
-  <div class="win-dots">
+<header class="titlebar">
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="tb-brand" data-tauri-drag-region ondblclick={handleTitleDoubleClick}>
+    <span class="tb-logo" aria-hidden="true"><CheckSquare size="12" /></span>
+    <span class="win-title">待办清单</span>
     <button
-      class="dot dot-close"
-      title="关闭"
-      aria-label="关闭窗口"
-      onclick={() => windowAction('close')}
-    ></button>
-    <button
-      class="dot dot-min"
-      title="最小化"
-      aria-label="最小化窗口"
-      onclick={() => windowAction('minimize')}
-    ></button>
-    <button
-      class="dot dot-max"
-      title="最大化"
-      aria-label="最大化窗口"
-      onclick={() => windowAction('maximize')}
-    ></button>
+      class="win-sync"
+      class:is-syncing={store.syncStatus === 'syncing'}
+      title="点击立即同步"
+      onclick={() => store.syncNow()}
+    >
+      {#if store.syncStatus === 'syncing'}
+        <RefreshCw class="spin" size="12" />
+      {:else if store.syncStatus === 'offline'}
+        <CloudOff size="12" />
+      {:else}
+        <Cloud size="12" />
+      {/if}
+      <span>{syncLabel}</span>
+    </button>
   </div>
 
-  <span class="win-title">待办清单</span>
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="tb-drag-space" data-tauri-drag-region ondblclick={handleTitleDoubleClick}></div>
 
   <div class="tb-actions">
-    <button class="tb-btn" title="收起为便利贴 (Ctrl+Shift+T)" onclick={() => store.toggleStickyMode()}>
+    <button
+      class="tb-btn"
+      title="隐藏主窗口并打开独立便利贴 (Ctrl+Shift+T)"
+      onclick={() => store.openStickyMainWindow()}
+    >
       <Pin size="13" />
       <span>便利贴</span>
     </button>
-    <button class="tb-btn" title="同时打开独立便利贴窗口，最多 5 个" onclick={() => store.addFloatingSticky()}>
+    <button
+      class="tb-btn"
+      title="同时打开独立便利贴窗口，最多 5 个"
+      onclick={() => store.openFloatingStickyWindow()}
+    >
       <Plus size="14" />
       <span>新便利贴</span>
     </button>
@@ -65,21 +121,36 @@
     </button>
   </div>
 
-  <button
-    class="win-sync"
-    class:is-syncing={store.syncStatus === 'syncing'}
-    title="点击立即同步"
-    onclick={() => store.syncNow()}
-  >
-    {#if store.syncStatus === 'syncing'}
-      <RefreshCw class="spin" size="12" />
-    {:else if store.syncStatus === 'offline'}
-      <CloudOff size="12" />
-    {:else}
-      <Cloud size="12" />
-    {/if}
-    <span>{syncLabel}</span>
-  </button>
+  <div class="win-controls" role="group" aria-label="窗口控制">
+    <button
+      class="wc-btn"
+      title="最小化"
+      aria-label="最小化窗口"
+      onclick={() => windowAction('minimize')}
+    >
+      <Minus size="14" strokeWidth={1.4} />
+    </button>
+    <button
+      class="wc-btn"
+      title={maximized ? '还原' : '最大化'}
+      aria-label={maximized ? '还原窗口' : '最大化窗口'}
+      onclick={() => windowAction('maximize')}
+    >
+      {#if maximized}
+        <Copy size="12" strokeWidth={1.4} />
+      {:else}
+        <Square size="11" strokeWidth={1.4} />
+      {/if}
+    </button>
+    <button
+      class="wc-btn wc-close"
+      title="关闭"
+      aria-label="关闭窗口"
+      onclick={() => windowAction('close')}
+    >
+      <X size="14" strokeWidth={1.4} />
+    </button>
+  </div>
 </header>
 
 <style>
@@ -87,58 +158,51 @@
     height: var(--titlebar-h);
     flex-shrink: 0;
     display: flex;
-    align-items: center;
+    align-items: stretch;
     gap: var(--space-2);
-    padding: 0 var(--space-4);
+    padding-left: var(--space-3);
     background: var(--color-border-2);
     border-bottom: 1px solid var(--color-border);
     user-select: none;
+    overflow: hidden;
   }
 
-  .win-dots {
+  .tb-brand {
     display: flex;
-    gap: 6px;
     align-items: center;
+    gap: var(--space-2);
+    flex-shrink: 0;
+    padding-right: var(--space-1);
   }
 
-  .dot {
-    width: 11px;
-    height: 11px;
-    padding: 0;
-    border: none;
-    border-radius: 50%;
-    transition: filter var(--duration-fast) var(--ease-out);
-  }
-
-  .dot:hover {
-    filter: brightness(0.92);
-  }
-
-  .dot-close {
-    background: #fca5a5;
-  }
-
-  .dot-min {
-    background: #fcd34d;
-  }
-
-  .dot-max {
-    background: #86efac;
+  .tb-logo {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 5px;
+    background: var(--color-primary-50);
+    color: var(--color-primary);
   }
 
   .win-title {
-    margin-left: var(--space-2);
     font-size: var(--text-base);
     font-weight: var(--weight-medium);
     color: var(--color-text-2);
     white-space: nowrap;
   }
 
+  .tb-drag-space {
+    flex: 1;
+    min-width: var(--space-4);
+  }
+
   .tb-actions {
-    margin-left: auto;
     display: flex;
     align-items: center;
     gap: 6px;
+    flex-shrink: 0;
   }
 
   .tb-btn {
@@ -174,7 +238,7 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    margin-left: var(--space-3);
+    margin-left: var(--space-1);
     padding: 3px 7px;
     border: none;
     border-radius: var(--radius-full);
@@ -194,6 +258,63 @@
     color: var(--color-primary);
   }
 
+  /* Windows 11 风格窗口控制：贴右边缘、无圆角、与标题栏等高 */
+  .win-controls {
+    display: flex;
+    align-items: stretch;
+    flex-shrink: 0;
+    margin-left: var(--space-1);
+  }
+
+  .win-controls::before {
+    content: '';
+    align-self: center;
+    width: 1px;
+    height: var(--wc-divider-h);
+    margin-right: var(--space-1);
+    background: var(--color-border);
+  }
+
+  .wc-btn {
+    width: var(--wc-btn-w);
+    height: 100%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    color: var(--wc-icon);
+    transition:
+      background var(--duration-fast) var(--ease-out),
+      color var(--duration-fast) var(--ease-out);
+  }
+
+  .wc-btn :global(svg) {
+    width: var(--wc-icon-size);
+    height: var(--wc-icon-size);
+  }
+
+  .wc-btn:hover {
+    background: var(--wc-hover-bg);
+    color: var(--wc-hover-fg);
+  }
+
+  .wc-btn:active {
+    filter: brightness(0.95);
+  }
+
+  .wc-btn:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: -2px;
+  }
+
+  .wc-close:hover {
+    background: var(--wc-close-hover-bg);
+    color: var(--wc-close-hover-fg);
+  }
+
   :global(html[data-theme='dark']) .tb-btn {
     background: var(--color-card);
   }
@@ -201,17 +322,5 @@
   :global(html[data-theme='dark']) .tb-btn:hover {
     background: var(--color-bg);
     color: #60a5fa;
-  }
-
-  :global(html[data-theme='dark']) .dot-close {
-    background: #7f1d1d;
-  }
-
-  :global(html[data-theme='dark']) .dot-min {
-    background: #78350f;
-  }
-
-  :global(html[data-theme='dark']) .dot-max {
-    background: #14532d;
   }
 </style>

@@ -13,6 +13,10 @@
   --color-danger: #ef4444;
   --color-warning: #f59e0b;
   --color-purple: #8b5cf6;
+  --color-warning-50: #fef3c7;
+  --color-warning-fg: #b45309;
+  --color-danger-50: #fef2f2;
+  --color-danger-border: #fca5a5;
 
   /* 一、颜色 · 中性色 */
   --color-bg: #f8fafc;
@@ -114,11 +118,21 @@
   --window-h: 720px;
   --window-min-w: 960px;
   --window-min-h: 600px;
-  --sidebar-w-default: 198px;
+  --sidebar-w-default: 180px;
   --sidebar-w-min: 150px;
   --sidebar-w-max: 300px;
   --drawer-w: 320px;
   --titlebar-h: 40px;
+
+  /* 十、窗口控制（Windows 11 自绘标题栏） */
+  --wc-btn-w: 46px;
+  --wc-icon-size: 14px;
+  --wc-divider-h: 16px;
+  --wc-icon: var(--color-text-2);
+  --wc-hover-bg: #e5e7eb;
+  --wc-hover-fg: var(--color-text);
+  --wc-close-hover-bg: #e81123;
+  --wc-close-hover-fg: #ffffff;
 }
 
 /* 一、1.4 暗色模式映射 */
@@ -135,6 +149,17 @@
   --color-primary-50: rgba(59, 130, 246, 0.14);
   --color-primary-100: rgba(59, 130, 246, 0.24);
   --color-success-50: rgba(16, 185, 129, 0.12);
+  --color-warning-50: rgba(245, 158, 11, 0.16);
+  --color-warning-fg: #fcd34d;
+  --color-danger-50: rgba(239, 68, 68, 0.14);
+  --color-danger-border: rgba(239, 68, 68, 0.4);
+
+  /* 十、窗口控制 · 暗色 */
+  --wc-icon: var(--color-text-2);
+  --wc-hover-bg: rgba(255, 255, 255, 0.1);
+  --wc-hover-fg: var(--color-text);
+  --wc-close-hover-bg: #c42b1c;
+  --wc-close-hover-fg: #ffffff;
 }
 
 /* 组件内部可局部切换主题（设置页实时预览） */

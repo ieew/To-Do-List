@@ -9,9 +9,11 @@
   interface Props {
     sticky: FloatingStickyState;
     index: number;
+    label?: string;
+    standalone?: boolean;
   }
 
-  let { sticky, index }: Props = $props();
+  let { sticky, index, label = '', standalone = false }: Props = $props();
 
   const CARD_W = 304;
   const CARD_H = 368;
@@ -45,6 +47,7 @@
   });
 
   function startDrag(event: PointerEvent): void {
+    if (standalone) return;
     if ((event.target as HTMLElement).closest('button, select')) return;
     dragging = true;
     startX = event.clientX;
@@ -72,23 +75,37 @@
     store.showToast(pinned ? '便利贴已置顶' : '已取消置顶', 'info');
   }
 
-  function expand(): void {
-    store.expandFromSticky();
+  async function expand(): Promise<void> {
+    if (standalone && label) {
+      await store.closeStickyWindow(label);
+    }
+    await store.showMainWindow();
+  }
+
+  function closeSticky(): void {
+    if (standalone && label) {
+      void store.closeStickyWindow(label);
+      return;
+    }
+    store.closeFloatingSticky(sticky.id);
   }
 </script>
 
 <div
   class="floating-sticky"
   class:dragging
+  class:standalone
   style="left:{x}px;top:{y}px;z-index:{1000 + index}"
   role="dialog"
   aria-label="浮动便利贴"
 >
   <div
     class="floating-header"
+    class:standalone
     role="toolbar"
     tabindex="0"
     aria-label="拖动便利贴"
+    data-tauri-drag-region={standalone}
     onpointerdown={startDrag}
     onpointermove={moveDrag}
     onpointerup={endDrag}
@@ -102,7 +119,7 @@
     <button class="floating-btn" onclick={expand} aria-label="展开大界面" title="展开大界面">
       <Maximize2 size="12" />
     </button>
-    <button class="floating-btn" onclick={() => store.closeFloatingSticky(sticky.id)} aria-label="关闭便利贴" title="关闭">
+    <button class="floating-btn" onclick={closeSticky} aria-label="关闭便利贴" title="关闭">
       <X size="13" />
     </button>
   </div>
@@ -169,6 +186,20 @@
     overflow: hidden;
     color: var(--color-text);
     animation: floating-in var(--duration-base) var(--ease-standard);
+  }
+
+  .floating-sticky.standalone {
+    position: relative;
+    left: auto !important;
+    top: auto !important;
+    width: 100%;
+    height: 100%;
+    z-index: auto;
+    animation: none;
+  }
+
+  .floating-header.standalone {
+    cursor: default;
   }
 
   .floating-sticky.dragging {

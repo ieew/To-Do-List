@@ -64,9 +64,9 @@
     if (subtask) subtask.done = !subtask.done;
   }
 
-  function addSubtask(): void {
+  async function addSubtask(): Promise<void> {
     if (!draft) return;
-    const created = store.addSubtask(draft.id, newSubtask);
+    const created = await store.addSubtask(draft.id, newSubtask);
     if (created) {
       draft.subtasks.push({ ...created });
       newSubtask = '';

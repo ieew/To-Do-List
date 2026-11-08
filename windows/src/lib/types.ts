@@ -41,6 +41,11 @@ export interface Task {
   model?: string;
 }
 
+export interface Workspace {
+  id: string;
+  name: string;
+}
+
 export interface TodoList {
   id: string;
   name: string;
@@ -65,6 +70,7 @@ export interface Member {
   color: string;
   role: Role;
   email: string;
+  workspaceId?: string;
 }
 
 export type DiffKind = 'change' | 'add' | 'remove' | 'set' | 'snapshot';
@@ -142,4 +148,22 @@ export interface AiPlanItem {
   priority: Priority;
   listId: string;
   dueAt: string | null;
+}
+
+export interface Projection {
+  activeWorkspaceId: string;
+  currentUserId: string;
+  workspaces: Workspace[];
+  members: Member[];
+  lists: TodoList[];
+  tags: Tag[];
+  tasks: Task[];
+  history: HistoryOp[];
+}
+
+export interface BootstrapResponse {
+  projection: Projection;
+  settings: Settings;
+  aiKeyConfigured: boolean;
+  deviceId: string;
 }

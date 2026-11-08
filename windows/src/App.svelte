@@ -20,6 +20,7 @@
   const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
   onMount(() => {
+    void store.init();
     const demo = new URLSearchParams(window.location.search).get('demo');
     if (!demo) return;
     setTimeout(() => {
@@ -72,7 +73,7 @@
   }
 
   function resetSidebarWidth(): void {
-    store.sidebarWidth = 198;
+    store.sidebarWidth = 180;
   }
 
   function closeTopLayer(): boolean {
@@ -126,7 +127,7 @@
 
     if (mod && event.shiftKey && event.key.toLowerCase() === 't') {
       event.preventDefault();
-      store.toggleStickyMode();
+      void store.openStickyMainWindow();
       return;
     }
 
@@ -138,7 +139,7 @@
 </script>
 
 <div class="stage" class:is-tauri={isTauri}>
-  <div class="app-window" class:is-collapsed={store.stickyMode}>
+  <div class="app-window" class:is-collapsed={store.stickyMode && !isTauri}>
     <TitleBar />
 
     <div class="win-body" style="--sidebar-w:{store.sidebarWidth}px">
@@ -178,13 +179,26 @@
     </div>
   </div>
 
-  {#if store.stickyMode}
+  {#if store.stickyMode && !isTauri}
     <StickyMode />
   {/if}
 
-  {#each store.floatingStickies as sticky, index (sticky.id)}
-    <FloatingSticky {sticky} {index} />
-  {/each}
+  {#if !isTauri}
+    {#each store.floatingStickies as sticky, index (sticky.id)}
+      <FloatingSticky {sticky} {index} />
+    {/each}
+  {/if}
+
+  {#if isTauri && store.loading}
+    <div class="boot-mask" role="status">正在加载本地 op_log 投影…</div>
+  {/if}
+
+  {#if isTauri && store.loadError}
+    <div class="boot-mask boot-error" role="alert">
+      <p>本地数据加载失败：{store.loadError}</p>
+      <button onclick={() => store.init()}>重试</button>
+    </div>
+  {/if}
 
   <QuickAddModal />
   <AiModal />
@@ -291,5 +305,31 @@
   .sidebar-resizer.is-resizing::after {
     height: 56px;
     background: var(--color-primary);
+  }
+
+  .boot-mask {
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-toast);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-3);
+    background: var(--color-bg);
+    color: var(--color-text-2);
+    font-size: var(--text-base);
+  }
+
+  .boot-mask button {
+    padding: 6px 14px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-card);
+    color: var(--color-primary);
+  }
+
+  .boot-error {
+    color: var(--color-danger);
   }
 </style>

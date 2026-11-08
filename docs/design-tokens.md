@@ -17,6 +17,10 @@
 | `--color-danger` | `#EF4444` | 高优先级、删除、错误、紧急时间 |
 | `--color-warning` | `#F59E0B` | 中优先级 |
 | `--color-purple` | `#8B5CF6` | AI 来源、学习清单 |
+| `--color-warning-50` | `#FEF3C7` | 所有者徽章浅底、警告提示 |
+| `--color-warning-fg` | `#B45309` | 所有者徽章文字 |
+| `--color-danger-50` | `#FEF2F2` | 删除按钮浅底、错误提示 |
+| `--color-danger-border` | `#FCA5A5` | 删除按钮描边 |
 
 ### 1.2 中性色
 
@@ -59,6 +63,10 @@
 | `--color-text-3` | `#64748B` |
 | `--color-border` | `#334155` |
 | `--color-border-2` | `#1E293B` |
+| `--color-warning-50` | `rgba(245,158,11,0.16)` |
+| `--color-warning-fg` | `#FCD34D` |
+| `--color-danger-50` | `rgba(239,68,68,0.14)` |
+| `--color-danger-border` | `rgba(239,68,68,0.4)` |
 
 ## 二、字体
 
@@ -218,9 +226,33 @@ HTML 草图用 emoji 与 Unicode 符号（🔍、📌、↗、✕、🕘、☰�
 | 手机 4×2 卡片 | 336×160 | — | — | 系统决定 |
 | 手机 4×4 卡片 | 336×336 | — | — | 系统决定 |
 
-## 十、令牌实现要求
+## 十、窗口控制（Windows 11 自绘标题栏）
 
-- Windows/Web：全部令牌定义在 `ui/src/lib/styles/tokens.css`，用 `:root` 声明；组件只引用 `var(--token)`。
+Windows 标题栏为自绘（`decorations: false`），窗口控制按钮必须位于右上角并遵循 Windows 11 惯例，禁止使用 macOS 交通灯圆点。
+
+| 令牌 | 值 | 说明 |
+|---|---|---|
+| `--wc-btn-w` | `46px` | 控制按钮宽度 |
+| `--wc-icon-size` | `14px` | 图标尺寸，线宽 1.4px |
+| `--wc-divider-h` | `16px` | 控制区左侧分隔线高度 |
+| `--wc-icon` | `var(--color-text-2)` | 图标默认色 |
+| `--wc-hover-bg` | `#E5E7EB` | 按钮 hover 底色 |
+| `--wc-hover-fg` | `var(--color-text)` | 按钮 hover 图标色 |
+| `--wc-close-hover-bg` | `#E81123` | 关闭按钮 hover 底色 |
+| `--wc-close-hover-fg` | `#FFFFFF` | 关闭按钮 hover 图标色 |
+
+暗色映射：`--wc-hover-bg` → `rgba(255,255,255,0.1)`，`--wc-close-hover-bg` → `#C42B1C`。
+
+布局规则：
+
+- 顺序固定为「最小化 → 最大化/还原 → 关闭」，关闭贴最右。
+- 按钮高度等于标题栏高度（`--titlebar-h`），无圆角，hover 底色铺满按钮区域。
+- 标题栏左侧为应用图标、标题、同步状态；中部为可拖拽空白区；业务按钮组位于控制区左侧，与控制区之间用 1px 分隔线隔开。
+- 双击标题空白区切换最大化；最大化后图标与 `aria-label` 切换为还原态。
+
+## 十一、令牌实现要求
+
+- Windows/Web：全部令牌定义在 `windows/src/styles/tokens.css`，用 `:root` 声明；组件只引用 `var(--token)`。
 - Android：全部令牌定义在 `core/designsystem/src/main/kotlin/.../Tokens.kt`，用 `object Tokens { val colorPrimary = Color(0xFF3B82F6) ... }`。
 - CI 校验：新增颜色/间距必须先在本文档登记，再改令牌文件；文档与令牌文件不一致时 CI 失败。
 - 禁止在组件中出现十六进制颜色、`px` 魔法数字（允许 `0`、`1px` 边框、`100%`、`100vh`）。

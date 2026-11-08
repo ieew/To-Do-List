@@ -2,6 +2,8 @@
   import {
     Bell,
     ChevronLeft,
+    Eye,
+    EyeOff,
     Info,
     Keyboard,
     ListTodo,
@@ -10,8 +12,9 @@
     Sparkles,
     Users
   } from 'lucide-svelte';
+  import { isTauri } from '../lib/ipc';
   import { store } from '../lib/store.svelte';
-  import type { Priority, Settings } from '../lib/types';
+  import type { Priority, Role, Settings } from '../lib/types';
 
   type SectionId =
     | 'appearance'
@@ -38,6 +41,23 @@
   let draft = $state<Settings>({ ...store.settings });
   let sidebarDraft = $state(store.sidebarWidth);
   let lastOpen = false;
+
+  let apiKeyInput = $state('');
+  let showKey = $state(false);
+  let keySaving = $state(false);
+  let confirmClearKey = $state(false);
+
+  let inviteName = $state('');
+  let inviteEmail = $state('');
+  let inviteRole = $state<Role>('editor');
+  let inviting = $state(false);
+  let confirmRemoveId = $state<string | null>(null);
+
+  const roleLabels: Record<Role, string> = {
+    owner: '所有者',
+    editor: '可编辑',
+    viewer: '只读'
+  };
 
   const priorities: { value: Priority; label: string }[] = [
     { value: 'high', label: '高' },
@@ -68,7 +88,14 @@
     if (store.settingsOpen) {
       draft = { ...store.settings };
       sidebarDraft = store.sidebarWidth;
-      active = 'appearance';
+      active = (store.settingsSection as SectionId) || 'appearance';
+      apiKeyInput = '';
+      showKey = false;
+      confirmClearKey = false;
+      inviteName = '';
+      inviteEmail = '';
+      inviteRole = 'editor';
+      confirmRemoveId = null;
     } else {
       store.previewTheme(null);
     }
@@ -85,8 +112,8 @@
     store.settingsOpen = false;
   }
 
-  function save(): void {
-    store.saveSettings({ ...draft });
+  async function save(): Promise<void> {
+    await store.saveSettings({ ...draft });
     store.sidebarWidth = Math.min(300, Math.max(150, sidebarDraft));
     store.previewTheme(null);
   }
@@ -97,8 +124,52 @@
     close();
   }
 
-  function invite(): void {
-    store.showToast('邀请链接已复制（原型模拟）');
+  async function saveKey(): Promise<void> {
+    if (!apiKeyInput.trim() || keySaving) return;
+    keySaving = true;
+    const ok = await store.setAiKey(apiKeyInput);
+    if (ok) {
+      apiKeyInput = '';
+      showKey = false;
+      confirmClearKey = false;
+    }
+    keySaving = false;
+  }
+
+  async function clearKey(): Promise<void> {
+    if (!confirmClearKey) {
+      confirmClearKey = true;
+      return;
+    }
+    await store.clearAiKey();
+    confirmClearKey = false;
+    apiKeyInput = '';
+  }
+
+  async function changeRole(userId: string, event: Event): Promise<void> {
+    const role = (event.currentTarget as HTMLSelectElement).value as Role;
+    await store.updateMemberRole(userId, role);
+  }
+
+  async function removeMember(userId: string): Promise<void> {
+    if (confirmRemoveId !== userId) {
+      confirmRemoveId = userId;
+      return;
+    }
+    await store.removeMember(userId);
+    confirmRemoveId = null;
+  }
+
+  async function invite(): Promise<void> {
+    if (!inviteName.trim() || inviting) {
+      if (!inviteName.trim()) store.showToast('先填写成员名称', 'error');
+      return;
+    }
+    inviting = true;
+    await store.inviteMember(inviteName, inviteEmail, inviteRole);
+    inviting = false;
+    inviteName = '';
+    inviteEmail = '';
   }
 </script>
 
@@ -347,11 +418,54 @@
             <div class="setting-group-title">密钥</div>
             <div class="setting-row">
               <div class="setting-label">
-                <div class="setting-title">API 密钥</div>
-                <div class="setting-desc">存于 Windows Credential Manager（DPAPI）；禁止落入 SQLite、日志、备份。</div>
+                <div class="setting-title">
+                  API 密钥
+                  <span class="key-status" class:is-set={store.aiKeyConfigured} role="status">
+                    {store.aiKeyConfigured ? '已配置' : '未配置'}
+                  </span>
+                </div>
+                <div class="setting-desc">
+                  仅存于本机安全存储；保存后不回显，不写入 SQLite、日志或 op_log。
+                </div>
               </div>
-              <div class="setting-control">
-                <input class="field-input compact-input" type="password" value="••••••••••••" disabled />
+              <div class="setting-control key-control">
+                <div class="key-input-wrap">
+                  <input
+                    class="field-input compact-input mono-input"
+                    type={showKey ? 'text' : 'password'}
+                    bind:value={apiKeyInput}
+                    placeholder={store.aiKeyConfigured ? '已配置，输入新密钥可替换' : '输入 API 密钥'}
+                    aria-label="AI API 密钥"
+                    autocomplete="off"
+                    spellcheck="false"
+                  />
+                  <button
+                    class="icon-button key-eye"
+                    type="button"
+                    aria-label={showKey ? '隐藏密钥' : '显示密钥'}
+                    aria-pressed={showKey}
+                    onclick={() => (showKey = !showKey)}
+                  >
+                    {#if showKey}<EyeOff size="14" />{:else}<Eye size="14" />{/if}
+                  </button>
+                </div>
+                <div class="key-actions">
+                  <button
+                    class="btn btn-primary"
+                    disabled={!apiKeyInput.trim() || keySaving}
+                    onclick={saveKey}
+                  >
+                    保存密钥
+                  </button>
+                  {#if store.aiKeyConfigured}
+                    <button class="btn danger-outline" onclick={clearKey}>
+                      {confirmClearKey ? '确认清除' : '清除密钥'}
+                    </button>
+                  {/if}
+                </div>
+                {#if !isTauri}
+                  <div class="key-hint">浏览器预览：密钥仅保存在当前会话，刷新后丢失。</div>
+                {/if}
               </div>
             </div>
           </div>
@@ -428,7 +542,10 @@
         </div>
       {:else if active === 'members'}
         <div class="settings-panel">
-          <p class="panel-desc">权限唯一入口在服务端 Writer Worker：按 op 的 HLC 时刻成员角色裁决；客户端不做授权判断。</p>
+          <p class="panel-desc">
+            当前工作区「{store.activeWorkspace?.name ?? '未命名'}」的成员来自 membership 投影；
+            权限最终仍由服务端 Writer Worker 裁决，客户端不做授权判断。
+          </p>
 
           <div class="setting-group">
             <div class="setting-group-title">工作区成员 · {store.members.length}</div>
@@ -437,21 +554,54 @@
                 <div class="member-item">
                   <span class="member-avatar-lg" style="background:{member.color}">{member.initial}</span>
                   <div class="member-info">
-                    <div class="member-name-lg">{member.name}</div>
+                    <div class="member-name-lg">
+                      {member.name}
+                      {#if member.id === store.currentUserId}<span class="me-chip">我</span>{/if}
+                    </div>
                     <div class="member-email">{member.email}</div>
                   </div>
-                  <span class="role-badge-lg" class:owner={member.role === 'owner'} class:editor={member.role === 'editor'}>
-                    {member.role}
-                  </span>
+                  <select
+                    class="role-select"
+                    value={member.role}
+                    disabled={member.role === 'owner'}
+                    aria-label="{member.name} 的角色"
+                    onchange={(event) => changeRole(member.id, event)}
+                  >
+                    <option value="owner">所有者</option>
+                    <option value="editor">可编辑</option>
+                    <option value="viewer">只读</option>
+                  </select>
+                  {#if member.id !== store.currentUserId}
+                    <button
+                      class="member-remove"
+                      class:confirming={confirmRemoveId === member.id}
+                      onclick={() => removeMember(member.id)}
+                    >
+                      {confirmRemoveId === member.id ? '确认移除' : '移除'}
+                    </button>
+                  {/if}
                 </div>
               {/each}
             </div>
           </div>
 
-          <button class="btn btn-primary invite-btn" onclick={invite}>邀请成员</button>
-          <div class="info-banner">
-            <Info size="13" class="info-icon" />
-            <span>viewer 只能读取与查看历史；editor 可写任务；owner 可管理成员与角色。</span>
+          <div class="invite-box">
+            <div class="setting-group-title">邀请成员</div>
+            <div class="invite-grid">
+              <input class="field-input" bind:value={inviteName} placeholder="成员名称" maxlength="20" />
+              <input class="field-input" bind:value={inviteEmail} placeholder="邮箱（可选）" />
+              <select class="field-select" bind:value={inviteRole} aria-label="邀请角色">
+                <option value="editor">可编辑</option>
+                <option value="viewer">只读</option>
+              </select>
+              <button class="btn btn-primary" disabled={!inviteName.trim() || inviting} onclick={invite}>
+                添加成员
+              </button>
+            </div>
+            <div class="info-banner">
+              <Info size="13" class="info-icon" />
+              <span>原型阶段写本地 op_log，未连接服务端；真实邀请由服务端发送。</span>
+            </div>
           </div>
         </div>
       {:else if active === 'shortcuts'}
@@ -1034,6 +1184,111 @@
   .about-list span {
     color: var(--color-text-3);
     line-height: 1.6;
+  }
+
+  .key-status {
+    margin-left: 6px;
+    padding: 1px 7px;
+    border-radius: var(--radius-full);
+    background: var(--color-border-2);
+    color: var(--color-text-3);
+    font-size: 9.5px;
+    font-weight: var(--weight-semibold);
+  }
+
+  .key-status.is-set {
+    background: var(--color-success-50);
+    color: var(--color-success);
+  }
+
+  .key-control {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-2);
+    min-width: 220px;
+  }
+
+  .key-input-wrap {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+  }
+
+  .key-eye {
+    flex-shrink: 0;
+  }
+
+  .key-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-2);
+  }
+
+  .key-hint {
+    font-size: 10.5px;
+    color: var(--color-text-3);
+    text-align: right;
+  }
+
+  .danger-outline {
+    border-color: var(--color-danger-border);
+    background: var(--color-danger-50);
+    color: var(--color-danger);
+  }
+
+  .role-select {
+    flex-shrink: 0;
+    padding: 3px 6px;
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    background: var(--color-card);
+    color: var(--color-text-2);
+    font-size: var(--text-sm);
+  }
+
+  .member-remove {
+    flex-shrink: 0;
+    padding: 3px 8px;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--color-text-3);
+    font-size: var(--text-sm);
+  }
+
+  .member-remove:hover,
+  .member-remove.confirming {
+    border-color: var(--color-danger-border);
+    background: var(--color-danger-50);
+    color: var(--color-danger);
+  }
+
+  .me-chip {
+    margin-left: 5px;
+    padding: 0 5px;
+    border-radius: var(--radius-full);
+    background: var(--color-primary-50);
+    color: var(--color-primary);
+    font-size: 9px;
+  }
+
+  .invite-box {
+    margin-top: var(--space-4);
+    padding: var(--space-3) var(--space-4);
+    border: 1px dashed var(--color-border);
+    border-radius: var(--radius-md);
+  }
+
+  .invite-grid {
+    display: grid;
+    grid-template-columns: 1fr 1.2fr auto auto;
+    gap: var(--space-2);
+    margin: var(--space-2) 0;
+  }
+
+  .invite-grid .field-input,
+  .invite-grid .field-select {
+    min-width: 0;
   }
 
   @keyframes fade-in {

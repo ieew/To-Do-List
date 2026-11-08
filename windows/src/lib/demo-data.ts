@@ -1,4 +1,4 @@
-import type { HistoryOp, Settings, Tag, Task, TodoList } from './types';
+import type { HistoryOp, Member, Settings, Tag, Task, TodoList, Workspace } from './types';
 import {
   daysAgoAt,
   daysAgoISO,
@@ -25,6 +25,153 @@ export const seedTags: Tag[] = [
   { id: 'tag-important', name: '重要', bg: '#FEF2F2', fg: '#DC2626', showInSidebar: true },
   { id: 'tag-week', name: '本周', bg: '#FEF3C7', fg: '#B45309', showInSidebar: true }
 ];
+
+export const seedWorkspaces: Workspace[] = [
+  { id: 'ws-me', name: '我的空间' },
+  { id: 'ws-team', name: '产品团队' }
+];
+
+export function seedMembers(): Member[] {
+  return [
+    {
+      id: 'u-me',
+      name: '我',
+      initial: '我',
+      color: '#3B82F6',
+      role: 'owner',
+      email: 'me@todo.local',
+      workspaceId: 'ws-me'
+    },
+    {
+      id: 'u-ming',
+      name: '小明',
+      initial: '明',
+      color: '#10B981',
+      role: 'editor',
+      email: 'ming@todo.local',
+      workspaceId: 'ws-me'
+    },
+    {
+      id: 'u-hong',
+      name: '小红',
+      initial: '红',
+      color: '#8B5CF6',
+      role: 'viewer',
+      email: 'hong@todo.local',
+      workspaceId: 'ws-me'
+    },
+    {
+      id: 'u-me',
+      name: '我',
+      initial: '我',
+      color: '#3B82F6',
+      role: 'owner',
+      email: 'me@todo.local',
+      workspaceId: 'ws-team'
+    },
+    {
+      id: 'u-lin',
+      name: '林可',
+      initial: '林',
+      color: '#F59E0B',
+      role: 'editor',
+      email: 'lin@todo.local',
+      workspaceId: 'ws-team'
+    },
+    {
+      id: 'u-chen',
+      name: '陈晨',
+      initial: '陈',
+      color: '#EC4899',
+      role: 'viewer',
+      email: 'chen@todo.local',
+      workspaceId: 'ws-team'
+    }
+  ];
+}
+
+export const seedTeamLists: TodoList[] = [
+  { id: 'team-today', name: '今天', color: '#3B82F6', smart: true },
+  { id: 'team-work', name: '迭代', color: '#F59E0B' },
+  { id: 'team-research', name: '调研', color: '#8B5CF6' }
+];
+
+export const seedTeamTags: Tag[] = [
+  { id: 'team-tag-api', name: '接口', bg: '#EFF6FF', fg: '#2563EB' },
+  { id: 'team-tag-risk', name: '风险', bg: '#FEF2F2', fg: '#DC2626', showInSidebar: true }
+];
+
+export function seedTeamTasks(): Task[] {
+  return [
+    {
+      id: 'team-task-sync-api',
+      title: '对齐同步接口字段',
+      notes: 'push/pull 的 op 信封与错误码需要和客户端一致。',
+      dueAt: todayAt(17, 0, BASE),
+      remindAt: todayAt(16, 30, BASE),
+      priority: 'high',
+      status: 'todo',
+      listId: 'team-work',
+      tagIds: ['team-tag-api'],
+      subtasks: [
+        { id: 'team-sub-1', text: '整理字段清单', done: true },
+        { id: 'team-sub-2', text: '补错误码示例', done: false }
+      ],
+      source: 'human',
+      createdAt: todayAt(9, 20, BASE),
+      completedAt: null,
+      order: 0
+    },
+    {
+      id: 'team-task-review',
+      title: '评审离线冲突测试向量',
+      notes: '覆盖 LWW、OR-Set、子任务与权限撤回。',
+      dueAt: plusDaysAt(1, 11, 0, BASE),
+      remindAt: null,
+      priority: 'mid',
+      status: 'todo',
+      listId: 'team-work',
+      tagIds: ['team-tag-risk'],
+      subtasks: [],
+      source: 'human',
+      createdAt: todayAt(9, 30, BASE),
+      completedAt: null,
+      order: 1
+    },
+    {
+      id: 'team-task-research',
+      title: '调研 Windows 通知兼容性',
+      notes: '确认 tauri-plugin-notifications 在 Win10/11 的表现。',
+      dueAt: plusDaysAt(2, 15, 0, BASE),
+      remindAt: null,
+      priority: 'low',
+      status: 'todo',
+      listId: 'team-research',
+      tagIds: [],
+      subtasks: [],
+      source: 'human',
+      createdAt: todayAt(10, 0, BASE),
+      completedAt: null,
+      order: 2
+    },
+    {
+      id: 'team-task-archive',
+      title: '归档上一迭代文档',
+      notes: '',
+      dueAt: daysAgoISO(1, 10, 0, BASE),
+      remindAt: null,
+      priority: 'low',
+      status: 'done',
+      listId: 'team-work',
+      tagIds: [],
+      subtasks: [],
+      source: 'human',
+      createdAt: daysAgoISO(2, 10, 0, BASE),
+      completedAt: todayAt(9, 0, BASE),
+      order: 3
+    }
+  ];
+}
 
 export function seedTasks(): Task[] {
   return [

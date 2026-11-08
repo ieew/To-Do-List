@@ -5,6 +5,7 @@
   import { formatDueShort, isOverdue, isUrgent, todayAt } from '../lib/utils';
 
   const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+  let { standalone = false }: { standalone?: boolean } = $props();
   let pinned = $state(true);
   let newTask = $state('');
   let addInput: HTMLInputElement | null = null;
@@ -23,12 +24,14 @@
   }
 
   function expand(): void {
-    store.expandFromSticky();
+    void store.showMainWindow();
   }
 
   function addTask(): void {
     if (!newTask.trim()) return;
-    const listId = store.activeListId === 'today' ? 'life' : store.activeListId;
+    const fallback =
+      store.lists.find((list) => !list.smart)?.id ?? store.lists[0]?.id ?? store.todayListId;
+    const listId = store.activeListId === store.todayListId ? fallback : store.activeListId;
     store.createTask({
       title: newTask,
       listId,
@@ -41,7 +44,7 @@
   }
 </script>
 
-<div class="sticky-stage">
+<div class="sticky-stage" class:standalone>
   <div class="desktop-icons" aria-hidden="true">
     <span class="fake-icon blue"><Folder size="22" /></span>
     <span class="fake-icon green"><Calendar size="22" /></span>
@@ -49,7 +52,7 @@
   </div>
 
   <div class="sticky-note" role="dialog" aria-modal="true" aria-label="今天便利贴">
-    <div class="sticky-header">
+    <div class="sticky-header" data-tauri-drag-region>
       <div class="sticky-handle" aria-hidden="true"><span></span><span></span><span></span></div>
       <span class="sticky-title">今天 · 便利贴</span>
       <button class="sticky-btn" class:pinned onclick={togglePin} aria-label="置顶" title="置顶">
@@ -58,7 +61,7 @@
       <button class="sticky-btn" aria-label="展开大界面" title="展开大界面 (Esc)" onclick={expand}>
         <Maximize2 size="13" />
       </button>
-      <button class="sticky-btn" aria-label="关闭便利贴" title="关闭" onclick={expand}>
+      <button class="sticky-btn" aria-label="关闭便利贴" title="关闭" onclick={() => store.showMainWindow()}>
         <X size="14" />
       </button>
     </div>
@@ -154,6 +157,25 @@
     align-items: center;
     justify-content: center;
     animation: stage-in var(--duration-slow) var(--ease-standard);
+  }
+
+  .sticky-stage.standalone {
+    position: fixed;
+    inset: 0;
+    z-index: auto;
+    background: transparent;
+    animation: none;
+  }
+
+  .sticky-stage.standalone .desktop-icons {
+    display: none;
+  }
+
+  .sticky-stage.standalone .sticky-note {
+    width: 100%;
+    height: 100%;
+    border-radius: var(--radius-lg);
+    animation: none;
   }
 
   .desktop-icons {

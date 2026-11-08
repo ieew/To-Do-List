@@ -11,9 +11,11 @@
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build -- --no-bundle",
+    "tauri:build": "tauri build --no-bundle",
     "shoot": "node scripts/shoot.mjs",
-    "interact": "node scripts/interact.mjs"
+    "interact": "node scripts/interact.mjs",
+    "verify:changes": "node scripts/verify-changes.mjs",
+    "verify:native": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-native.ps1"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",

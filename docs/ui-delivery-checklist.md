@@ -11,7 +11,9 @@
 |---|---|---|
 | 设计令牌 | `ui/src/lib/styles/tokens.css` | 与 `design-tokens.md` 一致 |
 | 主界面 | `ui/src/views/tasks/` | S1 全部组件与交互 |
-| 便利贴入口 | `ui/sticky.html` + `ui/src/views/sticky-note/` | S2、S3 |
+| 便利贴入口 | `ui/sticky.html` + `ui/src/sticky-main.ts` + `ui/src/StickyApp.svelte` | S2、S3，独立 WebviewWindow |
+| 工作区切换器 | `ui/src/components/WorkspaceSwitcher.svelte` | 切换、新建、成员管理入口 |
+| Rust 投影层 | `src-tauri/src/core_domain.rs` + `storage.rs` | HLC / LWW / OR-Set / reducer、op_log |
 | 详情抽屉 | `ui/src/views/tasks/DetailDrawer.svelte` | 开合、Tab、历史 |
 | 历史时间线 | `ui/src/views/history/` | S4 |
 | IPC 封装 | `ui/src/lib/ipc.ts` | 只调生成文件，不直接 import |
@@ -50,22 +52,28 @@
 2. **抽屉重复打开**：点击不同任务只切内容，不重播宽度动画；每次打开回到「详情」Tab。
 3. **焦点管理**：抽屉打开焦点移入，关闭焦点回到触发任务；`Esc` 关闭时同理。
 4. **侧栏宽度持久化**：设计稿用 `localStorage`，生产必须改为客户端 SQLite 本地偏好表（`sticky-note-spec.md` 四），不进 `op_log`。
-5. **便利贴上限**：设计稿用 `alert`，生产必须用 UI 提示（轻提示或对话框），不阻塞。
-6. **浮动便利贴**：设计稿是 `position: fixed` 模拟，生产是独立 `WebviewWindow`，由 Rust 侧创建销毁，前端只发命令。
-7. **主窗口 ⇄ 便利贴**：设计稿是同一页面形态切换；生产是主窗口隐藏 + 便利贴窗口创建，或反之。二者互斥，同时最多一个主形态便利贴。
+5. **便利贴上限**：设计稿用 `alert`，生产必须用 UI 提示（轻提示或对话框），不阻塞；Rust 返回 `sticky_limit_reached`。
+6. **浮动便利贴**：设计稿是 `position: fixed` 模拟，生产必须是独立 `WebviewWindow`，由 Rust 侧创建销毁，前端只发 `open_sticky_window` / `close_sticky_window`。
+7. **主窗口 ⇄ 便利贴**：生产必须是 `main.hide()` + 创建 `sticky-main` 独立窗口；展开时关闭 `sticky-main` + `main.show()`。禁止同一页面形态切换或 CSS 缩放模拟。
+8. **便利贴数据源**：便利贴窗口不得复用主窗口内存 store；必须调用 `bootstrap` 从 Rust 投影取数，并监听 `projection-updated`。
 8. **键盘快捷键**：设计稿未实现，按 `ui-implementation-spec.md` 4.2 补全。
 9. **滑动手势**：Android 右滑完成、左滑延期/删除，阈值 72dp，回弹 200ms。
 10. **拖拽排序**：Windows 用 DnD，Android 用长按拖拽，落点 2px 主色线。
 
 ### 2.3 数据与状态
 
-1. **前端不持久化业务数据**：设计稿里任务是硬编码 HTML。生产必须从 Rust command / Room 拉取投影，前端只存 `$state`，禁止 `localStorage`/`IndexedDB` 存任务（`windows-frontend-spec.md` 三）。
+1. **前端不持久化业务数据**：设计稿里任务是硬编码 HTML。生产必须通过 `bootstrap` / `get_projection` 从 Rust `op_log` 投影拉取，前端只存 `$state`，禁止 `localStorage`/`IndexedDB` 存任务（`windows-frontend-spec.md` 三）。
+2. **多窗口一致性**：任何写命令提交后 Rust 广播 `projection-updated`，主窗口与所有便利贴窗口重新拉取；禁止窗口间直接传业务数据或轮询 SQLite。
 2. **勾选走 op 管道**：设计稿只切 class。生产必须调 `update_task_field`，同事务写业务表 + `op_log` + `local_hlc` + `pending_ops`。
 3. **历史撤销**：设计稿只改按钮文案。生产必须生成更高 HLC 的反向 op，走正常上传路径，不删原 op。
 4. **AI 徽章**：只在 `source="ai"` 时展示，不得用于装饰或猜测。
 5. **权限拒绝**：设计稿未画。生产必须在抽屉顶部显示红条，带 `server_hlc`，op 标记 `REJECTED`，不自动重试。
 6. **同步状态**：标题栏「已同步」是静态文字。生产必须绑定同步循环状态：已同步/同步中/离线/重试中。
 7. **进度计算**：设计稿是写死 37%。生产必须 `done/total`，总数为 0 时显示 0%，动画 400ms。
+8. **工作区不是摆设**：侧栏工作区按钮必须打开真实 popover，读取 `workspace` 投影，支持切换与新建；切换后重置筛选并刷新所有窗口。
+9. **成员不是种子数据**：侧栏与设置页成员必须来自 `membership` 投影，按当前工作区过滤；禁止硬编码「我 / 小明 / 小红」。
+10. **AI 密钥可编辑**：密钥输入框不得 `disabled`；支持显示/隐藏、保存、清除、已配置状态；明文只进系统安全存储，不进 SQLite / op_log / localStorage。
+11. **首屏初始化**：Tauri 模式必须先 `bootstrap` 再渲染业务数据；加载中显示骨架，失败显示可重试错误，不得回退到硬编码演示数据。
 
 ### 2.4 工程约束（来自 `conventions.md`）
 
@@ -88,6 +96,9 @@
 - [ ] 长文本省略，不撑破布局
 - [ ] 最小窗口 960×600 下三栏仍可用
 - [ ] 侧栏 150px 与 300px 两端无溢出
+- [ ] 工作区切换 popover 可展开、切换、新建，长名称省略
+- [ ] 成员列表来自当前工作区投影，角色徽章为中文，空态与骨架齐全
+- [ ] AI 密钥输入可编辑、可显示/隐藏、可保存/清除，状态徽章正确
 
 ### 3.2 交互
 
@@ -99,6 +110,10 @@
 - [ ] 「＋ 新便利贴」创建浮动便利贴，最多 5 个，超出 UI 提示
 - [ ] 快捷键全部生效（`Esc`、`Ctrl+N`、`Ctrl+F`、`Ctrl+Shift+T`、`Ctrl+Enter`、`↑↓`、`Enter`、`Space`）
 - [ ] Android 右滑完成、左滑延期/删除、下拉同步、长按排序
+- [ ] 点击「便利贴」后主窗口隐藏，任务栏出现独立便利贴窗口
+- [ ] 原生窗口枚举同时存在 `main` 与 `sticky-main` 两个 HWND
+- [ ] 浮动便利贴各自独立窗口，最多 5 个，超额轻提示
+- [ ] 切换工作区后主窗口与便利贴窗口数据同步刷新
 
 ### 3.3 数据
 
@@ -109,6 +124,9 @@
 - [ ] 同步状态绑定真实状态
 - [ ] 进度条按 `done/total` 计算
 - [ ] 前端无 `localStorage`/`IndexedDB` 存业务数据
+- [ ] 所有业务写操作经 Rust 命令写入 `op_log`，投影由 reducer 重建
+- [ ] 工作区切换与成员增改走 `workspace` / `membership` op
+- [ ] AI 密钥保存/清除不产生 op，SQLite 与日志中无明文
 
 ### 3.4 CI
 
@@ -126,6 +144,10 @@
 4. **`conic-gradient` 兼容**：Tauri 2 的 WebView2 与 Android WebView 均支持，但若目标环境更旧，用 SVG 圆环替代。
 5. **`backdrop-filter` 性能**：便利贴与卡片用了毛玻璃，低端机可能掉帧；提供 `@supports not (backdrop-filter: blur(1px))` 降级为纯色。
 6. **浮动便利贴 z-index**：设计稿用 1000，生产是独立窗口，不参与主窗口层级。
+7. **主窗口 hide 后事件丢失**：隐藏主窗口不销毁 WebView，Rust 仍是投影源；所有窗口监听 `projection-updated`，不要依赖主窗口转发。
+8. **窗口 label 冲突**：`sticky-main` 只能存在一个；创建前先检查已存在窗口并聚焦，避免重复创建。
+9. **密钥回显**：保存后只返回 `configured=true`，输入框必须清空；禁止把明文写进 `$state` 长期保存或日志。
+10. **op_log 重放顺序**：投影必须按 HLC 全序裁决，不能依赖 SQLite 插入顺序；`seq` 只表达交付顺序。
 7. **`prefers-reduced-motion`**：必须实现，否则无障碍验收不过。
 8. **历史 diff 换行**：`overflow-wrap: anywhere`，长 op_id 不撑破面板。
 9. **手机卡片刷新**：Android 小组件用 `RemoteViews`，不支持 Compose；复杂布局用 `Glance`，但 `Glance` 与 Compose 不能混用，需单独实现。

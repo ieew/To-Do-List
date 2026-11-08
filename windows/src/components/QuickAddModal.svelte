@@ -16,7 +16,10 @@
     lastOpen = store.quickAddOpen;
     if (store.quickAddOpen) {
       title = '';
-      listId = store.activeListId === 'today' ? 'work' : store.activeListId;
+      listId =
+        store.activeListId === store.todayListId
+          ? store.lists.find((list) => !list.smart)?.id ?? store.todayListId
+          : store.activeListId;
       priority = store.settings.defaultPriority;
       due = toLocalInput(todayAt(18, 0));
       setTimeout(() => titleInput?.focus(), 30);

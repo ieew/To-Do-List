@@ -23,30 +23,44 @@
     }
   });
 
+  function listIdByName(name: string): string {
+    return (
+      store.lists.find((list) => !list.smart && list.name === name)?.id ??
+      store.lists.find((list) => !list.smart)?.id ??
+      store.todayListId
+    );
+  }
+
   function buildPlan(text: string): AiPlanItem[] {
     const clean = text.trim();
+    const study = listIdByName('学习');
+    const work = listIdByName('工作');
     if (/学习|复习|读书|课程/.test(clean)) {
       return [
-        { title: '整理今晚学习计划', priority: 'high', listId: 'study', dueAt: todayAt(20, 0) },
-        { title: '复习第一章要点并做笔记', priority: 'mid', listId: 'study', dueAt: todayAt(21, 0) },
-        { title: '完成 10 道练习题', priority: 'low', listId: 'study', dueAt: plusDaysAt(1, 9, 30) }
+        { title: '整理今晚学习计划', priority: 'high', listId: study, dueAt: todayAt(20, 0) },
+        { title: '复习第一章要点并做笔记', priority: 'mid', listId: study, dueAt: todayAt(21, 0) },
+        { title: '完成 10 道练习题', priority: 'low', listId: study, dueAt: plusDaysAt(1, 9, 30) }
       ];
     }
     if (/工作|周报|汇报|会议|项目/.test(clean)) {
       return [
-        { title: '汇总本周工作进展', priority: 'high', listId: 'work', dueAt: todayAt(18, 0) },
-        { title: '整理待跟进事项与风险', priority: 'mid', listId: 'work', dueAt: plusDaysAt(1, 10, 0) },
-        { title: '预约下周评审时间', priority: 'low', listId: 'work', dueAt: plusDaysAt(2, 14, 0) }
+        { title: '汇总本周工作进展', priority: 'high', listId: work, dueAt: todayAt(18, 0) },
+        { title: '整理待跟进事项与风险', priority: 'mid', listId: work, dueAt: plusDaysAt(1, 10, 0) },
+        { title: '预约下周评审时间', priority: 'low', listId: work, dueAt: plusDaysAt(2, 14, 0) }
       ];
     }
     return [
-      { title: `拆解目标：${clean.slice(0, 14) || '新目标'}`, priority: 'high', listId: 'work', dueAt: todayAt(18, 0) },
-      { title: '为任务补充截止时间与提醒', priority: 'mid', listId: 'work', dueAt: plusDaysAt(1, 10, 0) },
-      { title: '检查依赖并标记风险', priority: 'low', listId: 'work', dueAt: plusDaysAt(2, 10, 0) }
+      { title: `拆解目标：${clean.slice(0, 14) || '新目标'}`, priority: 'high', listId: work, dueAt: todayAt(18, 0) },
+      { title: '为任务补充截止时间与提醒', priority: 'mid', listId: work, dueAt: plusDaysAt(1, 10, 0) },
+      { title: '检查依赖并标记风险', priority: 'low', listId: work, dueAt: plusDaysAt(2, 10, 0) }
     ];
   }
 
   function generate(): void {
+    if (!store.aiKeyConfigured) {
+      store.showToast('请先在设置中配置 API 密钥', 'error');
+      return;
+    }
     if (!prompt.trim()) {
       store.showToast('先描述你想让 AI 做什么', 'error');
       return;
@@ -61,6 +75,12 @@
 
   function attachImage(): void {
     store.showToast('原型暂未接入本地图片选择，图片不会写入 op_log', 'info');
+  }
+
+  function openKeySettings(): void {
+    store.aiOpen = false;
+    store.settingsSection = 'ai';
+    store.settingsOpen = true;
   }
 
   function confirmWrite(): void {
@@ -111,6 +131,13 @@
             </span>
           </div>
 
+          {#if !store.aiKeyConfigured}
+            <div class="key-gate" role="alert">
+              <span>还没有配置 API 密钥，AI 无法调用本地模型。</span>
+              <button class="btn" onclick={openKeySettings}>去设置密钥</button>
+            </div>
+          {/if}
+
           <p class="ai-note">
             AI 在客户端运行，产物是普通 op，<span class="mono">source="ai"</span>，不参与裁决；服务端不感知来源。输出必须通过意图 schema 校验。
           </p>
@@ -118,7 +145,11 @@
 
         <div class="ai-actions">
           <button class="btn" onclick={close}>取消</button>
-          <button class="btn btn-primary" disabled={generating} onclick={generate}>
+          <button
+            class="btn btn-primary"
+            disabled={generating || !store.aiKeyConfigured}
+            onclick={generate}
+          >
             {#if generating}
               <Loader2 size="14" class="spin" />
               生成中…
@@ -392,6 +423,19 @@
   .plan-meta {
     font-size: 10px;
     color: var(--color-text-3);
+  }
+
+  .key-gate {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    padding: 8px 10px;
+    border: 1px solid var(--color-warning-50);
+    border-radius: var(--radius-sm);
+    background: var(--color-warning-50);
+    color: var(--color-warning-fg);
+    font-size: var(--text-sm);
   }
 
   @keyframes fade-in {
