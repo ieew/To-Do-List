@@ -8,13 +8,15 @@
 
 ## 二、窗口配置与生命周期
 
-- 创建配置：`decorations=false`、`transparent=true`、`always_on_top=true`、`skip_taskbar=true`、`resizable=true`。
+- 创建配置：`decorations=false`、`transparent=true`、`always_on_top=true`、`skip_taskbar=true`、`resizable=true`、**`visible=false`**。
+- 创建时隐藏：禁止创建即显示。`StickyApp` 在 `bootstrap` 与 `get_sticky_context` 完成后（`ready`）再 `show()` + `setFocus()`；上下文读取失败也要按主形态渲染并显示，不得让窗口保持隐藏。
+- 主窗口换手：主形态便利贴**显示之后**，前端调用 `hide_main_window` 隐藏主窗口；禁止先隐藏主窗口再等待便利贴加载，避免露出桌面空白。Rust 侧 2.5 秒兜底：便利贴仍不可见则强制 `show()` 并隐藏主窗口。
 - 按需创建、取消钉住时销毁，不常驻。同时存在的便利贴窗口上限为 5 个，超过时 UI 提示而非静默创建。
 - 独立 Vite 多入口 `sticky.html`，只加载 `sticky-note/` 下极轻量 Svelte 组件，不加载主窗口完整 UI。
 - 主窗口与便利贴窗口的 `additional_browser_args` 必须一致，抽为共享常量。
 - MVP 不做点击穿透；如后续做，注意 `set_ignore_cursor_events` 会丢失 `WS_EX_TOOLWINDOW`，需手动重新应用。
 - 主窗口与便利贴是**两个独立的 `WebviewWindow`**，禁止用同一窗口内的浮层或 CSS 缩放模拟：
-  - 收起：`main.hide()`，随后创建独立便利贴窗口。
+  - 收起：创建隐藏的便利贴窗口，待其渲染就绪后 `show()`，再 `main.hide()`。
   - 展开：关闭便利贴窗口，再 `main.show()` + `main.setFocus()`。
   - 二者互斥，同一时刻最多一个主形态便利贴窗口。
 - 禁止用频繁 `set_size` 模拟收起/展开；窗口尺寸由 `WebviewWindow` 配置决定。

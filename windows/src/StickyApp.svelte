@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import FloatingSticky from './components/FloatingSticky.svelte';
   import StickyMode from './components/StickyMode.svelte';
@@ -17,10 +17,14 @@
 
       if (isTauri) {
         label = getCurrentWindow().label;
-        const context = await ipc.getStickyContext(label);
-        if (context) {
-          mode = context.mode;
-          focusTaskId = context.focusTaskId;
+        try {
+          const context = await ipc.getStickyContext(label);
+          if (context) {
+            mode = context.mode;
+            focusTaskId = context.focusTaskId;
+          }
+        } catch {
+          /* 上下文缺失时按主形态便利贴渲染，窗口仍要显示 */
         }
       } else {
         const params = new URLSearchParams(location.search);
@@ -29,6 +33,18 @@
       }
 
       ready = true;
+
+      // 窗口在 Rust 侧是隐藏创建的：等首帧渲染完成再显示，并在这里完成
+      // 「便利贴出现 → 主窗口隐藏」的换手，避免两窗口之间露出桌面。
+      if (isTauri) {
+        await tick();
+        const current = getCurrentWindow();
+        await current.show().catch(() => {});
+        await current.setFocus().catch(() => {});
+        if (mode === 'main') {
+          await ipc.hideMainWindow().catch(() => {});
+        }
+      }
     })();
   });
 </script>

@@ -4,6 +4,19 @@
 
 > 数据层已切换为 **Rust + SQLite `op_log` 投影**：主窗口与所有便利贴窗口都通过 Tauri 命令读取同一份投影，写操作生成 op 并广播 `projection-updated`。首次启动只生成默认工作区、默认清单（今天/工作/生活/学习）与常用标签，不写入任何演示任务或协作成员。浏览器预览（`npm run dev`）没有 Tauri 运行时，自动降级为同样的干净内存初始态，仅供视觉与交互验收。
 
+## 启动与首屏
+
+启动链路的目标是**不出现白色或空白窗口**，具体约定：
+
+- **主窗口隐藏创建**：`tauri.conf.json` 里 `"visible": false`；`index.html` 末尾的内联脚本在启动占位进入 DOM 后调用 `plugin:window|show`，`main.ts` 挂载时再显示一次兜底。Rust 侧另起 3 秒兜底线程，前端脚本异常时强制显示，避免窗口永久隐藏。
+- **单层启动占位**：`#boot`（Logo + 进度条）一直覆盖到 `bootstrap` 完成、Svelte 挂载之后，再 180ms 淡出；`prefers-reduced-motion` 下直接移除。不再出现「占位 → 骨架 → 内容」多层接力。
+- **先取数再渲染**：Tauri 模式 `store.loading` 初值为 `true`，`main.ts` 先 `await store.init()`（上限 3 秒）再 `mount`，不会先渲染一遍种子数据；失败时显示可重试错误。
+- **首屏分包**：`StickyMode`、`FloatingSticky`、`CalendarView`、`StatsView`、`GlobalHistory` 按需动态 `import()`，启动 1.2 秒后空闲预取。构建产物 `dist/index.html` 不再预加载浏览器预览专用的便利贴 chunk。
+- **主题一致**：`App.svelte` 把 `settings.theme` 写入 `localStorage['todo.theme']`，仅供 `index.html` 首帧占位选色（纯 UI 偏好缓存，业务数据仍只存 Rust 投影）；Rust 在显示窗口前按同一主题设置窗口底色，暗色用户重启不会闪白。
+- **便利贴同样隐藏创建**：`StickyApp` 在投影与上下文就绪后 `show()`，再调用 `hide_main_window` 隐藏主窗口完成换手；Rust 侧 2.5 秒兜底（显示便利贴并隐藏主窗口）。细节见 [`sticky-note-spec.md`](../docs/sticky-note-spec.md) 二。
+
+实测（本机 release，1120×720）：无纯白帧；窗口约 0.8s 出现且首帧即启动占位，约 1.0–1.2s 可交互。剩余耗时主要来自 WebView2 初始化，属于 Tauri 的启动下限。完整规格见 [`windows-frontend-spec.md`](../docs/windows-frontend-spec.md) 六。
+
 ## 快速查看
 
 ### 方式一：浏览器预览（最快）
@@ -65,7 +78,7 @@ npm run tauri dev
 - **多工作区**：侧栏工作区切换 popover，支持切换与新建；`bootstrap` 按 `workspace_id` 读取工作区、成员、清单、标签、任务与历史；`active_workspace_id` 存本地偏好。
 - **成员列表**：侧栏与设置页均来自 `membership` 投影，按当前工作区过滤，角色徽章中文化；支持角色变更与移除（本地模拟，未连接服务端）。
 - **AI 密钥**：设置页密钥框可编辑、可显示/隐藏、可保存/清除，状态徽章「已配置/未配置」；Windows 落 Credential Manager，明文不写 SQLite / op_log / 日志；API 直连未配置时生成按钮禁用并引导到设置。
-- **独立便利贴窗口（S2/S3）**：点击「便利贴」隐藏主窗口并由 Rust 创建 `sticky-main` 独立 `WebviewWindow`；浮动便利贴各自独立窗口，最多 5 个；所有窗口从 Rust 投影取数并监听 `projection-updated`。
+- **独立便利贴窗口（S2/S3）**：点击「便利贴」后由 Rust 创建隐藏的 `sticky-main` 独立 `WebviewWindow`，其渲染就绪后显示自身并调用 `hide_main_window` 隐藏主窗口（换手过程不露桌面空白）；浮动便利贴各自独立窗口，最多 5 个；所有窗口从 Rust 投影取数并监听 `projection-updated`。
 - **任务**：分组（今天/即将到来/已完成）、优先级、截止与提醒、标签 chip、子任务进度、AI 徽章、逾期高亮、拖拽排序。
 - **详情抽屉**：320px 固定宽、详情/历史 Tab、字段编辑、标签增删、子任务增删勾选、备注、删除确认、保存生成历史 op。
 - **历史时间线**：人工/AI/系统节点样式、全部/仅 AI/仅我筛选、diff、op_id/model/source、撤销生成反向 op（不删除原 op）。
@@ -74,7 +87,7 @@ npm run tauri dev
 - **AI 助手**：API 直连兼容 OpenAI Chat Completions（DeepSeek / Ollama / LM Studio 等），密钥仅在 Rust 侧读取；草案预览、字段告警、批量阈值二次确认后写入（`source="ai"`），历史可撤销。网页版 DeepSeek 桥接源码保留，当前通过 `SHOW_WEB_BRIDGE = false` 在界面上隐藏，改为 `true` 即可恢复。
 - **快捷添加与右键菜单**：延期、钉为便利贴、查看历史、删除。
 - **键盘**：`Esc`、`Ctrl+N`、`Ctrl+F`、`Ctrl+Shift+T`、`Ctrl+,`、`Ctrl+Enter`、`↑/↓`、`Enter`、`Space`。
-- **视觉**：暗色令牌、焦点环、骨架屏、空态、错误提示、`prefers-reduced-motion`、图标全部替换为 `lucide-svelte`（无 emoji 图标）。
+- **视觉**：暗色令牌、焦点环、骨架屏、空态、错误提示、`prefers-reduced-motion`、图标全部替换为 `lucide-svelte`（无 emoji 图标）；应用启动使用内联 Logo 占位并淡出，不出现白色窗口。
 
 ## 演示状态参数
 
@@ -111,7 +124,9 @@ windows/
 │   ├── components/               TitleBar / Sidebar / WorkspaceSwitcher / TaskRow / DetailDrawer …
 │   ├── StickyApp.svelte          独立便利贴窗口的轻量入口
 │   ├── sticky-main.ts            sticky.html 的启动脚本
+│   ├── main.ts                   主窗口入口：显示窗口、等待 bootstrap、淡出启动占位、空闲预取
 │   └── App.svelte                主窗口三栏布局、快捷键、窗口控制
+├── index.html                    主窗口入口（内联启动占位 + 主题恢复 + 尽早 show）
 ├── sticky.html                   便利贴独立 Vite 入口
 ├── src-tauri/src/
 │   ├── lib.rs                    Tauri Builder、命令注册、窗口生命周期
@@ -158,7 +173,7 @@ cd src-tauri/ai-core && cargo test   # AI 提示词/JSON 解析/schema 归一化
 
 ## 双窗口自检
 
-`npm run verify:native` 会以 `TODO_VERIFY_WINDOWS=1` 启动调试版，自动创建主形态便利贴窗口，读取实际 WebviewWindow 列表与两个窗口的 DOM 状态后退出。预期输出：
+`npm run verify:native` 会以 `TODO_VERIFY_WINDOWS=1` 启动调试版，自动创建主形态便利贴窗口（创建时隐藏，由 `StickyApp` 就绪后自行显示），读取实际 WebviewWindow 列表与两个窗口的 DOM 状态后退出。预期输出：
 
 ```text
 windows=2

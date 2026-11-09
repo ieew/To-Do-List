@@ -18,6 +18,7 @@
   - 全局 UI 状态（主题、侧栏、便利贴置顶）：`$state` 在 `.svelte.ts` 模块中。
   - 投影数据（任务、标签、历史、同步状态）：Rust 是唯一真相源；前端通过 typed commands 拉取，存入 `$state` 或 `$derived`，拉取即覆盖。
 - 前端禁止将业务数据持久化到 `localStorage` / `IndexedDB`。唯一持久化在 Rust 侧 SQLite。
+- 允许用 `localStorage` 缓存**纯 UI 偏好**，用于启动首帧避免闪变（当前白名单仅 `todo.theme`）；任务、工作区、成员、历史、密钥等一律不得写入，仍只经 Rust 投影。
 - 前端禁止实现任何合并、HLC、权限裁决逻辑。
 
 ## 四、IPC 类型共享
@@ -37,3 +38,18 @@
 - `ui/src/views/` 按功能纵向切分（`tasks/` / `history/` / `sticky-note/`）。
 - `ui/src/lib/state/` 按域拆分 `.svelte.ts` 全局状态模块。
 - 禁止横向巨型层（一个 `services/` 或 `utils/` 装所有逻辑）。
+
+## 六、启动与首屏
+
+> 目标：WebView2 初始化期间用户不能看到白色或空白窗口；从「窗口出现」到「可交互」只允许一次过渡。
+
+- **窗口可见性**：主窗口必须 `"visible": false` 创建，禁止创建即显示。显示时机为「启动占位已进入 DOM」：
+  - `index.html` 末尾内联脚本调用 `plugin:window|show`（不依赖模块加载，先于主入口执行）；
+  - `main.ts` 挂载时再显式 `show()` 一次，作为脚本部分失败时的兜底；
+  - Rust `setup()` 起 3 秒兜底线程，窗口仍不可见则强制显示。任何前端异常都不得让窗口永久隐藏。
+- **启动占位唯一**：`index.html` 内联 `#boot`（Logo + 进度条，背景与主题一致），覆盖到 `bootstrap` 完成且 Svelte 首次挂载之后，再淡出（约 180ms；`prefers-reduced-motion` 下直接移除）。禁止「启动占位 → 骨架屏 → 内容」的多层接力，也不使用全屏 spinner。
+- **初始化顺序**：Tauri 模式下 `store.loading` 初值为 `true`；`main.ts` 先 `await store.init()`（上限 3 秒）再 `mount`，确保不渲染种子/演示数据；失败落到 `App.svelte` 的可重试错误覆盖层。
+- **主题一致**：`settings.theme` 写入 `localStorage['todo.theme']` 供首帧占位选色（见第三节白名单）；Rust 在显示窗口前按同一主题调用 `set_background_color`，避免「浅色占位 → 暗色界面」闪变。
+- **首屏分包**：非首屏组件（`CalendarView`、`StatsView`、`GlobalHistory`）与浏览器预览专用组件（`StickyMode`、`FloatingSticky`）必须动态 `import()`；构建产物入口 HTML 不得 `modulepreload` 这些 chunk。启动 1.2 秒后可空闲预取。
+- **便利贴窗口**：同样隐藏创建，渲染就绪后再显示并完成主窗口换手，见 `sticky-note-spec.md` 二。
+- **验收**：冷启动无纯白帧；窗口首帧为启动占位或已就绪界面；暗色主题重启无浅色闪变；前端脚本抛错时窗口仍能在 3 秒内显示。

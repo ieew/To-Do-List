@@ -1,16 +1,11 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import AiModal from './components/AiModal.svelte';
-  import CalendarView from './components/CalendarView.svelte';
   import ContextMenu from './components/ContextMenu.svelte';
   import DetailDrawer from './components/DetailDrawer.svelte';
-  import FloatingSticky from './components/FloatingSticky.svelte';
-  import GlobalHistory from './components/GlobalHistory.svelte';
   import QuickAddModal from './components/QuickAddModal.svelte';
   import SettingsOverlay from './components/SettingsOverlay.svelte';
   import Sidebar from './components/Sidebar.svelte';
-  import StatsView from './components/StatsView.svelte';
-  import StickyMode from './components/StickyMode.svelte';
   import TaskView from './components/TaskView.svelte';
   import TitleBar from './components/TitleBar.svelte';
   import Toast from './components/Toast.svelte';
@@ -19,8 +14,20 @@
 
   const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
+  /** 单例化的按需 import，避免 await 块在父组件更新时被重置。 */
+  function lazy<T>(factory: () => Promise<T>): () => Promise<T> {
+    let cached: Promise<T> | null = null;
+    return () => (cached ??= factory());
+  }
+
+  /* 非首屏组件按需加载：启动时不必解析浏览器预览专用的便利贴与低频视图。 */
+  const loadCalendarView = lazy(() => import('./components/CalendarView.svelte'));
+  const loadStatsView = lazy(() => import('./components/StatsView.svelte'));
+  const loadGlobalHistory = lazy(() => import('./components/GlobalHistory.svelte'));
+  const loadStickyMode = lazy(() => import('./components/StickyMode.svelte'));
+  const loadFloatingSticky = lazy(() => import('./components/FloatingSticky.svelte'));
+
   onMount(() => {
-    void store.init();
     const demo = new URLSearchParams(window.location.search).get('demo');
     if (!demo) return;
     setTimeout(() => {
@@ -45,6 +52,12 @@
   $effect(() => {
     document.documentElement.dataset.theme = store.theme;
     document.documentElement.dataset.density = store.density;
+    // 仅缓存 UI 偏好，供下次启动的首帧占位选用正确配色；业务数据仍只存在 Rust 投影里。
+    try {
+      localStorage.setItem('todo.theme', store.settings.theme);
+    } catch {
+      /* 存储不可用时忽略 */
+    }
   });
 
   let resizing = $state(false);
@@ -162,13 +175,19 @@
 
       <main class="main-pane">
         {#if store.globalHistory}
-          <GlobalHistory />
+          {#await loadGlobalHistory() then { default: GlobalHistory }}
+            <GlobalHistory />
+          {/await}
         {:else}
           <Toolbar />
           {#if store.view === 'calendar'}
-            <CalendarView />
+            {#await loadCalendarView() then { default: CalendarView }}
+              <CalendarView />
+            {/await}
           {:else if store.view === 'stats'}
-            <StatsView />
+            {#await loadStatsView() then { default: StatsView }}
+              <StatsView />
+            {/await}
           {:else}
             <TaskView />
           {/if}
@@ -181,12 +200,16 @@
   </div>
 
   {#if store.stickyMode && !isTauri}
-    <StickyMode />
+    {#await loadStickyMode() then { default: StickyMode }}
+      <StickyMode />
+    {/await}
   {/if}
 
   {#if !isTauri}
     {#each store.floatingStickies as sticky, index (sticky.id)}
-      <FloatingSticky {sticky} {index} />
+      {#await loadFloatingSticky() then { default: FloatingSticky }}
+        <FloatingSticky {sticky} {index} />
+      {/await}
     {/each}
   {/if}
 

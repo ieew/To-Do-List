@@ -84,6 +84,8 @@ pub async fn open_sticky_window(
         .transparent(true)
         .always_on_top(true)
         .skip_taskbar(true)
+        // 隐藏创建，等前端投影就绪后再显示，避免创建瞬间的空白/白底闪一下。
+        .visible(false)
         .resizable(true);
 
     if let Ok(Some(monitor)) = app.primary_monitor() {
@@ -109,11 +111,27 @@ pub async fn open_sticky_window(
         .build()
         .map_err(|error| format!("创建便利贴窗口失败: {error}"))?;
 
-    if is_main {
-        if let Some(main) = app.get_webview_window("main") {
-            let _ = main.hide();
+    // 便利贴由前端在渲染就绪后显示，再由前端调用 `hide_main_window` 完成换手，
+    // 避免「主窗口先消失、便利贴后出现」之间露出桌面。
+    // 兜底：前端脚本异常时 2.5 秒后强制显示，避免两个窗口都不可见。
+    let handle = app.clone();
+    let fallback_label = label.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(2500));
+        let Some(window) = handle.get_webview_window(&fallback_label) else {
+            return;
+        };
+        if !matches!(window.is_visible(), Ok(false)) {
+            return;
         }
-    }
+        let _ = window.show();
+        let _ = window.set_focus();
+        if fallback_label == "sticky-main" {
+            if let Some(main) = handle.get_webview_window("main") {
+                let _ = main.hide();
+            }
+        }
+    });
 
     Ok(label)
 }
@@ -131,6 +149,15 @@ pub async fn close_sticky_window(app: AppHandle, label: String) -> Result<(), St
 pub async fn show_main_window(app: AppHandle) -> Result<(), String> {
     close_window(&app, "sticky-main");
     show_main(&app);
+    Ok(())
+}
+
+/// 便利贴显示后再由前端调用，保证换手过程中始终有窗口可见。
+#[tauri::command]
+pub async fn hide_main_window(app: AppHandle) -> Result<(), String> {
+    if let Some(main) = app.get_webview_window("main") {
+        let _ = main.hide();
+    }
     Ok(())
 }
 

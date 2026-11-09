@@ -4,6 +4,17 @@
     <meta charset="UTF-8" />
     <meta name="color-scheme" content="light dark" />
     <title>待办清单</title>
+    <script>
+      // 仅缓存 UI 偏好：让启动占位在首帧就用对主题，避免暗色用户看到浅色闪变。
+      try {
+        var cachedTheme = localStorage.getItem('todo.theme');
+        if (cachedTheme === 'dark' || cachedTheme === 'light') {
+          document.documentElement.dataset.theme = cachedTheme;
+        }
+      } catch (error) {
+        /* localStorage 不可用时保持默认浅色 */
+      }
+    </script>
     <style>
       html,
       body {
@@ -73,27 +84,35 @@
           transform: translateX(360%);
         }
       }
-      @media (prefers-color-scheme: dark) {
-        html,
-        body,
-        #boot {
-          background: #0f172a;
-        }
-        #boot {
-          color: #94a3b8;
-        }
-        #boot .boot-logo {
-          background: rgba(59, 130, 246, 0.16);
-          color: #60a5fa;
-        }
-        #boot .boot-bar {
-          background: #1e293b;
-        }
+      /* 主题以 localStorage 里的 UI 偏好为准（与应用内设置一致），
+         不再跟随系统深浅色，避免「系统暗色 + 应用浅色」时启动闪暗。 */
+      html[data-theme='dark'],
+      html[data-theme='dark'] body,
+      html[data-theme='dark'] #boot {
+        background: #0f172a;
+      }
+      html[data-theme='dark'] #boot {
+        color: #94a3b8;
+      }
+      html[data-theme='dark'] #boot .boot-logo {
+        background: rgba(59, 130, 246, 0.16);
+        color: #60a5fa;
+      }
+      html[data-theme='dark'] #boot .boot-bar {
+        background: #1e293b;
+      }
+      #boot.boot-leave {
+        opacity: 0;
+        transition: opacity 180ms ease-out;
+        pointer-events: none;
       }
       @media (prefers-reduced-motion: reduce) {
         #boot .boot-logo,
         #boot .boot-bar::after {
           animation: none;
+        }
+        #boot.boot-leave {
+          transition: none;
         }
       }
     </style>
@@ -119,6 +138,21 @@
       <span>待办清单</span>
       <div class="boot-bar" aria-hidden="true"></div>
     </div>
+    <script>
+      // 启动提速：主窗口在 Rust 侧是隐藏创建的。这段脚本不依赖任何模块，
+      // 会比主入口先执行，让用户尽快看到上面的 Logo 占位。
+      // 失败也无妨：main.ts 挂载时还会再显示一次，Rust 侧另有 3 秒兜底。
+      (function () {
+        var internals = window.__TAURI_INTERNALS__;
+        if (!internals || typeof internals.invoke !== 'function') return;
+        try {
+          internals.invoke('plugin:window|show', { label: 'main' }).catch(function () {});
+          internals.invoke('plugin:window|set_focus', { label: 'main' }).catch(function () {});
+        } catch (error) {
+          /* 忽略 */
+        }
+      })();
+    </script>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

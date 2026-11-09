@@ -127,7 +127,8 @@ class TodoStore {
   activeTagId = $state<string | null>(null);
   view = $state<MainView>('today');
   search = $state('');
-  loading = $state(false);
+  // Tauri 模式首帧就是加载态，避免先渲染种子数据再被真实投影覆盖。
+  loading = $state(isTauri);
   loadError = $state<string | null>(null);
 
   selectedTaskId = $state<string | null>(null);

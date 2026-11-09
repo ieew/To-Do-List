@@ -8,6 +8,7 @@ use rusqlite::Connection;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::Mutex;
+use tauri::window::Color;
 use tauri::Manager;
 
 /// 便利贴窗口的创建上下文。独立 Webview 通过 label 反查模式与聚焦任务。
@@ -55,6 +56,33 @@ pub fn run() {
             println!("数据目录: {}", data_dir.display());
             let conn = storage::open(&data_dir.join(storage::DB_FILE))?;
             storage::seed_if_empty(&conn)?;
+
+            // 主窗口在配置里是隐藏创建的，等前端首帧就绪后再显示，避免 WebView2
+            // 初始化期间用户看到一个空白窗口。这里先把底色同步成当前主题，
+            // 保证「显示窗口 → 首帧绘制」之间不会闪白或闪错颜色。
+            if let Some(main) = app.get_webview_window("main") {
+                let theme = storage::load_settings(&conn).theme;
+                let background = if theme == "dark" {
+                    Color(15, 23, 42, 255) // #0f172a
+                } else {
+                    Color(248, 250, 252, 255) // #f8fafc
+                };
+                let _ = main.set_background_color(Some(background));
+
+                // 兜底：前端脚本若加载失败，主窗口会一直隐藏。3 秒后强制显示，
+                // 至少让用户看到 HTML 里的启动占位，而不是「双击没反应」。
+                let handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_millis(3000));
+                    if let Some(window) = handle.get_webview_window("main") {
+                        if matches!(window.is_visible(), Ok(false)) {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                    }
+                });
+            }
+
             app.manage(AppState {
                 db: Mutex::new(conn),
                 sticky_contexts: Mutex::new(HashMap::new()),
@@ -146,6 +174,7 @@ pub fn run() {
             windows::open_sticky_window,
             windows::close_sticky_window,
             windows::show_main_window,
+            windows::hide_main_window,
             windows::get_sticky_context,
             windows::list_sticky_windows,
         ])

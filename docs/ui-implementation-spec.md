@@ -39,11 +39,11 @@
 
 点击标题栏「便利贴」后：
 
-1. 调用 `hide()` 隐藏主窗口 `main`，保持 Rust 进程与投影源存活。
-2. 由 Rust 创建独立 `WebviewWindow`，label `sticky-main`，加载 `sticky.html`，默认 340×440、`decorations=false`、`transparent=true`、`always_on_top=true`、`skip_taskbar=true`、`resizable=true`。
-3. 便利贴窗口只加载轻量 `StickyApp`，不加载主窗口完整 UI。
+1. 由 Rust 创建隐藏的独立 `WebviewWindow`，label `sticky-main`，加载 `sticky.html`，默认 340×440、`decorations=false`、`transparent=true`、`always_on_top=true`、`skip_taskbar=true`、`resizable=true`、`visible=false`。
+2. 便利贴窗口只加载轻量 `StickyApp`，不加载主窗口完整 UI。
+3. 便利贴在 `bootstrap` 与上下文就绪后 `show()` + `setFocus()`，随后前端调用 `hide_main_window` 隐藏主窗口 `main`（保持 Rust 进程与投影源存活）。顺序不得颠倒，避免露出桌面空白。
 4. 点击「展开大界面」：先关闭 `sticky-main`，再 `show()` + `setFocus()` 主窗口。
-5. 主窗口与主形态便利贴互斥，同一时刻最多一个。
+5. 主窗口与主形态便利贴互斥，同一时刻最多一个。Rust 侧 2.5 秒兜底：便利贴仍不可见则强制显示并隐藏主窗口。
 
 > 禁止在主窗口内用 `position: fixed` 浮层或 `scale(.96)` 模拟。浏览器预览可保留浮层作为视觉降级，但生产构建不得走该路径。
 
@@ -192,7 +192,8 @@
 
 ### 3.12 加载态
 
-- 首屏：骨架屏，任务行占位 3 条，进度卡占位 1 块，300ms 后淡入真实内容。
+- 应用启动：使用 `index.html` 内联启动占位（Logo + 进度条，背景与应用主题一致），从窗口显示持续到 `bootstrap` 完成、首次挂载之后，再 180ms 淡出；不使用骨架屏或全屏 spinner，也不得先渲染演示数据再被真实投影覆盖。
+- 任务列表：应用内重新加载/失败重试时显示骨架屏，任务行占位 3 条，进度卡占位 1 块。
 - 抽屉内容：打开时若投影未就绪，显示 3 条骨架行，不显示空白。
 - 历史时间线：显示 2 条骨架节点。
 - 骨架屏颜色：`--color-border-2` 到 `--color-border` 之间脉冲，1.2s 循环。
@@ -308,7 +309,7 @@ AI 助手弹窗顶部提供两个 Tab：「API 直连」与「网页版 DeepSeek
 | 双击手柄 | 重置 180 |
 | 右键任务 | 上下文菜单：延期、删除、钉为便利贴、查看历史 |
 | 拖动任务 | 排序，落点 2px 主色线 |
-| 点击「📌 便利贴」 | 隐藏主窗口并创建独立 `sticky-main` 窗口 |
+| 点击「📌 便利贴」 | 创建隐藏的独立 `sticky-main` 窗口，渲染就绪后显示并隐藏主窗口 |
 | 点击「＋ 新便利贴」 | 创建独立浮动便利贴窗口，最多 5 个 |
 | 点击便利贴 `✕` | 关闭该便利贴窗口；主形态关闭时恢复主窗口 |
 | 点击便利贴「展开大界面」 | 关闭该便利贴窗口并 `show()` 主窗口 |

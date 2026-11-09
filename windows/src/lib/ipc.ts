@@ -111,6 +111,8 @@ export const ipc = {
 
   showMainWindow: () => invoke<void>('show_main_window'),
 
+  hideMainWindow: () => invoke<void>('hide_main_window'),
+
   getStickyContext: (label: string) =>
     invoke<StickyContext | null>('get_sticky_context', { label }),
 
