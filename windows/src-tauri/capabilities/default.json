@@ -13,6 +13,15 @@
     "core:window:allow-set-always-on-top",
     "core:window:allow-hide",
     "core:window:allow-show",
-    "core:window:allow-set-focus"
+    "core:window:allow-set-focus",
+    "clipboard-manager:allow-read-text",
+    "clipboard-manager:allow-write-text",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [
+        { "url": "https://chat.deepseek.com" },
+        { "url": "https://chat.deepseek.com/*" }
+      ]
+    }
   ]
 }

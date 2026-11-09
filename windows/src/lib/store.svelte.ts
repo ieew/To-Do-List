@@ -1164,15 +1164,19 @@ class TodoStore {
 
   /* ------------------------------- AI ------------------------------- */
 
-  async aiCreateTasks(plan: AiPlanItem[]): Promise<void> {
+  async aiCreateTasks(plan: AiPlanItem[], model = this.settings.aiModel || 'ai'): Promise<void> {
+    if (!plan.length) return;
     for (const item of plan) {
       await this.createTask({
         title: item.title,
+        notes: item.notes,
         priority: item.priority,
         listId: item.listId,
         dueAt: item.dueAt,
+        tagIds: item.tagIds,
+        subtasks: item.subtasks,
         source: 'ai',
-        model: this.settings.aiModel
+        model
       });
     }
     this.showToast(`AI 已写入 ${plan.length} 条任务，可撤销`, 'ok');

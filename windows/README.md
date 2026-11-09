@@ -64,14 +64,14 @@ npm run tauri dev
 - **Rust 数据层**：SQLite `op_log` 只追加；HLC 全序、字段级 LWW、标签与子任务 OR-Set、确定性投影 reducer；写操作同事务写 `op_log` + 推进 `local_hlc` + 广播 `projection-updated`。
 - **多工作区**：侧栏工作区切换 popover，支持切换与新建；`bootstrap` 按 `workspace_id` 读取工作区、成员、清单、标签、任务与历史；`active_workspace_id` 存本地偏好。
 - **成员列表**：侧栏与设置页均来自 `membership` 投影，按当前工作区过滤，角色徽章中文化；支持角色变更与移除（本地模拟，未连接服务端）。
-- **AI 密钥**：设置页密钥框可编辑、可显示/隐藏、可保存/清除，状态徽章「已配置/未配置」；Windows 落 Credential Manager，明文不写 SQLite / op_log / 日志；未配置时 AI 生成按钮禁用并引导到设置。
+- **AI 密钥**：设置页密钥框可编辑、可显示/隐藏、可保存/清除，状态徽章「已配置/未配置」；Windows 落 Credential Manager，明文不写 SQLite / op_log / 日志；API 直连未配置时生成按钮禁用并引导到设置。
 - **独立便利贴窗口（S2/S3）**：点击「便利贴」隐藏主窗口并由 Rust 创建 `sticky-main` 独立 `WebviewWindow`；浮动便利贴各自独立窗口，最多 5 个；所有窗口从 Rust 投影取数并监听 `projection-updated`。
 - **任务**：分组（今天/即将到来/已完成）、优先级、截止与提醒、标签 chip、子任务进度、AI 徽章、逾期高亮、拖拽排序。
 - **详情抽屉**：320px 固定宽、详情/历史 Tab、字段编辑、标签增删、子任务增删勾选、备注、删除确认、保存生成历史 op。
 - **历史时间线**：人工/AI/系统节点样式、全部/仅 AI/仅我筛选、diff、op_id/model/source、撤销生成反向 op（不删除原 op）。
 - **全局历史（S4）**：侧栏入口、跨任务时间线、点击任务跳转。
 - **设置覆盖层**：外观（浅色/暗色、密度、侧栏宽度）、任务、提醒、AI、同步与数据、成员、快捷键、关于；脏状态、保存/放弃。
-- **AI 助手**：本地端点、提示词快捷项、生成草案、确认写入（`source="ai"`），历史可撤销。
+- **AI 助手**：API 直连兼容 OpenAI Chat Completions（DeepSeek / Ollama / LM Studio 等），密钥仅在 Rust 侧读取；草案预览、字段告警、批量阈值二次确认后写入（`source="ai"`），历史可撤销。网页版 DeepSeek 桥接源码保留，当前通过 `SHOW_WEB_BRIDGE = false` 在界面上隐藏，改为 `true` 即可恢复。
 - **快捷添加与右键菜单**：延期、钉为便利贴、查看历史、删除。
 - **键盘**：`Esc`、`Ctrl+N`、`Ctrl+F`、`Ctrl+Shift+T`、`Ctrl+,`、`Ctrl+Enter`、`↑/↓`、`Enter`、`Space`。
 - **视觉**：暗色令牌、焦点环、骨架屏、空态、错误提示、`prefers-reduced-motion`、图标全部替换为 `lucide-svelte`（无 emoji 图标）。
@@ -118,7 +118,9 @@ windows/
 │   ├── core_domain.rs            HLC / op / LWW / OR-Set / reducer
 │   ├── storage.rs                SQLite schema、迁移、op_log、本地偏好
 │   ├── commands.rs               bootstrap / task / workspace / history / settings / ai key
+│   ├── ai.rs                     AI 命令层：上下文、keyring、HTTP 调用、错误映射
 │   └── windows.rs                sticky 窗口创建、关闭、主窗口显示隐藏
+│   ai-core/                      纯 AI 逻辑：提示词、JSON 提取、schema 归一化、端点拼接
 ├── scripts/                      Edge/Puppeteer 视觉验收与原生窗口枚举脚本
 ├── desktop/                      已构建的调试版 exe
 └── shots/                        验收截图
@@ -149,9 +151,10 @@ npm run shoot           # 用 Edge 批量截图（需先启动 dev）
 npm run interact        # 端到端交互回归（需先启动 dev）
 npm run verify:changes  # 工作区/成员/密钥/独立便利贴专项验收（需先启动 dev）
 npm run verify:native   # 原生双窗口 + Rust 投影 DOM 自检（需先构建调试版）
+cd src-tauri/ai-core && cargo test   # AI 提示词/JSON 解析/schema 归一化单元测试
 ```
 
-原生构建说明：本机使用 `x86_64-pc-windows-gnu`，Tauri 的 `crate-type` 已收窄为 `rlib`，避免 MinGW/UCRT 下 cdylib 导出序号过大；`start-desktop.bat` / `build-desktop.bat` 会把 WinLibs 加入 `PATH`，并把 `CARGO_TARGET_DIR` 指到 `%TEMP%\todo-target`。在中文路径下直接 `cargo check` 可能触发 MinGW 临时文件链接失败，请沿用脚本环境。
+原生构建说明：本机使用 `x86_64-pc-windows-gnu`，Tauri 的 `crate-type` 已收窄为 `rlib`，避免 MinGW/UCRT 下 cdylib 导出序号过大；`start-desktop.bat` / `build-desktop.bat` 会把 WinLibs 加入 `PATH`，并把 `CARGO_TARGET_DIR` 指到 `%TEMP%\todo-target`。在中文路径下直接 `cargo check` 可能触发 MinGW 临时文件链接失败，请沿用脚本环境。`src-tauri/build.rs` 会自动把图标复制到 `%TEMP%\todo-build-icons` 并通过 `TAURI_CONFIG` 覆盖 `bundle.icon`，避免 `windres` 读取中文路径下的 `.ico` 失败。
 
 ## 双窗口自检
 

@@ -1,3 +1,4 @@
+mod ai;
 mod commands;
 mod core_domain;
 mod storage;
@@ -43,6 +44,8 @@ fn app_info() -> AppInfo {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             // 数据默认放在「软件同目录/data」；若该目录不可写（如安装在 Program Files），
             // 回退到系统应用数据目录，并把旧版本库搬迁过来。
@@ -137,6 +140,9 @@ pub fn run() {
             commands::ai_key_status,
             commands::set_ai_key,
             commands::clear_ai_key,
+            ai::ai_build_prompt,
+            ai::ai_generate_tasks,
+            ai::ai_parse_plan,
             windows::open_sticky_window,
             windows::close_sticky_window,
             windows::show_main_window,

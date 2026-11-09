@@ -116,11 +116,11 @@ fn append(
     Ok(())
 }
 
-fn active_workspace(conn: &Connection) -> String {
+pub(crate) fn active_workspace(conn: &Connection) -> String {
     storage::active_workspace_id(conn).unwrap_or_else(|| "ws-me".to_string())
 }
 
-fn build_projection(conn: &Connection, workspace_id: &str) -> AnyResult<Projection> {
+pub(crate) fn build_projection(conn: &Connection, workspace_id: &str) -> AnyResult<Projection> {
     let ops = storage::load_ops(conn)?;
     let settings = storage::load_settings(conn);
     Ok(Projection::build(
@@ -415,19 +415,20 @@ pub fn create_task(
             let sub_id = format!("sub-{}", &Uuid::new_v4().to_string()[..8]);
             append(
                 conn, &device, &actor, &workspace_id, "task", &task_id, "add", "__subtask",
-                json!(sub_id), "human", None,
+                json!(sub_id), source, input.model.as_deref(),
             )?;
             append(
                 conn, &device, &actor, &workspace_id, "task", &task_id, "set",
-                &format!("__subtask:{sub_id}:text"), json!(text), "human", None,
+                &format!("__subtask:{sub_id}:text"), json!(text), source, input.model.as_deref(),
             )?;
             append(
                 conn, &device, &actor, &workspace_id, "task", &task_id, "set",
-                &format!("__subtask:{sub_id}:done"), json!(false), "human", None,
+                &format!("__subtask:{sub_id}:done"), json!(false), source, input.model.as_deref(),
             )?;
             append(
                 conn, &device, &actor, &workspace_id, "task", &task_id, "set",
-                &format!("__subtask:{sub_id}:order"), json!(index as f64), "human", None,
+                &format!("__subtask:{sub_id}:order"), json!(index as f64), source,
+                input.model.as_deref(),
             )?;
         }
         Ok(())
@@ -842,7 +843,7 @@ pub fn save_settings(
 
 /* ----------------------------- AI 密钥 ----------------------------- */
 
-fn keyring_entry() -> Result<keyring::Entry, String> {
+pub(crate) fn keyring_entry() -> Result<keyring::Entry, String> {
     keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER)
         .map_err(|error| format!("无法访问系统凭据管理器: {error}"))
 }

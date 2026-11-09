@@ -145,7 +145,19 @@ results.roleSelects = await page.$$eval('.role-select', (els) => els.length);
 results.ownerSelectDisabled = await page.$eval('.role-select', (el) => el.disabled);
 results.inviteFormVisible = !!(await page.$('.invite-grid'));
 
-// 4. 独立便利贴入口（浏览器降级渲染）
+// 4. AI 入口：网页版桥接默认隐藏，仅保留 API 直连
+await page.goto(`${BASE}?demo=ai`, { waitUntil: 'load' });
+await sleep(900);
+results.aiModalVisible = !!(await page.$('.ai-modal'));
+results.aiTabs = await page.$$eval('.ai-tab', (els) => els.map((el) => el.textContent.trim()));
+results.webBridgeHidden = results.aiTabs.length === 0;
+await page.type('.ai-textarea', '规划今晚的学习');
+await sleep(150);
+results.apiGenerateEnabled = await page
+  .$eval('.ai-actions .btn-primary', (el) => !el.disabled)
+  .catch(() => false);
+
+// 5. 独立便利贴入口（浏览器降级渲染）
 await page.goto(`${BASE}sticky.html?mode=main`, { waitUntil: 'load' });
 await sleep(900);
 results.stickyMainRendered = !!(await page.$('.sticky-note'));

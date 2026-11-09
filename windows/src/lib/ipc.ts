@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import type { BootstrapResponse, Settings } from './types';
+import type { AiPlanResponse, BootstrapResponse, Settings } from './types';
 
 export const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
@@ -85,6 +85,24 @@ export const ipc = {
   setAiKey: (apiKey: string) => invoke<boolean>('set_ai_key', { apiKey }),
 
   clearAiKey: () => invoke<boolean>('clear_ai_key'),
+
+  buildAiPrompt: (prompt: string, workspaceId?: string | null) =>
+    invoke<string>('ai_build_prompt', {
+      prompt,
+      workspaceId: workspaceId ?? null
+    }),
+
+  generateAiTasks: (prompt: string, workspaceId?: string | null) =>
+    invoke<AiPlanResponse>('ai_generate_tasks', {
+      prompt,
+      workspaceId: workspaceId ?? null
+    }),
+
+  parseAiPlan: (text: string, workspaceId?: string | null) =>
+    invoke<AiPlanResponse>('ai_parse_plan', {
+      text,
+      workspaceId: workspaceId ?? null
+    }),
 
   openStickyWindow: (mode: 'main' | 'floating', taskId?: string | null) =>
     invoke<string>('open_sticky_window', { mode, taskId: taskId ?? null }),

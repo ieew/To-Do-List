@@ -145,9 +145,17 @@ export interface Settings {
 
 export interface AiPlanItem {
   title: string;
+  notes: string;
   priority: Priority;
   listId: string;
   dueAt: string | null;
+  subtasks: string[];
+  tagIds: string[];
+}
+
+export interface AiPlanResponse {
+  tasks: AiPlanItem[];
+  warnings: string[];
 }
 
 export interface Projection {
