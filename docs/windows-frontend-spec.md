@@ -27,6 +27,9 @@
 - 生成文件 `src/lib/ipc-bindings.generated.ts` 纳入 git。
 - CI 中运行生成步骤并检查 `git diff` 为空；Rust DTO 变更但前端未重新生成时 CI 失败。
 - 前端组件通过 `src/lib/ipc.ts` 的薄封装调用生成的 `commands.xxx()`，不直接 import 生成文件，以便集中处理 trace 和错误映射。
+- 工作区级命令：`create_workspace`、`rename_workspace`、`delete_workspace`。新建返回 `Workspace`；删除返回删除后的当前工作区 id，前端据此立即切换作用域。
+- 工作区级变更（新建 / 重命名 / 删除）广播 `projection-updated` 时 payload 的 `workspaceId` 为 `null`，表示所有窗口都要刷新；任务、成员等作用域内变更仍携带具体 `workspaceId`。
+- `create_workspace` 必须在同一事务内写入工作区、成员关系、4 个预设清单与 5 个预设标签；前端不得自行拼装预设数据写库。
 
 ## 五、目录结构
 

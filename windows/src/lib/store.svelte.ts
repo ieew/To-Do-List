@@ -1,5 +1,7 @@
 import {
   defaultSettings,
+  presetLists,
+  presetTags,
   seedHistory,
   seedLists,
   seedMembers,
@@ -422,15 +424,20 @@ class TodoStore {
 
   /* ----------------------------- 工作区 ----------------------------- */
 
-  async setActiveWorkspace(id: string): Promise<void> {
-    if (id === this.activeWorkspaceId) return;
-    this.activeWorkspaceId = id;
+  /** 切换或删除工作区后统一重置作用域内的筛选与浮层状态。 */
+  private resetWorkspaceScopedState(): void {
     this.activeTagId = null;
     this.search = '';
     this.globalHistory = false;
     this.drawerOpen = false;
     this.selectedTaskId = null;
     this.view = 'today';
+  }
+
+  async setActiveWorkspace(id: string): Promise<void> {
+    if (id === this.activeWorkspaceId) return;
+    this.activeWorkspaceId = id;
+    this.resetWorkspaceScopedState();
 
     if (isTauri) {
       try {
@@ -446,17 +453,17 @@ class TodoStore {
   }
 
   private applyBrowserWorkspace(id: string): void {
-    // 浏览器预览与 Tauri 首次启动一致：保留默认清单与标签，但不注入任何演示任务。
+    // 浏览器预览与 Tauri 保持一致：预设清单与标签，但不注入任何演示任务。
     this.tasks = [];
     this.history = [];
-    if (id === 'ws-me') {
-      this.lists = seedLists;
-      this.tags = seedTags;
-    } else {
-      this.lists = [{ id: `${id}-today`, name: '今天', color: '#3B82F6', smart: true }];
-      this.tags = [];
-    }
+    const prefix = id === 'ws-me' ? 'me' : id;
+    this.lists = presetLists(prefix);
+    this.tags = presetTags(prefix);
     this.activeListId = this.todayListId;
+  }
+
+  get canDeleteWorkspace(): boolean {
+    return this.workspaces.length > 1;
   }
 
   async createWorkspace(name: string): Promise<Workspace | null> {
@@ -465,10 +472,15 @@ class TodoStore {
       this.showToast('工作区名称不能为空', 'error');
       return null;
     }
+    if (Array.from(clean).length > 24) {
+      this.showToast('工作区名称需为 1–24 个字符', 'error');
+      return null;
+    }
     if (isTauri) {
       try {
         const created = await ipc.createWorkspace(clean);
         this.activeWorkspaceId = created.id;
+        this.resetWorkspaceScopedState();
         await this.refresh();
         this.showToast(`已创建并切换到「${created.name}」`);
         return created;
@@ -486,11 +498,19 @@ class TodoStore {
 
   async renameWorkspace(id: string, name: string): Promise<void> {
     const clean = name.trim();
-    if (!clean) return;
+    if (!clean) {
+      this.showToast('工作区名称不能为空', 'error');
+      return;
+    }
+    if (Array.from(clean).length > 24) {
+      this.showToast('工作区名称需为 1–24 个字符', 'error');
+      return;
+    }
     if (isTauri) {
       try {
         await ipc.renameWorkspace(id, clean);
         await this.refresh();
+        this.showToast('已重命名工作区');
       } catch (error) {
         this.showToast(errorMessage(error), 'error');
       }
@@ -499,6 +519,43 @@ class TodoStore {
     this.workspaces = this.workspaces.map((workspace) =>
       workspace.id === id ? { ...workspace, name: clean } : workspace
     );
+    this.showToast('已重命名工作区');
+  }
+
+  async deleteWorkspace(id: string): Promise<boolean> {
+    if (this.workspaces.length <= 1) {
+      this.showToast('至少需要保留一个工作区', 'error');
+      return false;
+    }
+    const target = this.workspaces.find((workspace) => workspace.id === id);
+    if (!target) return false;
+
+    if (isTauri) {
+      try {
+        const nextActive = await ipc.deleteWorkspace(id);
+        if (nextActive !== this.activeWorkspaceId) {
+          this.activeWorkspaceId = nextActive;
+          this.resetWorkspaceScopedState();
+        }
+        await this.refresh();
+        this.showToast(`已删除工作区「${target.name}」`);
+        return true;
+      } catch (error) {
+        this.showToast(errorMessage(error), 'error');
+        return false;
+      }
+    }
+
+    const remaining = this.workspaces.filter((workspace) => workspace.id !== id);
+    this.workspaces = remaining;
+    if (this.activeWorkspaceId === id) {
+      const next = remaining[0];
+      this.activeWorkspaceId = next?.id ?? '';
+      this.resetWorkspaceScopedState();
+      if (next) this.applyBrowserWorkspace(next.id);
+    }
+    this.showToast(`已删除工作区「${target.name}」`);
+    return true;
   }
 
   /* ------------------------------- 写入 ------------------------------- */

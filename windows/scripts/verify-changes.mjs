@@ -31,34 +31,81 @@ async function clickByText(selector, needle) {
   );
 }
 
-// 1. 工作区切换与成员列表
+// 1. 工作区预设、重命名与删除
 await page.goto(BASE, { waitUntil: 'load' });
 await sleep(1100);
 results.initialWorkspace = await text('.ws-name');
-results.sidebarMembers = await page.$$eval('.member-row', (els) => els.length);
-results.memberNames = await page.$$eval('.member-name', (els) =>
-  els.map((el) => el.textContent.replace(/\s+/g, '').trim())
-);
-
-await page.click('.ws-btn');
-await sleep(250);
-results.workspaceOptions = await page.$$eval('.ws-item-name', (els) =>
+results.initialLists = await page.$$eval('.sidebar .side-item .item-name', (els) =>
   els.map((el) => el.textContent.trim())
 );
-await clickByText('.ws-item', '产品团队');
-await sleep(700);
-results.workspaceAfterSwitch = await text('.ws-name');
-results.teamMembers = await page.$$eval('.member-name', (els) =>
-  els.map((el) => el.textContent.replace(/\s+/g, '').trim())
-);
-results.teamTaskRows = await page.$$eval('.task-row', (els) => els.length);
+results.sidebarMembers = await page.$$eval('.member-row', (els) => els.length);
 
-// 切回我的空间
+async function openWorkspacePopover() {
+  await page.click('.ws-btn');
+  await sleep(250);
+}
+
+// 新建工作区：必须带 4 个预设清单与 5 个预设标签
+await openWorkspacePopover();
+await clickByText('.ws-action', '新建工作区');
+await sleep(200);
+await page.type('.ws-pop .ws-create .ws-input', '项目空间');
+await clickByText('.ws-create .ws-mini.primary', '创建');
+await sleep(700);
+results.createdWorkspace = await text('.ws-name');
+results.createdLists = await page.$$eval('.sidebar .side-item .item-name', (els) =>
+  els.map((el) => el.textContent.trim())
+);
+
+// 更多按钮 → 重命名
+await openWorkspacePopover();
+await page.click('.ws-row.is-active .ws-more');
+await sleep(200);
+results.workspaceMenuItems = await page.$$eval('.ws-menu-item', (els) =>
+  els.map((el) => el.textContent.trim())
+);
+await clickByText('.ws-menu-item', '重命名');
+await sleep(200);
+await page.click('.ws-rename .ws-input');
+await page.keyboard.down('Control');
+await page.keyboard.press('A');
+await page.keyboard.up('Control');
+await page.type('.ws-rename .ws-input', '重命名空间');
+await clickByText('.ws-rename .ws-mini.primary', '保存');
+await sleep(700);
+results.renamedWorkspace = await text('.ws-name');
+
+// 右键工作区 → 同一操作菜单
+await openWorkspacePopover();
+await page.click('.ws-row.is-active .ws-item', { button: 'right' });
+await sleep(200);
+results.contextMenuItems = await page.$$eval('.ws-menu-item', (els) =>
+  els.map((el) => el.textContent.trim())
+);
+await page.keyboard.press('Escape');
+await sleep(150);
+
+// 删除当前工作区 → 自动切回剩余工作区
+await page.click('.ws-row.is-active .ws-more');
+await sleep(200);
+await page.click('.ws-menu-item.danger');
+await sleep(200);
+results.deleteConfirmVisible = !!(await page.$('.ws-confirm'));
+await page.click('.ws-confirm .ws-mini.danger');
+await sleep(800);
+results.afterDeleteWorkspace = await text('.ws-name');
+
+// 最后一个工作区：删除项必须禁用
+await openWorkspacePopover();
+results.workspaceCountAfterDelete = await page.$$eval('.ws-item-name', (els) => els.length);
+await page.click('.ws-row.is-active .ws-more');
+await sleep(200);
+results.lastDeleteDisabled = await page.$eval('.ws-menu-item.danger', (el) => el.disabled);
+results.lastDeleteHint = await text('.ws-menu-hint');
+await page.keyboard.press('Escape');
+await sleep(150);
 await page.click('.ws-btn');
 await sleep(200);
-await clickByText('.ws-item', '我的空间');
-await sleep(700);
-results.workspaceBack = await text('.ws-name');
 
 // 2. 设置中的 AI 密钥可编辑
 await page.click('.tb-actions .icon-btn');

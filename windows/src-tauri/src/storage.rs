@@ -374,7 +374,63 @@ fn seed_set(
     )
 }
 
-/// 首次启动写入最小可用骨架：默认工作区、当前用户、所有者关系、默认清单与常用标签。
+/// 预设清单：key、名称、颜色、排序。默认工作区与新建工作区必须共用这一份定义。
+const DEFAULT_LISTS: [(&str, &str, &str, f64); 4] = [
+    ("today", "今天", "#3B82F6", 0.0),
+    ("work", "工作", "#F59E0B", 1.0),
+    ("life", "生活", "#10B981", 2.0),
+    ("study", "学习", "#8B5CF6", 3.0),
+];
+
+/// 预设标签：key、名称、背景色、前景色、是否显示在侧栏。
+const DEFAULT_TAGS: [(&str, &str, &str, &str, bool); 5] = [
+    ("work", "工作", "#EFF6FF", "#2563EB", false),
+    ("life", "生活", "#ECFDF5", "#059669", false),
+    ("study", "学习", "#F5F3FF", "#7C3AED", false),
+    ("important", "重要", "#FEF2F2", "#DC2626", true),
+    ("week", "本周", "#FEF3C7", "#B45309", true),
+];
+
+/// 给单个工作区铺预设清单与标签。
+///
+/// `prefix` 决定实体 id：默认工作区传 `me`，得到 `me-today` / `me-tag-work`；
+/// 新工作区传 `workspace_id`，得到 `<workspace_id>-today` / `<workspace_id>-tag-work`。
+pub fn seed_workspace_presets(
+    conn: &Connection,
+    device: &str,
+    actor: &str,
+    workspace: &str,
+    prefix: &str,
+) -> Result<()> {
+    for (key, name, color, order) in DEFAULT_LISTS {
+        seed_list(
+            conn,
+            device,
+            actor,
+            workspace,
+            &format!("{prefix}-{key}"),
+            name,
+            color,
+            order,
+        )?;
+    }
+    for (key, name, bg, fg, sidebar) in DEFAULT_TAGS {
+        seed_tag(
+            conn,
+            device,
+            actor,
+            workspace,
+            &format!("{prefix}-tag-{key}"),
+            name,
+            bg,
+            fg,
+            sidebar,
+        )?;
+    }
+    Ok(())
+}
+
+/// 首次启动写入最小可用骨架：默认工作区、当前用户、所有者关系、预设清单与预设标签。
 /// 不写入任何演示任务、协作成员或历史，保证用户首次打开就是干净的数据环境。
 pub fn seed_if_empty(conn: &Connection) -> Result<()> {
     let count: i64 = conn.query_row("SELECT COUNT(*) FROM op_log", [], |row| row.get(0))?;
@@ -391,23 +447,22 @@ pub fn seed_if_empty(conn: &Connection) -> Result<()> {
         conn, &device, me, workspace, me, "我", "我", "#3B82F6", "me@todo.local",
     )?;
     seed_membership(conn, &device, me, workspace, me, "owner")?;
-
-    // 默认清单
-    seed_list(conn, &device, me, workspace, "me-today", "今天", "#3B82F6", 0.0)?;
-    seed_list(conn, &device, me, workspace, "me-work", "工作", "#F59E0B", 1.0)?;
-    seed_list(conn, &device, me, workspace, "me-life", "生活", "#10B981", 2.0)?;
-    seed_list(conn, &device, me, workspace, "me-study", "学习", "#8B5CF6", 3.0)?;
-
-    // 默认标签
-    seed_tag(conn, &device, me, workspace, "me-tag-work", "工作", "#EFF6FF", "#2563EB", false)?;
-    seed_tag(conn, &device, me, workspace, "me-tag-life", "生活", "#ECFDF5", "#059669", false)?;
-    seed_tag(conn, &device, me, workspace, "me-tag-study", "学习", "#F5F3FF", "#7C3AED", false)?;
-    seed_tag(conn, &device, me, workspace, "me-tag-important", "重要", "#FEF2F2", "#DC2626", true)?;
-    seed_tag(conn, &device, me, workspace, "me-tag-week", "本周", "#FEF3C7", "#B45309", true)?;
+    seed_workspace_presets(conn, &device, me, workspace, "me")?;
 
     pref_set(conn, "active_workspace_id", workspace)?;
     pref_set(conn, "current_user_id", me)?;
     Ok(())
+}
+
+/// 在单事务内执行一组写入；任一步失败整体回滚，避免留下半成品工作区。
+pub fn with_transaction<T>(
+    conn: &Connection,
+    run: impl FnOnce(&Connection) -> Result<T>,
+) -> Result<T> {
+    let transaction = conn.unchecked_transaction()?;
+    let output = run(&transaction)?;
+    transaction.commit()?;
+    Ok(output)
 }
 
 fn seed_workspace(conn: &Connection, device: &str, actor: &str, id: &str, name: &str) -> Result<()> {
@@ -486,4 +541,88 @@ fn seed_tag(
     seed_set(conn, device, actor, workspace, "tag", id, "fg", json!(fg), "human", None)?;
     seed_set(conn, device, actor, workspace, "tag", id, "show_in_sidebar", json!(sidebar), "human", None)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core_domain::Projection;
+
+    fn build_for(conn: &Connection, workspace: &str) -> Projection {
+        Projection::build(
+            load_ops(conn).expect("加载 op 失败"),
+            Some(workspace),
+            "u-me",
+            Settings::default(),
+            false,
+        )
+    }
+
+    fn seed_test_workspace(conn: &Connection) -> String {
+        let device = device_id(conn).expect("设备 id 失败");
+        let workspace = "ws-test";
+        seed_workspace(conn, &device, "u-me", workspace, "测试空间").expect("工作区");
+        seed_membership(conn, &device, "u-me", workspace, "u-me", "owner").expect("成员");
+        seed_workspace_presets(conn, &device, "u-me", workspace, workspace).expect("预设");
+        workspace.to_string()
+    }
+
+    #[test]
+    fn workspace_presets_match_default_workspace() {
+        let conn = Connection::open_in_memory().expect("打开内存库失败");
+        migrate(&conn).expect("建表失败");
+        let workspace = seed_test_workspace(&conn);
+
+        let projection = build_for(&conn, &workspace);
+        assert_eq!(projection.workspaces.len(), 1);
+        let list_names: Vec<&str> = projection
+            .lists
+            .iter()
+            .map(|list| list.name.as_str())
+            .collect();
+        assert_eq!(list_names, vec!["今天", "工作", "生活", "学习"]);
+        assert_eq!(
+            projection
+                .lists
+                .iter()
+                .filter(|list| list.smart == Some(true))
+                .count(),
+            1
+        );
+        assert_eq!(projection.tags.len(), 5);
+        let mut sidebar: Vec<&str> = projection
+            .tags
+            .iter()
+            .filter(|tag| tag.show_in_sidebar == Some(true))
+            .map(|tag| tag.name.as_str())
+            .collect();
+        sidebar.sort();
+        assert_eq!(sidebar, vec!["本周", "重要"]);
+    }
+
+    #[test]
+    fn deleted_workspace_is_filtered_from_projection() {
+        let conn = Connection::open_in_memory().expect("打开内存库失败");
+        migrate(&conn).expect("建表失败");
+        let workspace = seed_test_workspace(&conn);
+        let device = device_id(&conn).expect("设备 id 失败");
+        seed_set(
+            &conn,
+            &device,
+            "u-me",
+            &workspace,
+            "workspace",
+            &workspace,
+            "__deleted",
+            json!(true),
+            "human",
+            None,
+        )
+        .expect("墓碑");
+
+        let projection = build_for(&conn, &workspace);
+        assert!(projection.workspaces.is_empty());
+        assert!(projection.lists.is_empty());
+        assert!(projection.tags.is_empty());
+    }
 }

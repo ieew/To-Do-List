@@ -120,6 +120,7 @@ pub fn run() {
             commands::set_active_workspace,
             commands::create_workspace,
             commands::rename_workspace,
+            commands::delete_workspace,
             commands::create_task,
             commands::update_task_field,
             commands::delete_task,

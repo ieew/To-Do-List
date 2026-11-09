@@ -12,7 +12,7 @@
 | 设计令牌 | `ui/src/lib/styles/tokens.css` | 与 `design-tokens.md` 一致 |
 | 主界面 | `ui/src/views/tasks/` | S1 全部组件与交互 |
 | 便利贴入口 | `ui/sticky.html` + `ui/src/sticky-main.ts` + `ui/src/StickyApp.svelte` | S2、S3，独立 WebviewWindow |
-| 工作区切换器 | `ui/src/components/WorkspaceSwitcher.svelte` | 切换、新建、成员管理入口 |
+| 工作区切换器 | `ui/src/components/WorkspaceSwitcher.svelte` | 切换、新建、更多菜单（重命名 / 删除）、成员管理入口 |
 | Rust 投影层 | `src-tauri/src/core_domain.rs` + `storage.rs` | HLC / LWW / OR-Set / reducer、op_log |
 | 详情抽屉 | `ui/src/views/tasks/DetailDrawer.svelte` | 开合、Tab、历史 |
 | 历史时间线 | `ui/src/views/history/` | S4 |
@@ -70,7 +70,7 @@
 5. **权限拒绝**：设计稿未画。生产必须在抽屉顶部显示红条，带 `server_hlc`，op 标记 `REJECTED`，不自动重试。
 6. **同步状态**：标题栏「已同步」是静态文字。生产必须绑定同步循环状态：已同步/同步中/离线/重试中。
 7. **进度计算**：设计稿是写死 37%。生产必须 `done/total`，总数为 0 时显示 0%，动画 400ms。
-8. **工作区不是摆设**：侧栏工作区按钮必须打开真实 popover，读取 `workspace` 投影，支持切换与新建；切换后重置筛选并刷新所有窗口。
+8. **工作区不是摆设**：侧栏工作区按钮必须打开真实 popover，读取 `workspace` 投影，支持切换、新建、重命名与删除；新建工作区必须写入与默认工作区一致的 4 个预设清单与 5 个预设标签；切换或删除后重置筛选并刷新所有窗口。
 9. **成员不是种子数据**：侧栏与设置页成员必须来自 `membership` 投影，按当前工作区过滤；禁止硬编码「我 / 小明 / 小红」。
 10. **AI 密钥可编辑**：密钥输入框不得 `disabled`；支持显示/隐藏、保存、清除、已配置状态；明文只进系统安全存储，不进 SQLite / op_log / localStorage。
 11. **首屏初始化**：Tauri 模式必须先 `bootstrap` 再渲染业务数据；加载中显示骨架，失败显示可重试错误，不得回退到硬编码演示数据。
@@ -96,7 +96,9 @@
 - [ ] 长文本省略，不撑破布局
 - [ ] 最小窗口 960×600 下三栏仍可用
 - [ ] 侧栏 150px 与 300px 两端无溢出
-- [ ] 工作区切换 popover 可展开、切换、新建，长名称省略
+- [ ] 工作区切换 popover 可展开、切换、新建、重命名、删除，长名称省略
+- [ ] 更多按钮与右键工作区行打开同一操作菜单，菜单不被侧栏或 popover 裁剪
+- [ ] 仅剩一个工作区时删除菜单项禁用并显示提示
 - [ ] 成员列表来自当前工作区投影，角色徽章为中文，空态与骨架齐全
 - [ ] AI 密钥输入可编辑、可显示/隐藏、可保存/清除，状态徽章正确
 
@@ -114,6 +116,9 @@
 - [ ] 原生窗口枚举同时存在 `main` 与 `sticky-main` 两个 HWND
 - [ ] 浮动便利贴各自独立窗口，最多 5 个，超额轻提示
 - [ ] 切换工作区后主窗口与便利贴窗口数据同步刷新
+- [ ] 新建工作区后侧栏出现今天 / 工作 / 生活 / 学习 4 个清单与「重要」「本周」标签
+- [ ] 删除当前工作区后自动切换到剩余工作区，删除最后一个工作区被拦截
+- [ ] 菜单键盘 `↑`/`↓`/`Enter`/`Esc` 全部生效，`Esc` 逐层关闭
 
 ### 3.3 数据
 
@@ -125,7 +130,8 @@
 - [ ] 进度条按 `done/total` 计算
 - [ ] 前端无 `localStorage`/`IndexedDB` 存业务数据
 - [ ] 所有业务写操作经 Rust 命令写入 `op_log`，投影由 reducer 重建
-- [ ] 工作区切换与成员增改走 `workspace` / `membership` op
+- [ ] 工作区新建 / 重命名 / 删除与成员增改走 `workspace` / `membership` op
+- [ ] 删除工作区只写 `__deleted` 墓碑 op，`op_log` 无物理删除
 - [ ] AI 密钥保存/清除不产生 op，SQLite 与日志中无明文
 
 ### 3.4 CI

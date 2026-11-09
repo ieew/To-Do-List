@@ -39,6 +39,9 @@ export const ipc = {
   renameWorkspace: (workspaceId: string, name: string) =>
     invoke<void>('rename_workspace', { workspaceId, name }),
 
+  deleteWorkspace: (workspaceId: string) =>
+    invoke<string>('delete_workspace', { workspaceId }),
+
   createTask: (input: CreateTaskPayload) => invoke<string>('create_task', { input }),
 
   updateTaskField: (taskId: string, field: string, value: unknown) =>
@@ -95,8 +98,8 @@ export const ipc = {
 
   listStickyWindows: () => invoke<string[]>('list_sticky_windows'),
 
-  onProjectionUpdated: (handler: (workspaceId: string) => void): Promise<UnlistenFn> =>
-    listen<{ workspaceId: string }>('projection-updated', (event) => {
+  onProjectionUpdated: (handler: (workspaceId: string | null) => void): Promise<UnlistenFn> =>
+    listen<{ workspaceId: string | null }>('projection-updated', (event) => {
       handler(event.payload.workspaceId);
     })
 };

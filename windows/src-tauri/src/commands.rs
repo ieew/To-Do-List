@@ -55,11 +55,28 @@ fn with_db<T>(state: &AppState, f: impl FnOnce(&Connection) -> AnyResult<T>) -> 
     f(&guard).map_err(|error| error.to_string())
 }
 
+/// 与 `with_db` 相同，但把整组写入放进单事务，避免半成品工作区。
+fn with_db_tx<T>(
+    state: &AppState,
+    f: impl FnOnce(&Connection) -> AnyResult<T>,
+) -> Result<T, String> {
+    let guard = state
+        .db
+        .lock()
+        .map_err(|_| "数据库连接锁失败，请重试".to_string())?;
+    storage::with_transaction(&guard, f).map_err(|error| error.to_string())
+}
+
 fn emit_projection(app: &AppHandle, workspace_id: &str) {
     let _ = app.emit(
         "projection-updated",
         json!({ "workspaceId": workspace_id }),
     );
+}
+
+/// 工作区列表本身发生变化时使用全局事件：`workspaceId = null` 让所有窗口刷新。
+fn emit_workspaces_changed(app: &AppHandle) {
+    let _ = app.emit("projection-updated", json!({ "workspaceId": null }));
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -146,6 +163,28 @@ fn map_field(field: &str) -> &str {
     }
 }
 
+fn workspace_name(raw: &str) -> AnyResult<String> {
+    let clean = raw.trim();
+    let count = clean.chars().count();
+    if count == 0 || count > 24 {
+        return Err(anyhow!("工作区名称需为 1–24 个字符"));
+    }
+    Ok(clean.to_string())
+}
+
+/// 本地命令层的前置校验；未来服务端 Writer Worker 仍是唯一授权入口。
+fn ensure_workspace_owner(projection: &Projection, current_user: &str) -> AnyResult<()> {
+    let is_owner = projection
+        .members
+        .iter()
+        .any(|member| member.id == current_user && member.role == "owner");
+    if is_owner {
+        Ok(())
+    } else {
+        Err(anyhow!("workspace_forbidden: 只有所有者可以重命名或删除工作区"))
+    }
+}
+
 /* ------------------------------- 启动 ------------------------------- */
 
 #[tauri::command]
@@ -180,6 +219,14 @@ pub fn set_active_workspace(
     workspace_id: String,
 ) -> Result<(), String> {
     with_db(&state, |conn| {
+        let projection = build_projection(conn, &workspace_id)?;
+        if !projection
+            .workspaces
+            .iter()
+            .any(|workspace| workspace.id == workspace_id)
+        {
+            return Err(anyhow!("workspace_not_found: 工作区不存在或已被删除"));
+        }
         storage::pref_set(conn, "active_workspace_id", &workspace_id)
     })?;
     emit_projection(&app, &workspace_id);
@@ -194,12 +241,9 @@ pub fn create_workspace(
     state: State<'_, AppState>,
     name: String,
 ) -> Result<Workspace, String> {
-    let clean = name.trim();
-    if clean.is_empty() {
-        return Err("工作区名称不能为空".to_string());
-    }
+    let clean = workspace_name(&name).map_err(|error| error.to_string())?;
     let workspace_id = format!("ws-{}", &Uuid::new_v4().to_string()[..8]);
-    let created = with_db(&state, |conn| {
+    let created = with_db_tx(&state, |conn| {
         let device = storage::device_id(conn)?;
         let actor = storage::current_user_id(conn);
         append(
@@ -215,26 +259,13 @@ pub fn create_workspace(
             conn, &device, &actor, &workspace_id, "membership", &membership_id, "set",
             "__role", json!("owner"), "human", None,
         )?;
-        let list_id = format!("{workspace_id}-today");
-        append(
-            conn, &device, &actor, &workspace_id, "list", &list_id, "set",
-            "__created", json!(chrono::Local::now().to_rfc3339()), "human", None,
-        )?;
-        append(
-            conn, &device, &actor, &workspace_id, "list", &list_id, "set",
-            "workspace_id", json!(workspace_id), "human", None,
-        )?;
-        append(
-            conn, &device, &actor, &workspace_id, "list", &list_id, "set",
-            "name", json!("今天"), "human", None,
-        )?;
-        append(
-            conn, &device, &actor, &workspace_id, "list", &list_id, "set",
-            "color", json!("#3B82F6"), "human", None,
-        )?;
-        append(
-            conn, &device, &actor, &workspace_id, "list", &list_id, "set",
-            "order", json!(0.0), "human", None,
+        // 新工作区与默认工作区共用同一份预设清单/标签定义。
+        storage::seed_workspace_presets(
+            conn,
+            &device,
+            &actor,
+            &workspace_id,
+            &workspace_id,
         )?;
         storage::pref_set(conn, "active_workspace_id", &workspace_id)?;
         Ok(Workspace {
@@ -242,7 +273,7 @@ pub fn create_workspace(
             name: clean.to_string(),
         })
     })?;
-    emit_projection(&app, &workspace_id);
+    emit_workspaces_changed(&app);
     Ok(created)
 }
 
@@ -253,20 +284,77 @@ pub fn rename_workspace(
     workspace_id: String,
     name: String,
 ) -> Result<(), String> {
-    let clean = name.trim();
-    if clean.is_empty() {
-        return Err("工作区名称不能为空".to_string());
-    }
+    let clean = workspace_name(&name).map_err(|error| error.to_string())?;
     with_db(&state, |conn| {
-        let device = storage::device_id(conn)?;
+        let projection = build_projection(conn, &workspace_id)?;
+        if !projection
+            .workspaces
+            .iter()
+            .any(|workspace| workspace.id == workspace_id)
+        {
+            return Err(anyhow!("workspace_not_found: 工作区不存在或已被删除"));
+        }
         let actor = storage::current_user_id(conn);
+        ensure_workspace_owner(&projection, &actor)?;
+        let device = storage::device_id(conn)?;
         append(
             conn, &device, &actor, &workspace_id, "workspace", &workspace_id, "set",
             "name", json!(clean), "human", None,
         )
     })?;
-    emit_projection(&app, &workspace_id);
+    emit_workspaces_changed(&app);
     Ok(())
+}
+
+/// 删除工作区：写 `__deleted` 墓碑 op，不物理删除 `op_log`。
+///
+/// 返回删除后的当前工作区 id，方便前端立即切换作用域。
+#[tauri::command]
+pub fn delete_workspace(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    workspace_id: String,
+) -> Result<String, String> {
+    let next_active = with_db_tx(&state, |conn| {
+        let projection = build_projection(conn, &workspace_id)?;
+        if !projection
+            .workspaces
+            .iter()
+            .any(|workspace| workspace.id == workspace_id)
+        {
+            return Err(anyhow!("workspace_not_found: 工作区不存在或已被删除"));
+        }
+        let actor = storage::current_user_id(conn);
+        ensure_workspace_owner(&projection, &actor)?;
+
+        let remaining: Vec<String> = projection
+            .workspaces
+            .iter()
+            .filter(|workspace| workspace.id != workspace_id)
+            .map(|workspace| workspace.id.clone())
+            .collect();
+        if remaining.is_empty() {
+            return Err(anyhow!("last_workspace: 至少需要保留一个工作区"));
+        }
+
+        let current = storage::active_workspace_id(conn).unwrap_or_else(|| workspace_id.clone());
+        let keep_current = current != workspace_id && remaining.iter().any(|id| id == &current);
+        let next_active = if keep_current {
+            current
+        } else {
+            remaining[0].clone()
+        };
+
+        let device = storage::device_id(conn)?;
+        append(
+            conn, &device, &actor, &workspace_id, "workspace", &workspace_id, "set",
+            "__deleted", json!(true), "human", None,
+        )?;
+        storage::pref_set(conn, "active_workspace_id", &next_active)?;
+        Ok(next_active)
+    })?;
+    emit_workspaces_changed(&app);
+    Ok(next_active)
 }
 
 /* ------------------------------- 任务 ------------------------------- */

@@ -36,6 +36,13 @@
 - `task` 与 `tag` 的关联走 `operation="add"` / `"remove"`，`field="__tag"`，`value="<tag_id>"`，OR-Set，add-wins。
 - 禁止在 `task` 表上放 `tags` 数组列，使用 `tag` 表和 `task_tag` 关联表。
 
+### 预设标签
+
+- 每个工作区创建时必须铺 5 个预设标签：工作 / 生活 / 学习 / 重要 / 本周，id 为 `<prefix>-tag-<key>`；默认工作区 `prefix="me"`，新工作区 `prefix=workspace_id`。
+- `show_in_sidebar`：仅「重要」「本周」为 `true`，直接出现在侧栏标签区；其余 3 个标签通过任务详情「＋ 标签」下拉使用。
+- 预设定义必须与 Windows `storage::seed_workspace_presets` 及前端 `presetTags()` 保持一致，禁止在多个位置重复写名称与色值字面量。
+- 新建工作区的预设标签与预设清单必须在同一事务内随工作区一起写入。
+
 ### 删除与恢复
 
 - `tag` 删除 = `__deleted=true` 墓碑，不级联删除 `task_tag` 关联 op。

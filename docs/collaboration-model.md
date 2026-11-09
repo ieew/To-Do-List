@@ -38,11 +38,16 @@
 - 切换工作区只改变前端作用域，不产生业务 op；切换后必须按 `workspace_id` 重新拉取投影，并重置搜索、标签筛选、详情抽屉与全局历史视图。
 - 主窗口与所有便利贴窗口共享同一个 `active_workspace_id`；切换后由 Rust 广播 `projection-updated`，各窗口重新拉取。
 
-### 5.2 工作区增改
+### 5.2 工作区增改与删除
 
-- 新建工作区写两类 op：`entity_type="workspace"` 的 `name` 字段 op，以及 `entity_type="membership"` 的 `__role="owner"` op，二者同一事务。
-- 重命名工作区写 `workspace` 的 `name` 字段 op，走 LWW；不新建实体。
-- 原型阶段不提供删除工作区；后续以 `__deleted` 墓碑 op 实现，禁止物理删除 `op_log`。
+- 新建工作区在**同一事务**内写入：`workspace` 的 `__created` / `name` op、`membership.__role="owner"` op、预设清单与预设标签 op，以及本地偏好 `active_workspace_id`。
+- 预设清单固定 4 个：今天 / 工作 / 生活 / 学习，id 为 `<prefix>-today` 等；预设标签固定 5 个：工作 / 生活 / 学习 / 重要 / 本周，id 为 `<prefix>-tag-<key>`。默认工作区 `prefix = "me"`，新工作区 `prefix = workspace_id`。
+- 预设标签中仅「重要」「本周」的 `show_in_sidebar=true`，其余标签通过任务详情「＋ 标签」使用；新建工作区必须与默认工作区完全一致。
+- 工作区名称 `trim` 后必须为 1–24 个字符。重命名写 `workspace` 的 `name` 字段 op，走 LWW；不新建实体。
+- 重命名与删除仅 `owner` 可执行；本地命令层做前置校验，服务端 Writer Worker 仍是最终授权入口。
+- 删除工作区写 `workspace` 的 `__deleted=true` 墓碑 op，禁止物理删除 `op_log`；不级联删除该工作区下 list/tag/task 的 op，投影按工作区过滤自然隐藏。
+- 至少保留一个工作区；删除当前工作区后，必须在同一事务内把本地偏好 `active_workspace_id` 切到剩余工作区中的第一个，并把该 id 返回给前端。
+- 新建、重命名、删除属于工作区级变更，广播 `projection-updated` 时 payload 为 `workspaceId = null`，主窗口与所有便利贴窗口都必须重新拉取投影。
 
 ### 5.3 成员列表来源
 
