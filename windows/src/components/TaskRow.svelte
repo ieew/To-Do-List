@@ -29,7 +29,7 @@
   const urgent = $derived(isUrgent(task));
   const overdue = $derived(isOverdue(task));
   const notStarted = $derived(
-    task.status === 'todo' && !hasStarted(task, new Date(store.nowMs))
+    task.status === 'todo' && !hasStarted(task, store.currentTime)
   );
   const dueText = $derived(
     task.dueAt

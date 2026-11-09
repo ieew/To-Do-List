@@ -20,7 +20,7 @@
 - 前端禁止将业务数据持久化到 `localStorage` / `IndexedDB`。唯一持久化在 Rust 侧 SQLite。
 - 允许用 `localStorage` 缓存**纯 UI 偏好**，用于启动首帧避免闪变（当前白名单仅 `todo.theme`）；任务、工作区、成员、历史、密钥等一律不得写入，仍只经 Rust 投影。
 - 前端禁止实现任何合并、HLC、权限裁决逻辑。
-- 视图范围（`activeListId` / `activeTagId` / `viewTasks` / `nowMs`）属于前端派生状态，由 `$derived` 计算，不写库；虚拟清单 `ALL_LIST_ID = 'all'` 只存在于前端。完整规则见 `task-time-and-scope-model.md`。
+- 视图范围（`activeListId` / `activeTagId` / `viewTasks` / `nowMs` / `currentTime`）属于前端派生状态，由 `$derived` 计算，不写库；虚拟清单 `ALL_LIST_ID = 'all'` 只存在于前端。完整规则见 `task-time-and-scope-model.md`。
 
 ## 四、IPC 类型共享
 

@@ -14,17 +14,18 @@
 | 虚拟清单「全部」 | 所有任务；侧栏计数只算未完成，列表内附「已完成」分组 |
 | 任务分组 | 「今天」（已开始）/「即将到来」（未开始）/「已完成」；只看开始时间 |
 | 三个视图 | 「今天（任务列表）/ 日历 / 统计」统一读取 `store.viewTasks`，跟随侧栏当前选择 |
-| 自动刷新 | `store.nowMs` 每 60 秒更新一次，开始时间到点后最多约 1 分钟自动进入「今天」 |
+| 自动刷新 | `store.nowMs` 每 60 秒更新一次；判定用 `currentTime = max(nowMs, Date.now())`，新建/编辑任务立即按真实时间生效 |
 
 ## 二、字段与 op
 
 | 前端字段 | op 字段 | 创建时默认值 | 说明 |
 |---|---|---|---|
-| `startAt` | `start_at` | Rust `create_task` 用 `Local::now().to_rfc3339()` | 详情抽屉与快速新建均可编辑；`null` 的旧任务按已开始处理 |
+| `startAt` | `start_at` | 前端 `store.createTask` 统一填充创建时刻 | 详情抽屉与快速新建均可编辑；`null` 的旧任务按已开始处理 |
 | `dueAt` | `due_at` | `null`（快速新建默认当前 + 7 天） | 截止时间，仅用于展示/逾期/日历 |
 | `remindAt` | `remind_at` | `null` | 提醒时间 |
 
 - `CreateTaskInput`（`windows/src-tauri/src/commands.rs`）包含 `start_at`；前端 `CreateTaskPayload` 对应 `startAt`。
+- 所有创建入口（快速新建、便利贴、AI 批量写入）都经 `store.createTask`，由它统一补 `startAt = now`；Rust `create_task` 的空值默认仅作为兼底。
 - `update_task_field` 通过 `map_field` 把 `startAt → start_at`，其余字段同理。
 - 历史动作文案：`start_at → 修改了开始时间`；撤销走通用反向 op，无需特殊处理。
 - 投影 DTO：`core_domain::Task.start_at`，前端 `Task.startAt`。
@@ -34,7 +35,7 @@
 | 职责 | 位置 |
 |---|---|
 | 是否已开始 | `windows/src/lib/utils.ts` → `hasStarted(task, base)` |
-| 视图时钟 | `store.svelte.ts` → `nowMs`（`$state`，60s 定时器） |
+| 视图时钟 | `store.svelte.ts` → `nowMs`（`$state`，60s 定时器）与 `currentTime`（`max(nowMs, Date.now())`） |
 | 侧栏范围 | `store.svelte.ts` → `scopedTasks` |
 | 联动集合 | `store.svelte.ts` → `viewTasks`（日历 / 统计 / 进度共用） |
 | 分组 | `store.svelte.ts` → `groups` |
@@ -114,7 +115,7 @@ hasStarted(task, new Date(store.nowMs))
 
 1. `startAt` 为空或非法（旧数据、脏数据）→ 视为已开始，避免历史任务从「今天」消失。
 2. 「全部」是纯前端虚拟清单：不写入 `lists` 投影、不写 `op_log`、不参与 AI 清单匹配；刷新工作区时必须放行 `activeListId === 'all'`。
-3. 开始时间到点不会立即刷新：`nowMs` 每 60 秒跳动一次，最长约 1 分钟延迟。需要更实时可改小间隔或按最近开始时间精确调度。
+3. 开始时间到点不会立即刷新：`nowMs` 每 60 秒跳动一次，最长约 1 分钟延迟。判定使用 `currentTime = max(nowMs, Date.now())`，因此新建、编辑任务不受该延迟影响；需要更实时可改小间隔或按最近开始时间精确调度。
 4. 已完成任务的 `startAt` 若仍在未来，不会出现在「今天」范围（`viewTasks` 先按开始时间过滤），但会出现在「全部」。
 5. 日历的周起始为周一；`now` 在组件初始化时确定，跨天需重新进入视图或刷新。
 6. 普通清单计数包含已完成与未开始任务，与「今天 / 全部」的未完成计数口径不同，属有意设计。
@@ -127,7 +128,7 @@ hasStarted(task, new Date(store.nowMs))
 - `windows/src/lib/types.ts`：`Task.startAt`、`TaskField.startAt`、`TaskGroup.key`。
 - `windows/src/lib/ipc.ts`：`CreateTaskPayload.startAt`。
 - `windows/src/lib/store.svelte.ts`：
-  - `ALL_LIST_ID` / `allListId` / `nowMs` / 60s 定时器
+  - `ALL_LIST_ID` / `allListId` / `nowMs` / `currentTime` / 60s 定时器
   - `fieldValue` / `assignField`（新增字段时）
   - `scopedTasks` / `viewTasks` / `groups` / `progress` / `hasScopedTasks`
   - `countForList` / `todayTasks` / `stickyTasks` / `activeListName` / `headerTitle`

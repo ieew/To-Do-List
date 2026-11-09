@@ -148,6 +148,14 @@ class TodoStore {
   /** 视图时钟：定时刷新，使任务开始时间到点后自动进入「今天」。 */
   nowMs = $state(Date.now());
 
+  /**
+   * 视图判定用的当前时间：取定时器时间与实时时间的较大值。
+   * 若只使用 nowMs，刚创建的任务（startAt = 创建时刻）会因 nowMs 滞后而短暂被判为未开始。
+   */
+  get currentTime(): Date {
+    return new Date(Math.max(this.nowMs, Date.now()));
+  }
+
   collapsedGroups = $state<Record<string, boolean>>({ done: false });
 
   stickyMode = $state(false);
@@ -355,7 +363,7 @@ class TodoStore {
   get viewTasks(): Task[] {
     const base = this.scopedTasks;
     if (this.activeListId === this.todayListId && !this.activeTagId) {
-      const baseTime = new Date(this.nowMs);
+      const baseTime = this.currentTime;
       return base.filter((task) => hasStarted(task, baseTime));
     }
     return base;
@@ -383,7 +391,7 @@ class TodoStore {
     }
 
     const base = this.viewTasks;
-    const baseTime = new Date(this.nowMs);
+    const baseTime = this.currentTime;
     // 分组只看开始时间：已开始 →「今天」，未开始 →「即将到来」。
     // 截止时间只用于行内文案与逾期高亮，不参与分组。
     const today = base.filter((task) => task.status === 'todo' && hasStarted(task, baseTime));
@@ -413,7 +421,7 @@ class TodoStore {
 
   /** 智能清单「今天」的任务：所有已到开始时间的任务（含已完成，便利贴使用）。 */
   get todayTasks(): Task[] {
-    const baseTime = new Date(this.nowMs);
+    const baseTime = this.currentTime;
     return [...this.tasks.filter((task) => hasStarted(task, baseTime))].sort((a, b) => {
       if (a.status !== b.status) return a.status === 'done' ? 1 : -1;
       return a.order - b.order;
@@ -713,13 +721,16 @@ class TodoStore {
   async createTask(input: NewTaskInput): Promise<Task | null> {
     const source = input.source ?? 'human';
     const title = input.title.trim() || '未命名任务';
+    // 所有创建入口（快速新建 / 便利贴 / AI）统一在 store 层补齐开始时间，
+    // Rust 侧的默认值仅作为防御性兜底。
+    const startAt = input.startAt ?? new Date().toISOString();
 
     if (isTauri) {
       try {
         const createdId = await ipc.createTask({
           title,
           notes: input.notes ?? '',
-          startAt: input.startAt ?? null,
+          startAt,
           dueAt: input.dueAt ?? null,
           remindAt: input.remindAt ?? null,
           priority: input.priority ?? this.settings.defaultPriority,
@@ -741,7 +752,7 @@ class TodoStore {
       id: uid('task'),
       title,
       notes: input.notes ?? '',
-      startAt: input.startAt ?? new Date().toISOString(),
+      startAt,
       dueAt: input.dueAt ?? null,
       remindAt: input.remindAt ?? null,
       priority: input.priority ?? this.settings.defaultPriority,
