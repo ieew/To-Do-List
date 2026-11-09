@@ -2,12 +2,21 @@
   import { store } from '../lib/store.svelte';
 
   const progress = $derived(store.progress);
+  const title = $derived(
+    store.activeTagId
+      ? '标签进度'
+      : store.activeListId === store.allListId
+        ? '全部进度'
+        : store.activeListId === store.todayListId
+          ? '今日进度'
+          : '清单进度'
+  );
 </script>
 
 <div class="progress-card">
   <div class="progress-card-top">
     <div class="progress-title">
-      <strong>今日进度</strong>
+      <strong>{title}</strong>
       <span class="scope">{store.activeTagId ? `#${store.tagName(store.activeTagId)}` : store.activeListName}</span>
     </div>
     <span class="progress-value">{progress.done} / {progress.total} 完成 · {progress.pct}%</span>

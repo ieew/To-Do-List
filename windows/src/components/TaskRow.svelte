@@ -1,8 +1,15 @@
 <script lang="ts">
-  import { Bell, CheckSquare, Sparkles } from 'lucide-svelte';
+  import { Bell, CheckSquare, Clock3, Sparkles } from 'lucide-svelte';
   import { store } from '../lib/store.svelte';
   import type { Task } from '../lib/types';
-  import { formatDueShort, isOverdue, isUrgent, priorityLabel } from '../lib/utils';
+  import {
+    formatDueShort,
+    formatStartShort,
+    hasStarted,
+    isOverdue,
+    isUrgent,
+    priorityLabel
+  } from '../lib/utils';
 
   interface Props {
     task: Task;
@@ -21,6 +28,9 @@
   const doneSubtasks = $derived(task.subtasks.filter((s) => s.done).length);
   const urgent = $derived(isUrgent(task));
   const overdue = $derived(isOverdue(task));
+  const notStarted = $derived(
+    task.status === 'todo' && !hasStarted(task, new Date(store.nowMs))
+  );
   const dueText = $derived(
     task.dueAt
       ? overdue
@@ -140,6 +150,13 @@
         </span>
       {/if}
 
+      {#if notStarted && task.startAt}
+        <span class="meta-item is-pending" title="开始时间尚未到达，暂不进入今天">
+          <Clock3 size="11" />
+          {formatStartShort(task.startAt)} 开始
+        </span>
+      {/if}
+
       {#if task.remindAt}
         <span class="meta-item" title="提醒时间">
           <Bell size="11" />
@@ -253,6 +270,13 @@
   .meta-item.urgent {
     color: var(--color-danger);
     font-weight: var(--weight-semibold);
+  }
+
+  .meta-item.is-pending {
+    padding: 0 6px;
+    border-radius: var(--radius-full);
+    background: var(--color-border-2);
+    color: var(--color-text-2);
   }
 
   .subtask-progress {

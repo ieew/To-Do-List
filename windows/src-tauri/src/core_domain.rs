@@ -66,6 +66,7 @@ pub struct Task {
     pub id: String,
     pub title: String,
     pub notes: String,
+    pub start_at: Option<String>,
     pub due_at: Option<String>,
     pub remind_at: Option<String>,
     pub priority: String,
@@ -490,6 +491,7 @@ fn action_of(op: &Op, state: &State) -> String {
     match op.field.as_str() {
         "title" => "修改了标题".into(),
         "notes" => "修改了备注".into(),
+        "start_at" => "修改了开始时间".into(),
         "due_at" => "修改了截止时间".into(),
         "remind_at" => "修改了提醒时间".into(),
         "priority" => "修改了优先级".into(),
@@ -849,6 +851,7 @@ impl Projection {
                     .text("task", id, "title")
                     .unwrap_or_else(|| "未命名任务".into()),
                 notes: state.text("task", id, "notes").unwrap_or_default(),
+                start_at: state.text("task", id, "start_at"),
                 due_at: state.text("task", id, "due_at"),
                 remind_at: state.text("task", id, "remind_at"),
                 priority: state

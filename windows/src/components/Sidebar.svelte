@@ -31,7 +31,7 @@
   {#each store.lists as list (list.id)}
     <button
       class="side-item"
-      class:is-active={store.activeListId === list.id && !store.globalHistory}
+      class:is-active={store.activeListId === list.id && !store.activeTagId && !store.globalHistory}
       onclick={() => store.setActiveList(list.id)}
     >
       <span class="dot" style="--dot:{list.color}"></span>
@@ -39,6 +39,15 @@
       <span class="count">{store.countForList(list.id)}</span>
     </button>
   {/each}
+  <button
+    class="side-item"
+    class:is-active={store.activeListId === store.allListId && !store.activeTagId && !store.globalHistory}
+    onclick={() => store.setActiveList(store.allListId)}
+  >
+    <span class="dot" style="--dot:#64748b"></span>
+    <span class="item-name">全部</span>
+    <span class="count">{store.countForList(store.allListId)}</span>
+  </button>
 
   <div class="side-section-label">标签</div>
   {#each store.sidebarTags as tag (tag.id)}

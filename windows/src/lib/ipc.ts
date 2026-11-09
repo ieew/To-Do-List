@@ -7,6 +7,7 @@ export const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in
 export interface CreateTaskPayload {
   title: string;
   notes?: string;
+  startAt?: string | null;
   dueAt?: string | null;
   remindAt?: string | null;
   priority?: string;

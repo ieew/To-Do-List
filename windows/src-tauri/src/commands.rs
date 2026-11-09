@@ -30,6 +30,8 @@ pub struct CreateTaskInput {
     #[serde(default)]
     pub notes: String,
     #[serde(default)]
+    pub start_at: Option<String>,
+    #[serde(default)]
     pub due_at: Option<String>,
     #[serde(default)]
     pub remind_at: Option<String>,
@@ -155,6 +157,7 @@ fn next_task_order(conn: &Connection, workspace_id: &str) -> AnyResult<f64> {
 
 fn map_field(field: &str) -> &str {
     match field {
+        "startAt" => "start_at",
         "dueAt" => "due_at",
         "remindAt" => "remind_at",
         "listId" => "list_id",
@@ -381,6 +384,12 @@ pub fn create_task(
             _ => default_list_id(conn, &workspace_id)?,
         };
         let order = next_task_order(conn, &workspace_id)?;
+        // 未显式指定开始时间时，默认取创建任务的当天时间（即当前时刻）。
+        let start_at = input
+            .start_at
+            .clone()
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| chrono::Local::now().to_rfc3339());
 
         append(
             conn, &device, &actor, &workspace_id, "task", &task_id, "set", "__created",
@@ -389,6 +398,7 @@ pub fn create_task(
         for (field, value) in [
             ("title", json!(title)),
             ("notes", json!(input.notes.clone())),
+            ("start_at", json!(start_at)),
             ("due_at", json!(input.due_at.clone())),
             ("remind_at", json!(input.remind_at.clone())),
             (

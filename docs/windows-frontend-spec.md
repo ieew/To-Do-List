@@ -20,6 +20,7 @@
 - 前端禁止将业务数据持久化到 `localStorage` / `IndexedDB`。唯一持久化在 Rust 侧 SQLite。
 - 允许用 `localStorage` 缓存**纯 UI 偏好**，用于启动首帧避免闪变（当前白名单仅 `todo.theme`）；任务、工作区、成员、历史、密钥等一律不得写入，仍只经 Rust 投影。
 - 前端禁止实现任何合并、HLC、权限裁决逻辑。
+- 视图范围（`activeListId` / `activeTagId` / `viewTasks` / `nowMs`）属于前端派生状态，由 `$derived` 计算，不写库；虚拟清单 `ALL_LIST_ID = 'all'` 只存在于前端。完整规则见 `task-time-and-scope-model.md`。
 
 ## 四、IPC 类型共享
 
@@ -31,6 +32,7 @@
 - 工作区级命令：`create_workspace`、`rename_workspace`、`delete_workspace`。新建返回 `Workspace`；删除返回删除后的当前工作区 id，前端据此立即切换作用域。
 - 工作区级变更（新建 / 重命名 / 删除）广播 `projection-updated` 时 payload 的 `workspaceId` 为 `null`，表示所有窗口都要刷新；任务、成员等作用域内变更仍携带具体 `workspaceId`。
 - `create_workspace` 必须在同一事务内写入工作区、成员关系、4 个预设清单与 5 个预设标签；前端不得自行拼装预设数据写库。
+- `create_task` 接受 `startAt`，未传时 Rust 以创建时刻作为开始时间；`update_task_field` 接受 `startAt` 并映射为 `start_at`。
 
 ## 五、目录结构
 

@@ -80,6 +80,11 @@
     draft.subtasks = draft.subtasks.filter((s) => s.id !== subtaskId);
   }
 
+  function setStart(event: Event): void {
+    if (!draft) return;
+    draft.startAt = fromLocalInput((event.currentTarget as HTMLInputElement).value);
+  }
+
   function setDue(event: Event): void {
     if (!draft) return;
     draft.dueAt = fromLocalInput((event.currentTarget as HTMLInputElement).value);
@@ -219,6 +224,11 @@
               {/each}
             </div>
           </div>
+
+          <label class="field-row">
+            <span class="field-label">开始</span>
+            <input class="field-input field-input-sm" type="datetime-local" value={toLocalInput(draft.startAt)} oninput={setStart} />
+          </label>
 
           <label class="field-row">
             <span class="field-label">截止</span>

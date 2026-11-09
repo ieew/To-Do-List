@@ -9,6 +9,15 @@
     searchActive && groups.length === 1 && groups[0].key === 'search' && groups[0].tasks.length === 0
   );
   const emptyScope = $derived(!searchActive && !store.hasScopedTasks);
+  const emptyText = $derived(
+    store.activeTagId
+      ? '这个标签还没有任务'
+      : store.activeListId === store.allListId
+        ? '还没有未完成的任务'
+        : store.activeListId === store.todayListId
+          ? '今天没有进行中的任务'
+          : '这个清单还没有任务'
+  );
   const resultCount = $derived(groups.reduce((sum, group) => sum + group.tasks.length, 0));
 </script>
 
@@ -33,7 +42,7 @@
 {:else if emptyScope}
   <div class="empty-state">
     <CheckSquare size="24" class="empty-icon" />
-    <strong>今天还没有待办</strong>
+    <strong>{emptyText}</strong>
     <button class="empty-action" onclick={() => (store.quickAddOpen = true)}>＋ 添加一个</button>
   </div>
 {:else}

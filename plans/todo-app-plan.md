@@ -75,7 +75,7 @@ flowchart TD
 | 实体 | 字段 |
 | --- | --- |
 | `list` | `__created` `__deleted` `name` `color` `order` `workspace_id` |
-| `task` | `__created` `__deleted` `title` `notes` `due_at` `priority` `status` `list_id` `remind_at` `order`，集合 `__tag`、`__subtask` |
+| `task` | `__created` `__deleted` `title` `notes` `start_at` `due_at` `priority` `status` `list_id` `remind_at` `order`，集合 `__tag`、`__subtask` |
 | `tag` | `__created` `__deleted` `name` `color` |
 | `membership` | `__role`（owner/editor/viewer）`__removed` |
 | 子任务单元格 | `__subtask:<subtask_id>:text` / `:done` / `:order` |

@@ -22,19 +22,19 @@
   });
 
   function tasksOf(day: Date): Task[] {
-    return store.tasks
+    return store.viewTasks
       .filter((task) => task.dueAt && sameDay(new Date(task.dueAt), day))
       .sort((a, b) => new Date(a.dueAt ?? 0).getTime() - new Date(b.dueAt ?? 0).getTime());
   }
 
   const weekTasks = $derived(
-    store.tasks.filter((task) => {
+    store.viewTasks.filter((task) => {
       if (!task.dueAt) return false;
       const due = new Date(task.dueAt);
       return days.some((day) => sameDay(due, day));
     })
   );
-  const overdue = $derived(store.tasks.filter((t) => isOverdue(t, now)).length);
+  const overdue = $derived(store.viewTasks.filter((t) => isOverdue(t, now)).length);
 </script>
 
 <div class="main-scroll">
@@ -85,7 +85,7 @@
   </div>
 
   <div class="calendar-note">
-    本周视图内共 {weekTasks.length} 条任务，按截止时间分布。MVP 提供只读周视图，拖拽改期将在后续版本开放。
+    本周视图内共 {weekTasks.length} 条任务（当前选择范围），按截止时间分布。MVP 提供只读周视图，拖拽改期将在后续版本开放。
   </div>
 </div>
 

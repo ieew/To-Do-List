@@ -3,23 +3,23 @@
   import { store } from '../lib/store.svelte';
   import { isOverdue } from '../lib/utils';
 
-  const total = $derived(store.tasks.length);
-  const done = $derived(store.tasks.filter((t) => t.status === 'done').length);
+  const total = $derived(store.viewTasks.length);
+  const done = $derived(store.viewTasks.filter((t) => t.status === 'done').length);
   const pct = $derived(total === 0 ? 0 : Math.round((done / total) * 100));
-  const overdue = $derived(store.tasks.filter((t) => isOverdue(t)).length);
-  const aiCount = $derived(store.tasks.filter((t) => t.source === 'ai').length);
+  const overdue = $derived(store.viewTasks.filter((t) => isOverdue(t)).length);
+  const aiCount = $derived(store.viewTasks.filter((t) => t.source === 'ai').length);
 
   const priorityCounts = $derived({
-    high: store.tasks.filter((t) => t.priority === 'high').length,
-    mid: store.tasks.filter((t) => t.priority === 'mid').length,
-    low: store.tasks.filter((t) => t.priority === 'low').length
+    high: store.viewTasks.filter((t) => t.priority === 'high').length,
+    mid: store.viewTasks.filter((t) => t.priority === 'mid').length,
+    low: store.viewTasks.filter((t) => t.priority === 'low').length
   });
 
   const listStats = $derived(
     store.lists
       .filter((list) => !list.smart)
       .map((list) => {
-        const tasks = store.tasks.filter((t) => t.listId === list.id);
+        const tasks = store.viewTasks.filter((t) => t.listId === list.id);
         return {
           ...list,
           total: tasks.length,
@@ -36,7 +36,7 @@
   <div class="stats-head">
     <div>
       <h2>统计视图</h2>
-      <p>数据来自投影结果：完成率按「已完成 / 全部任务」实时计算，不使用写死百分比。</p>
+      <p>数据来自投影结果，并跟随侧栏当前选择范围（今天 / 全部 / 清单 / 标签）；完成率按「已完成 / 范围任务」实时计算。</p>
     </div>
     <span class="fresh-chip"><Activity size="12" />实时</span>
   </div>

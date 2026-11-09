@@ -2,11 +2,12 @@
   import { Plus, X } from 'lucide-svelte';
   import { store } from '../lib/store.svelte';
   import type { Priority } from '../lib/types';
-  import { defaultDueAt, fromLocalInput, toLocalInput } from '../lib/utils';
+  import { defaultDueAt, defaultStartAt, fromLocalInput, toLocalInput } from '../lib/utils';
 
   let title = $state('');
   let listId = $state('');
   let priority = $state<Priority>('mid');
+  let start = $state('');
   let due = $state('');
   let titleInput = $state<HTMLInputElement | null>(null);
   let lastOpen = false;
@@ -21,6 +22,7 @@
           ? store.lists.find((list) => !list.smart)?.id ?? store.todayListId
           : store.activeListId;
       priority = store.settings.defaultPriority;
+      start = toLocalInput(defaultStartAt());
       due = toLocalInput(defaultDueAt());
       setTimeout(() => titleInput?.focus(), 30);
     }
@@ -45,6 +47,7 @@
       title,
       priority,
       listId,
+      startAt: fromLocalInput(start),
       dueAt: fromLocalInput(due),
       source: 'human'
     });
@@ -96,6 +99,11 @@
               </select>
             </label>
           {/if}
+
+          <label class="form-row">
+            <span class="form-label">开始</span>
+            <input class="field-input" type="datetime-local" bind:value={start} />
+          </label>
 
           <label class="form-row">
             <span class="form-label">截止</span>

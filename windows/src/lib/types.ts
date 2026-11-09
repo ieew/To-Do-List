@@ -10,6 +10,7 @@ export type Density = 'comfortable' | 'compact';
 export type TaskField =
   | 'title'
   | 'notes'
+  | 'startAt'
   | 'dueAt'
   | 'remindAt'
   | 'priority'
@@ -27,6 +28,8 @@ export interface Task {
   id: string;
   title: string;
   notes: string;
+  /** 开始时间；创建任务时默认为创建当天的时间。 */
+  startAt: string | null;
   dueAt: string | null;
   remindAt: string | null;
   priority: Priority;

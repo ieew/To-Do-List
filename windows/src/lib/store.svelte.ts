@@ -38,7 +38,7 @@ import type {
 import {
   cloneTask,
   formatDueLong,
-  isDueToday,
+  hasStarted,
   priorityLabel,
   statusLabel,
   timeLabelNow,
@@ -46,9 +46,13 @@ import {
   uid
 } from './utils';
 
+/** 虚拟清单「全部」的 id：仅存在于前端，不写入 Rust 投影与 op_log。 */
+export const ALL_LIST_ID = 'all';
+
 export interface NewTaskInput {
   title: string;
   notes?: string;
+  startAt?: string | null;
   dueAt?: string | null;
   remindAt?: string | null;
   priority?: Priority;
@@ -65,6 +69,8 @@ function fieldValue(task: Task, field: TaskField): unknown {
       return task.title;
     case 'notes':
       return task.notes;
+    case 'startAt':
+      return task.startAt;
     case 'dueAt':
       return task.dueAt;
     case 'remindAt':
@@ -87,6 +93,9 @@ function assignField(task: Task, field: TaskField, value: unknown): void {
       break;
     case 'notes':
       task.notes = String(value ?? '');
+      break;
+    case 'startAt':
+      task.startAt = (value as string | null) ?? null;
       break;
     case 'dueAt':
       task.dueAt = (value as string | null) ?? null;
@@ -136,6 +145,9 @@ class TodoStore {
   drawerTab = $state<DrawerTab>('detail');
   globalHistory = $state(false);
 
+  /** 视图时钟：定时刷新，使任务开始时间到点后自动进入「今天」。 */
+  nowMs = $state(Date.now());
+
   collapsedGroups = $state<Record<string, boolean>>({ done: false });
 
   stickyMode = $state(false);
@@ -159,6 +171,12 @@ class TodoStore {
   private settingsUnlisten: (() => void) | null = null;
 
   constructor() {
+    // 开始时间是动态边界：每分钟重新计算一次，避免视图停留在旧时间点。
+    if (typeof window !== 'undefined') {
+      setInterval(() => {
+        this.nowMs = Date.now();
+      }, 60_000);
+    }
     // 原型数据同步生成，默认直接出内容；仅 ?skeleton=1 时演示骨架屏。
     if (
       !isTauri &&
@@ -216,7 +234,10 @@ class TodoStore {
     this.settings = { ...response.settings };
     this.aiKeyConfigured = response.aiKeyConfigured;
 
-    if (!this.lists.some((list) => list.id === this.activeListId)) {
+    if (
+      this.activeListId !== this.allListId &&
+      !this.lists.some((list) => list.id === this.activeListId)
+    ) {
       this.activeListId = this.todayListId;
     }
     if (resetSelection || previousWorkspace !== this.activeWorkspaceId) {
@@ -299,7 +320,12 @@ class TodoStore {
   }
 
   countForList(id: string): number {
-    if (id === this.todayListId) return this.tasks.length;
+    if (id === this.todayListId) {
+      return this.todayTasks.filter((task) => task.status === 'todo').length;
+    }
+    if (id === this.allListId) {
+      return this.tasks.filter((task) => task.status === 'todo').length;
+    }
     return this.tasks.filter((task) => task.listId === id).length;
   }
 
@@ -313,13 +339,26 @@ class TodoStore {
 
   get scopedTasks(): Task[] {
     let base = this.tasks;
-    if (this.activeListId !== this.todayListId) {
+    if (this.activeListId !== this.todayListId && this.activeListId !== this.allListId) {
       base = base.filter((task) => task.listId === this.activeListId);
     }
     if (this.activeTagId) {
       base = base.filter((task) => task.tagIds.includes(this.activeTagId as string));
     }
     return [...base].sort((a, b) => a.order - b.order);
+  }
+
+  /**
+   * 当前选择范围下的可见任务：日历、统计与进度共用。
+   * 选中「今天」时只保留已到开始时间的任务；普通清单、标签与「全部」不做开始时间过滤。
+   */
+  get viewTasks(): Task[] {
+    const base = this.scopedTasks;
+    if (this.activeListId === this.todayListId && !this.activeTagId) {
+      const baseTime = new Date(this.nowMs);
+      return base.filter((task) => hasStarted(task, baseTime));
+    }
+    return base;
   }
 
   get searchResults(): Task[] | null {
@@ -343,9 +382,14 @@ class TodoStore {
       return [{ key: 'search', title: '搜索结果', tasks: searchResults }];
     }
 
-    const base = this.scopedTasks;
-    const today = base.filter((task) => task.status === 'todo' && isDueToday(task.dueAt));
-    const upcoming = base.filter((task) => task.status === 'todo' && !isDueToday(task.dueAt));
+    const base = this.viewTasks;
+    const baseTime = new Date(this.nowMs);
+    // 分组只看开始时间：已开始 →「今天」，未开始 →「即将到来」。
+    // 截止时间只用于行内文案与逾期高亮，不参与分组。
+    const today = base.filter((task) => task.status === 'todo' && hasStarted(task, baseTime));
+    const upcoming = base.filter(
+      (task) => task.status === 'todo' && !hasStarted(task, baseTime)
+    );
     const done = base.filter((task) => task.status === 'done');
 
     const groups: TaskGroup[] = [];
@@ -356,51 +400,62 @@ class TodoStore {
   }
 
   get hasScopedTasks(): boolean {
-    return this.scopedTasks.length > 0;
+    return this.viewTasks.length > 0;
   }
 
   get progress(): { done: number; total: number; pct: number } {
-    const scope = this.scopedTasks;
+    const scope = this.viewTasks;
     const total = scope.length;
     const done = scope.filter((task) => task.status === 'done').length;
     const pct = total === 0 ? 0 : Math.round((done / total) * 100);
     return { done, total, pct };
   }
 
+  /** 智能清单「今天」的任务：所有已到开始时间的任务（含已完成，便利贴使用）。 */
   get todayTasks(): Task[] {
-    const today = this.tasks.filter((task) => isDueToday(task.dueAt));
-    const source = today.length ? today : this.tasks;
-    return [...source].sort((a, b) => {
+    const baseTime = new Date(this.nowMs);
+    return [...this.tasks.filter((task) => hasStarted(task, baseTime))].sort((a, b) => {
       if (a.status !== b.status) return a.status === 'done' ? 1 : -1;
       return a.order - b.order;
     });
   }
 
   /**
-   * 便利贴显示的任务范围：选中「今天」智能清单时沿用 todayTasks，
-   * 选中普通清单时按 listId 过滤，让底部清单下拉真正切换分类。
+   * 便利贴显示的任务范围：
+   * 「今天」→ 已开始任务；「全部」→ 全部任务；普通清单按 listId 过滤。
    */
   get stickyTasks(): Task[] {
     if (this.activeListId === this.todayListId) return this.todayTasks;
-    return this.tasks
-      .filter((task) => task.listId === this.activeListId)
-      .sort((a, b) => {
-        if (a.status !== b.status) return a.status === 'done' ? 1 : -1;
-        return a.order - b.order;
-      });
+    if (this.activeListId === this.allListId) return this.sortedByStatus(this.tasks);
+    return this.sortedByStatus(
+      this.tasks.filter((task) => task.listId === this.activeListId)
+    );
+  }
+
+  private sortedByStatus(tasks: Task[]): Task[] {
+    return [...tasks].sort((a, b) => {
+      if (a.status !== b.status) return a.status === 'done' ? 1 : -1;
+      return a.order - b.order;
+    });
   }
 
   get todayRemaining(): Task[] {
     return this.todayTasks.filter((task) => task.status === 'todo');
   }
 
+  get allListId(): string {
+    return ALL_LIST_ID;
+  }
+
   get activeListName(): string {
+    if (this.activeListId === this.allListId) return '全部';
     return this.listName(this.activeListId);
   }
 
   get headerTitle(): string {
     if (this.search.trim()) return '搜索结果';
-    return this.activeTagId ? `#${this.tagName(this.activeTagId)}` : this.listName(this.activeListId);
+    if (this.activeTagId) return `#${this.tagName(this.activeTagId)}`;
+    return this.activeListName;
   }
 
   /* ------------------------------- 视图状态 ------------------------------- */
@@ -664,6 +719,7 @@ class TodoStore {
         const createdId = await ipc.createTask({
           title,
           notes: input.notes ?? '',
+          startAt: input.startAt ?? null,
           dueAt: input.dueAt ?? null,
           remindAt: input.remindAt ?? null,
           priority: input.priority ?? this.settings.defaultPriority,
@@ -685,6 +741,7 @@ class TodoStore {
       id: uid('task'),
       title,
       notes: input.notes ?? '',
+      startAt: input.startAt ?? new Date().toISOString(),
       dueAt: input.dueAt ?? null,
       remindAt: input.remindAt ?? null,
       priority: input.priority ?? this.settings.defaultPriority,
@@ -725,6 +782,7 @@ class TodoStore {
     const fields: { field: TaskField; action: string; label: string }[] = [
       { field: 'title', action: '修改了标题', label: 'title' },
       { field: 'notes', action: '修改了备注', label: 'notes' },
+      { field: 'startAt', action: '修改了开始时间', label: 'start_at' },
       { field: 'dueAt', action: '修改了截止时间', label: 'due_at' },
       { field: 'remindAt', action: '修改了提醒时间', label: 'remind_at' },
       { field: 'priority', action: '修改了优先级', label: 'priority' },
@@ -824,6 +882,7 @@ class TodoStore {
     const map: Record<TaskField, string> = {
       title: 'title',
       notes: 'notes',
+      startAt: 'start_at',
       dueAt: 'due_at',
       remindAt: 'remind_at',
       priority: 'priority',
@@ -840,6 +899,7 @@ class TodoStore {
         return priorityLabel(value as Priority);
       case 'status':
         return statusLabel(value as Task['status']);
+      case 'startAt':
       case 'dueAt':
       case 'remindAt':
         return formatDueLong((value as string | null) ?? null);

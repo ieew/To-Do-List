@@ -16,9 +16,14 @@
   const pct = $derived(tasks.length === 0 ? 0 : Math.round((done / tasks.length) * 100));
   const remaining = $derived(tasks.length - done);
   const isTodayScope = $derived(store.activeListId === store.todayListId);
-  const scopeLabel = $derived(isTodayScope ? '今日进度' : '清单进度');
-  const emptyText = $derived(isTodayScope ? '今天清空啦，休息一下' : '这个清单还没有任务');
-  const allDoneText = $derived(isTodayScope ? '今天清空啦，休息一下' : '这个清单已清空');
+  const isAllScope = $derived(store.activeListId === store.allListId);
+  const scopeLabel = $derived(isTodayScope ? '今日进度' : isAllScope ? '全部进度' : '清单进度');
+  const emptyText = $derived(
+    isTodayScope ? '今天清空啦，休息一下' : isAllScope ? '还没有任务' : '这个清单还没有任务'
+  );
+  const allDoneText = $derived(
+    isTodayScope ? '今天清空啦，休息一下' : isAllScope ? '全部任务已完成' : '这个清单已清空'
+  );
 
   async function togglePin(): Promise<void> {
     pinned = !pinned;
@@ -36,7 +41,7 @@
     if (!newTask.trim()) return;
     const fallback =
       store.lists.find((list) => !list.smart)?.id ?? store.lists[0]?.id ?? store.todayListId;
-    const listId = store.activeListId === store.todayListId ? fallback : store.activeListId;
+    const listId = isTodayScope || isAllScope ? fallback : store.activeListId;
     store.createTask({
       title: newTask,
       listId,
@@ -44,7 +49,7 @@
       source: 'human'
     });
     newTask = '';
-    store.showToast('已添加到今天');
+    store.showToast(`已添加到${store.listName(listId)}`);
     addInput?.focus();
   }
 </script>
@@ -65,7 +70,7 @@
   >
     <div class="sticky-header" use:stickyWindowDrag={standalone}>
       <div class="sticky-handle" aria-hidden="true"><span></span><span></span><span></span></div>
-      <span class="sticky-title">{store.listName(store.activeListId)} · 便利贴</span>
+      <span class="sticky-title">{store.activeListName} · 便利贴</span>
       <button class="sticky-btn" class:pinned onclick={togglePin} aria-label="置顶" title="置顶">
         <Pin size="13" />
       </button>
@@ -148,6 +153,7 @@
           {#each store.lists as list (list.id)}
             <option value={list.id}>{list.name}</option>
           {/each}
+          <option value={store.allListId}>全部</option>
         </select>
         <ChevronDown size="11" />
       </label>

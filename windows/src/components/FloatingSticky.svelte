@@ -37,12 +37,16 @@
     y = Math.max(12, window.innerHeight - CARD_H - 24 - index * 24);
   });
 
-  const scopeTitle = $derived(`${store.listName(store.activeListId)} · 便利贴`);
+  const scopeTitle = $derived(`${store.activeListName} · 便利贴`);
   const title = $derived(
     sticky.focusTaskId ? store.taskById(sticky.focusTaskId)?.title ?? scopeTitle : scopeTitle
   );
   const emptyText = $derived(
-    store.activeListId === store.todayListId ? '今天清空啦，休息一下' : '这个清单还没有任务'
+    store.activeListId === store.todayListId
+      ? '今天清空啦，休息一下'
+      : store.activeListId === store.allListId
+        ? '还没有任务'
+        : '这个清单还没有任务'
   );
 
   const tasks = $derived.by(() => {
@@ -113,7 +117,9 @@
     if (!title) return;
     const fallback =
       store.lists.find((list) => !list.smart)?.id ?? store.lists[0]?.id ?? store.todayListId;
-    const listId = store.activeListId === store.todayListId ? fallback : store.activeListId;
+    const isSmartScope =
+      store.activeListId === store.todayListId || store.activeListId === store.allListId;
+    const listId = isSmartScope ? fallback : store.activeListId;
     void store.createTask({ title, listId, dueAt: defaultDueAt(), source: 'human' });
     newTask = '';
     store.showToast('已添加到' + store.listName(listId));

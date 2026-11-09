@@ -64,6 +64,22 @@ export function isDueToday(iso: string | null, base = new Date()): boolean {
   return iso ? sameDay(new Date(iso), base) : false;
 }
 
+/**
+ * 任务是否已到开始时间。
+ * `startAt` 为空或非法时视为已开始，兼容旧数据与早期未设置开始时间的任务。
+ */
+export function hasStarted(task: Task, base = new Date()): boolean {
+  if (!task.startAt) return true;
+  const startedAt = new Date(task.startAt).getTime();
+  if (Number.isNaN(startedAt)) return true;
+  return startedAt <= base.getTime();
+}
+
+/** 任务列表中的简洁开始文案 */
+export function formatStartShort(iso: string | null, base = new Date()): string {
+  return formatDueShort(iso, base).replace(' 截止', '');
+}
+
 export function isOverdue(task: Task, base = new Date()): boolean {
   if (!task.dueAt || task.status === 'done') return false;
   return new Date(task.dueAt).getTime() < base.getTime();
@@ -100,6 +116,11 @@ export function todayAt(hour: number, minute = 0, base = new Date()): string {
   const d = new Date(base);
   d.setHours(hour, minute, 0, 0);
   return d.toISOString();
+}
+
+/** 新任务默认开始时间：创建任务的当天时间（即当前时刻）。 */
+export function defaultStartAt(base = new Date()): string {
+  return base.toISOString();
 }
 
 /** 新任务默认截止时间：当前时间 + 7 天 */
