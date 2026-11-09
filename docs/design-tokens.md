@@ -126,6 +126,9 @@ Android 端对应 `FontFamily.Default` 与 `FontFamily.Monospace`，不要自定
 | `--radius-lg` | 16px | 便利贴、手机卡片、大卡片 |
 | `--radius-xl` | 20px | 桌面舞台、手机外框 |
 | `--radius-full` | 999px | 复选框、标签 chip、进度条、头像 |
+| `--radius-sticky` | 0px | 便利贴外层卡片（直角） |
+
+便利贴底色透明度使用动态令牌 `--sticky-alpha`（0–1，由设置「外观 → 底色透明度」写入，默认 0.94），不单独建色板。
 
 ## 五、阴影
 

@@ -835,10 +835,14 @@ pub fn invite_member(
 
 #[tauri::command]
 pub fn save_settings(
+    app: AppHandle,
     state: State<'_, AppState>,
     settings: Settings,
 ) -> Result<(), String> {
-    with_db(&state, |conn| storage::save_settings(conn, &settings))
+    with_db(&state, |conn| storage::save_settings(conn, &settings))?;
+    // 主窗口与便利贴是独立 WebviewWindow，用事件把外观设置推给所有窗口。
+    let _ = app.emit("settings-updated", &settings);
+    Ok(())
 }
 
 /* ----------------------------- AI 密钥 ----------------------------- */

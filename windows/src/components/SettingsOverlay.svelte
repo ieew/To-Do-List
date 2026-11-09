@@ -264,6 +264,29 @@
             </div>
           </div>
 
+          <div class="setting-group">
+            <div class="setting-group-title">便利贴</div>
+            <div class="setting-row">
+              <div class="setting-label">
+                <div class="setting-title">底色透明度</div>
+                <div class="setting-desc">
+                  调整便利贴卡片底色的不透明度，越低越能透出桌面；文字与控件保持不透明。
+                </div>
+              </div>
+              <div class="setting-control">
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="1"
+                  bind:value={draft.stickyOpacity}
+                  aria-label="便利贴底色透明度"
+                />
+                <span class="range-value">{draft.stickyOpacity}%</span>
+              </div>
+            </div>
+          </div>
+
           <div class="info-banner">
             <Info size="13" class="info-icon" />
             <span>原型中侧栏宽度保存在内存；生产实现写入客户端 SQLite 本地偏好表，不进入 op_log。</span>

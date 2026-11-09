@@ -156,6 +156,7 @@ class TodoStore {
   toast = $state<ToastMessage | null>(null);
   private toastTimer: ReturnType<typeof setTimeout> | null = null;
   private projectionUnlisten: (() => void) | null = null;
+  private settingsUnlisten: (() => void) | null = null;
 
   constructor() {
     // 原型数据同步生成，默认直接出内容；仅 ?skeleton=1 时演示骨架屏。
@@ -185,6 +186,12 @@ class TodoStore {
           if (!workspaceId || workspaceId === this.activeWorkspaceId) {
             void this.refresh();
           }
+        });
+      }
+      if (!this.settingsUnlisten) {
+        // 主窗口保存外观设置后，已打开的便利贴窗口立即同步。
+        this.settingsUnlisten = await ipc.onSettingsUpdated((settings) => {
+          this.settings = { ...settings };
         });
       }
     } catch (error) {
@@ -239,6 +246,13 @@ class TodoStore {
 
   get density(): Density {
     return this.settings.density;
+  }
+
+  /** 便利贴底色透明度（0–1），对异常值做兜底与钳制。 */
+  get stickyAlpha(): number {
+    const value = this.settings.stickyOpacity;
+    if (!Number.isFinite(value)) return 0.94;
+    return Math.min(1, Math.max(0, value / 100));
   }
 
   get members(): Member[] {
@@ -360,6 +374,20 @@ class TodoStore {
       if (a.status !== b.status) return a.status === 'done' ? 1 : -1;
       return a.order - b.order;
     });
+  }
+
+  /**
+   * 便利贴显示的任务范围：选中「今天」智能清单时沿用 todayTasks，
+   * 选中普通清单时按 listId 过滤，让底部清单下拉真正切换分类。
+   */
+  get stickyTasks(): Task[] {
+    if (this.activeListId === this.todayListId) return this.todayTasks;
+    return this.tasks
+      .filter((task) => task.listId === this.activeListId)
+      .sort((a, b) => {
+        if (a.status !== b.status) return a.status === 'done' ? 1 : -1;
+        return a.order - b.order;
+      });
   }
 
   get todayRemaining(): Task[] {

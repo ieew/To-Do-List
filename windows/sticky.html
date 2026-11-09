@@ -4,6 +4,17 @@
     <meta charset="UTF-8" />
     <meta name="color-scheme" content="light dark" />
     <title>便利贴</title>
+    <script>
+      // 与主窗口一致：首帧就用缓存主题，避免暗色下便利贴先闪浅色。
+      try {
+        var cachedTheme = localStorage.getItem('todo.theme');
+        if (cachedTheme === 'dark' || cachedTheme === 'light') {
+          document.documentElement.dataset.theme = cachedTheme;
+        }
+      } catch (error) {
+        /* localStorage 不可用时保持默认浅色 */
+      }
+    </script>
     <style>
       html,
       body,

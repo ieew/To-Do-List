@@ -121,6 +121,11 @@ export const ipc = {
   onProjectionUpdated: (handler: (workspaceId: string | null) => void): Promise<UnlistenFn> =>
     listen<{ workspaceId: string | null }>('projection-updated', (event) => {
       handler(event.payload.workspaceId);
+    }),
+
+  onSettingsUpdated: (handler: (settings: Settings) => void): Promise<UnlistenFn> =>
+    listen<Settings>('settings-updated', (event) => {
+      handler(event.payload);
     })
 };
 

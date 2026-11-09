@@ -129,6 +129,8 @@ export interface ContextMenuState {
 export interface Settings {
   theme: Theme;
   density: Density;
+  /** 便利贴底色透明度，整数百分比 0–100。 */
+  stickyOpacity: number;
   notifications: boolean;
   reminderLead: number;
   dndEnabled: boolean;

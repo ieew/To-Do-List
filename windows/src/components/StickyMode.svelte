@@ -2,6 +2,7 @@
   import { Calendar, ChevronDown, Coffee, FileText, Folder, Maximize2, Pin, Plus, X } from 'lucide-svelte';
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { store } from '../lib/store.svelte';
+  import { stickyWindowDrag } from '../lib/sticky-drag';
   import { defaultDueAt, formatDueShort, isOverdue, isUrgent } from '../lib/utils';
 
   const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -10,10 +11,14 @@
   let newTask = $state('');
   let addInput: HTMLInputElement | null = null;
 
-  const tasks = $derived(store.todayTasks);
+  const tasks = $derived(store.stickyTasks);
   const done = $derived(tasks.filter((task) => task.status === 'done').length);
   const pct = $derived(tasks.length === 0 ? 0 : Math.round((done / tasks.length) * 100));
   const remaining = $derived(tasks.length - done);
+  const isTodayScope = $derived(store.activeListId === store.todayListId);
+  const scopeLabel = $derived(isTodayScope ? '今日进度' : '清单进度');
+  const emptyText = $derived(isTodayScope ? '今天清空啦，休息一下' : '这个清单还没有任务');
+  const allDoneText = $derived(isTodayScope ? '今天清空啦，休息一下' : '这个清单已清空');
 
   async function togglePin(): Promise<void> {
     pinned = !pinned;
@@ -51,10 +56,16 @@
     <span class="fake-icon purple"><FileText size="22" /></span>
   </div>
 
-  <div class="sticky-note" role="dialog" aria-modal="true" aria-label="今天便利贴">
-    <div class="sticky-header" data-tauri-drag-region>
+  <div
+    class="sticky-note"
+    style="--sticky-alpha:{store.stickyAlpha}"
+    role="dialog"
+    aria-modal="true"
+    aria-label="今天便利贴"
+  >
+    <div class="sticky-header" use:stickyWindowDrag={standalone}>
       <div class="sticky-handle" aria-hidden="true"><span></span><span></span><span></span></div>
-      <span class="sticky-title">今天 · 便利贴</span>
+      <span class="sticky-title">{store.listName(store.activeListId)} · 便利贴</span>
       <button class="sticky-btn" class:pinned onclick={togglePin} aria-label="置顶" title="置顶">
         <Pin size="13" />
       </button>
@@ -68,7 +79,7 @@
 
     <div class="sticky-progress">
       <div class="sticky-progress-row">
-        <span>今日进度</span>
+        <span>{scopeLabel}</span>
         <strong>{done} / {tasks.length} 完成 · {pct}%</strong>
       </div>
       <div class="progress-bar">
@@ -96,13 +107,13 @@
       {#if tasks.length === 0}
         <div class="sticky-empty">
           <Coffee size="24" />
-          <span>今天清空啦，休息一下</span>
+          <span>{emptyText}</span>
         </div>
       {:else}
         {#if remaining === 0}
           <div class="sticky-clear">
             <Coffee size="14" />
-            今天清空啦，休息一下
+            {allDoneText}
           </div>
         {/if}
         {#each tasks as task (task.id)}
@@ -174,7 +185,7 @@
   .sticky-stage.standalone .sticky-note {
     width: 100%;
     height: 100%;
-    border-radius: var(--radius-lg);
+    border-radius: var(--radius-sticky);
     animation: none;
   }
 
@@ -215,10 +226,10 @@
     height: 440px;
     display: flex;
     flex-direction: column;
-    border-radius: var(--radius-lg);
-    background: rgba(255, 255, 255, 0.94);
+    border-radius: var(--radius-sticky);
+    background: rgb(255 255 255 / var(--sticky-alpha, 0.94));
     box-shadow: var(--shadow-xl), var(--sticky-inset);
-    backdrop-filter: blur(24px) saturate(180%);
+    backdrop-filter: blur(calc(24px * var(--sticky-alpha, 0.94))) saturate(180%);
     color: var(--color-text);
     overflow: hidden;
     animation: sticky-in var(--duration-base) var(--ease-standard);
@@ -226,7 +237,7 @@
 
   @supports not (backdrop-filter: blur(1px)) {
     .sticky-note {
-      background: #fff;
+      background: rgb(255 255 255 / var(--sticky-alpha, 0.94));
     }
   }
 
@@ -428,7 +439,7 @@
     gap: var(--space-2);
     padding: 9px 14px;
     border-top: 1px solid rgba(226, 232, 240, 0.75);
-    background: rgba(248, 250, 252, 0.68);
+    background: rgb(248 250 252 / calc(var(--sticky-alpha, 0.94) * 0.72));
   }
 
   .sticky-list-switch {
@@ -495,7 +506,7 @@
   }
 
   :global(html[data-theme='dark']) .sticky-note {
-    background: rgba(30, 41, 59, 0.95);
+    background: rgb(30 41 59 / var(--sticky-alpha, 0.94));
     box-shadow: var(--shadow-xl), 0 0 0 1px rgba(255, 255, 255, 0.08) inset;
   }
 
@@ -505,7 +516,7 @@
   }
 
   :global(html[data-theme='dark']) .sticky-footer {
-    background: rgba(15, 23, 42, 0.6);
+    background: rgb(15 23 42 / calc(var(--sticky-alpha, 0.94) * 0.6));
   }
 
   :global(html[data-theme='dark']) .sticky-add {

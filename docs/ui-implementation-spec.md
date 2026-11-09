@@ -44,6 +44,8 @@
 3. 便利贴在 `bootstrap` 与上下文就绪后 `show()` + `setFocus()`，随后前端调用 `hide_main_window` 隐藏主窗口 `main`（保持 Rust 进程与投影源存活）。顺序不得颠倒，避免露出桌面空白。
 4. 点击「展开大界面」：先关闭 `sticky-main`，再 `show()` + `setFocus()` 主窗口。
 5. 主窗口与主形态便利贴互斥，同一时刻最多一个。Rust 侧 2.5 秒兜底：便利贴仍不可见则强制显示并隐藏主窗口。
+6. 外观：外层卡片直角（`--radius-sticky: 0px`），底色透明度取设置「外观 → 底色透明度」（0–100%，默认 94%），文字与控件保持不透明。
+7. 便利贴窗口同步 `data-theme`，跟随主窗口浅色/暗色；拖动使用 `startDragging()`，不依赖 `data-tauri-drag-region`。
 
 > 禁止在主窗口内用 `position: fixed` 浮层或 `scale(.96)` 模拟。浏览器预览可保留浮层作为视觉降级，但生产构建不得走该路径。
 
@@ -54,6 +56,8 @@
 - 最多 5 个，由 Rust 侧计数；超额返回 `sticky_limit_reached`，前端以轻提示展示。
 - 前端只发 `open_sticky_window(mode, task_id)` / `close_sticky_window(label)` 命令，不直接创建窗口。
 - 所有便利贴窗口通过 `bootstrap` 命令读取同一份 Rust 投影，并监听 `projection-updated` 事件刷新。
+- 外观与主形态一致：外层直角、底色透明度来自同一份外观设置、跟随主题；主窗口保存设置后通过 `settings-updated` 同步。
+- 底部清单下拉切换任务范围（`store.stickyTasks`）：选中「今天」显示今日任务，普通清单按 `listId` 过滤；标题与进度标签同步显示清单名。
 
 ### 2.4 Android 主界面（S5）
 

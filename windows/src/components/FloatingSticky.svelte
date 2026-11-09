@@ -1,10 +1,11 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { Maximize2, Pin, Plus, X } from 'lucide-svelte';
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { store } from '../lib/store.svelte';
+  import { stickyWindowDrag } from '../lib/sticky-drag';
   import type { FloatingStickyState } from '../lib/types';
-  import { formatDueShort } from '../lib/utils';
+  import { defaultDueAt, formatDueShort } from '../lib/utils';
 
   interface Props {
     sticky: FloatingStickyState;
@@ -27,23 +28,30 @@
   let startY = 0;
   let originX = 0;
   let originY = 0;
+  let adding = $state(false);
+  let newTask = $state('');
+  let addInput = $state<HTMLInputElement | null>(null);
 
   onMount(() => {
     x = Math.max(12, window.innerWidth - CARD_W - 24 - index * 24);
     y = Math.max(12, window.innerHeight - CARD_H - 24 - index * 24);
   });
 
+  const scopeTitle = $derived(`${store.listName(store.activeListId)} · 便利贴`);
   const title = $derived(
-    sticky.focusTaskId ? store.taskById(sticky.focusTaskId)?.title ?? '今天 · 便利贴' : '今天 · 便利贴'
+    sticky.focusTaskId ? store.taskById(sticky.focusTaskId)?.title ?? scopeTitle : scopeTitle
+  );
+  const emptyText = $derived(
+    store.activeListId === store.todayListId ? '今天清空啦，休息一下' : '这个清单还没有任务'
   );
 
   const tasks = $derived.by(() => {
     if (sticky.focusTaskId) {
       const focus = store.taskById(sticky.focusTaskId);
-      const rest = store.todayTasks.filter((task) => task.id !== sticky.focusTaskId).slice(0, 4);
+      const rest = store.stickyTasks.filter((task) => task.id !== sticky.focusTaskId).slice(0, 4);
       return focus ? [focus, ...rest] : rest;
     }
-    return store.todayTasks.slice(0, 5);
+    return store.stickyTasks.slice(0, 5);
   });
 
   function startDrag(event: PointerEvent): void {
@@ -89,13 +97,35 @@
     }
     store.closeFloatingSticky(sticky.id);
   }
+
+  async function toggleAdd(): Promise<void> {
+    adding = !adding;
+    if (!adding) {
+      newTask = '';
+      return;
+    }
+    await tick();
+    addInput?.focus();
+  }
+
+  function submitAdd(): void {
+    const title = newTask.trim();
+    if (!title) return;
+    const fallback =
+      store.lists.find((list) => !list.smart)?.id ?? store.lists[0]?.id ?? store.todayListId;
+    const listId = store.activeListId === store.todayListId ? fallback : store.activeListId;
+    void store.createTask({ title, listId, dueAt: defaultDueAt(), source: 'human' });
+    newTask = '';
+    store.showToast('已添加到' + store.listName(listId));
+    addInput?.focus();
+  }
 </script>
 
 <div
   class="floating-sticky"
   class:dragging
   class:standalone
-  style="left:{x}px;top:{y}px;z-index:{1000 + index}"
+  style="left:{x}px;top:{y}px;z-index:{1000 + index};--sticky-alpha:{store.stickyAlpha}"
   role="dialog"
   aria-label="浮动便利贴"
 >
@@ -105,7 +135,7 @@
     role="toolbar"
     tabindex="0"
     aria-label="拖动便利贴"
-    data-tauri-drag-region={standalone}
+    use:stickyWindowDrag={standalone}
     onpointerdown={startDrag}
     onpointermove={moveDrag}
     onpointerup={endDrag}
@@ -126,7 +156,7 @@
 
   <div class="floating-body">
     {#if tasks.length === 0}
-      <div class="floating-empty">今天清空啦，休息一下</div>
+      <div class="floating-empty">{emptyText}</div>
     {:else}
       {#each tasks as task (task.id)}
         <div class="floating-task" class:is-done={task.status === 'done'} class:is-focus={task.id === sticky.focusTaskId}>
@@ -147,6 +177,30 @@
     {/if}
   </div>
 
+  {#if adding}
+    <div class="floating-add">
+      <Plus size="12" />
+      <input
+        class="floating-add-input"
+        placeholder="添加待办，回车保存"
+        aria-label="新任务标题"
+        bind:value={newTask}
+        bind:this={addInput}
+        onkeydown={(event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault();
+            submitAdd();
+          } else if (event.key === 'Escape') {
+            event.preventDefault();
+            adding = false;
+            newTask = '';
+          }
+        }}
+      />
+      <button class="floating-add-submit" disabled={!newTask.trim()} onclick={submitAdd}>添加</button>
+    </div>
+  {/if}
+
   <div class="floating-footer">
     <label class="floating-list">
       <select
@@ -161,7 +215,14 @@
       <span class="caret">▾</span>
     </label>
     <div class="footer-actions">
-      <button class="footer-icon" aria-label="添加任务" title="添加任务" onclick={() => (store.quickAddOpen = true)}>
+      <button
+        class="footer-icon"
+        class:is-active={adding}
+        aria-label="添加任务"
+        aria-expanded={adding}
+        title="添加任务"
+        onclick={toggleAdd}
+      >
         <Plus size="12" />
       </button>
       <button class="footer-expand" onclick={expand}>
@@ -179,10 +240,10 @@
     height: 368px;
     display: flex;
     flex-direction: column;
-    border-radius: var(--radius-lg);
-    background: rgba(255, 255, 255, 0.94);
+    border-radius: var(--radius-sticky);
+    background: rgb(255 255 255 / var(--sticky-alpha, 0.94));
     box-shadow: var(--shadow-xl), var(--sticky-inset);
-    backdrop-filter: blur(22px) saturate(170%);
+    backdrop-filter: blur(calc(22px * var(--sticky-alpha, 0.94))) saturate(170%);
     overflow: hidden;
     color: var(--color-text);
     animation: floating-in var(--duration-base) var(--ease-standard);
@@ -210,7 +271,7 @@
 
   @supports not (backdrop-filter: blur(1px)) {
     .floating-sticky {
-      background: #fff;
+      background: rgb(255 255 255 / var(--sticky-alpha, 0.94));
     }
   }
 
@@ -335,6 +396,46 @@
     text-align: center;
   }
 
+  .floating-add {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0 8px 6px;
+    padding: 6px 9px;
+    border-radius: 6px;
+    background: rgb(241 245 249 / calc(var(--sticky-alpha, 0.94) * 0.9));
+    color: var(--color-text-3);
+  }
+
+  .floating-add-input {
+    flex: 1;
+    min-width: 0;
+    border: none;
+    outline: none;
+    background: transparent;
+    color: var(--color-text);
+    font-size: 11.5px;
+  }
+
+  .floating-add-input::placeholder {
+    color: var(--color-text-3);
+  }
+
+  .floating-add-submit {
+    flex-shrink: 0;
+    border: none;
+    background: transparent;
+    color: var(--color-primary);
+    font-size: 11px;
+    font-weight: var(--weight-semibold);
+  }
+
+  .floating-add-submit:disabled {
+    color: var(--color-text-3);
+    opacity: 0.6;
+  }
+
   .floating-footer {
     flex-shrink: 0;
     display: flex;
@@ -343,7 +444,7 @@
     gap: var(--space-2);
     padding: 7px 11px;
     border-top: 1px solid rgba(226, 232, 240, 0.75);
-    background: rgba(248, 250, 252, 0.68);
+    background: rgb(248 250 252 / calc(var(--sticky-alpha, 0.94) * 0.72));
   }
 
   .floating-list {
@@ -388,9 +489,14 @@
     color: var(--color-text-2);
   }
 
-  .footer-icon:hover {
+  .footer-icon:hover,
+  .footer-icon.is-active {
     border-color: #bfdbfe;
     color: var(--color-primary);
+  }
+
+  .footer-icon.is-active {
+    background: var(--color-primary-50);
   }
 
   .footer-expand {
@@ -420,7 +526,7 @@
   }
 
   :global(html[data-theme='dark']) .floating-sticky {
-    background: rgba(30, 41, 59, 0.95);
+    background: rgb(30 41 59 / var(--sticky-alpha, 0.94));
     box-shadow: var(--shadow-xl), 0 0 0 1px rgba(255, 255, 255, 0.08) inset;
   }
 
@@ -429,8 +535,12 @@
     border-color: rgba(51, 65, 85, 0.8);
   }
 
+  :global(html[data-theme='dark']) .floating-add {
+    background: rgb(15 23 42 / calc(var(--sticky-alpha, 0.94) * 0.5));
+  }
+
   :global(html[data-theme='dark']) .floating-footer {
-    background: rgba(15, 23, 42, 0.6);
+    background: rgb(15 23 42 / calc(var(--sticky-alpha, 0.94) * 0.6));
   }
 
   :global(html[data-theme='dark']) .floating-task:hover {

@@ -59,6 +59,7 @@ export function seedHistory(): HistoryOp[] {
 export const defaultSettings: Settings = {
   theme: 'light',
   density: 'comfortable',
+  stickyOpacity: 94,
   notifications: true,
   reminderLead: 10,
   dndEnabled: false,

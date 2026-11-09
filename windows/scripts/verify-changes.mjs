@@ -110,6 +110,10 @@ await sleep(200);
 // 2. 设置中的 AI 密钥可编辑
 await page.click('.tb-actions .icon-btn');
 await sleep(400);
+results.stickyOpacitySlider = !!(await page.$('input[aria-label="便利贴底色透明度"]'));
+results.stickyOpacityValue = await page
+  .$eval('input[aria-label="便利贴底色透明度"]', (el) => el.value)
+  .catch(() => null);
 await clickByText('.settings-nav-item', 'AI 助手');
 await sleep(300);
 results.keyInputDisabled = await page.$eval(
@@ -145,6 +149,32 @@ results.roleSelects = await page.$$eval('.role-select', (els) => els.length);
 results.ownerSelectDisabled = await page.$eval('.role-select', (el) => el.disabled);
 results.inviteFormVisible = !!(await page.$('.invite-grid'));
 
+// 3.5 外观：底色透明度滑块需联动到便利贴底色（浏览器预览）
+await clickByText('.settings-nav-item', '外观');
+await sleep(250);
+await page.$eval('input[aria-label="便利贴底色透明度"]', (el) => {
+  el.value = '50';
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+});
+await sleep(150);
+results.stickyOpacityLabel = await page.$eval(
+  'input[aria-label="便利贴底色透明度"]',
+  (el) => el.closest('.setting-control')?.querySelector('.range-value')?.textContent ?? null
+);
+await page.click('.settings-actions .btn-primary');
+await sleep(300);
+await page.click('.settings-back');
+await sleep(250);
+await clickByText('.tb-actions .tb-btn', '新便利贴');
+await sleep(400);
+results.stickyAlphaAfterSave = await page
+  .$eval('.floating-sticky', (el) => getComputedStyle(el).backgroundColor)
+  .catch(() => null);
+await page.evaluate(() => {
+  document.querySelector('.floating-sticky .floating-btn:last-child')?.click();
+});
+await sleep(200);
+
 // 4. AI 入口：网页版桥接默认隐藏，仅保留 API 直连
 await page.goto(`${BASE}?demo=ai`, { waitUntil: 'load' });
 await sleep(900);
@@ -162,11 +192,41 @@ await page.goto(`${BASE}sticky.html?mode=main`, { waitUntil: 'load' });
 await sleep(900);
 results.stickyMainRendered = !!(await page.$('.sticky-note'));
 results.stickyStandalone = !!(await page.$('.sticky-stage.standalone'));
+results.stickyMainRadius = await page
+  .$eval('.sticky-note', (el) => getComputedStyle(el).borderTopLeftRadius)
+  .catch(() => null);
+results.stickyMainBackground = await page
+  .$eval('.sticky-note', (el) => getComputedStyle(el).backgroundColor)
+  .catch(() => null);
+await page.select('.sticky-list-switch select', 'me-work');
+await sleep(250);
+results.stickyMainListTitle = await text('.sticky-title');
+results.stickyMainScopeLabel = await text('.sticky-progress-row span');
+results.stickyMainEmptyText = await text('.sticky-empty span');
 
 await page.goto(`${BASE}sticky.html?mode=floating&focus=task-write-prd`, { waitUntil: 'load' });
 await sleep(900);
 results.stickyFloatingRendered = !!(await page.$('.floating-sticky'));
 results.stickyFloatingStandalone = !!(await page.$('.floating-sticky.standalone'));
+results.stickyFloatingRadius = await page
+  .$eval('.floating-sticky', (el) => getComputedStyle(el).borderTopLeftRadius)
+  .catch(() => null);
+results.stickyFloatingBackground = await page
+  .$eval('.floating-sticky', (el) => getComputedStyle(el).backgroundColor)
+  .catch(() => null);
+await page.select('.floating-list select', 'me-work');
+await sleep(250);
+results.stickyFloatingListTitle = await text('.floating-title');
+results.stickyFloatingEmptyText = await text('.floating-empty');
+await page.click('.footer-icon');
+await sleep(200);
+results.floatingAddVisible = !!(await page.$('.floating-add-input'));
+await page.type('.floating-add-input', '便签内添加测试');
+await page.keyboard.press('Enter');
+await sleep(300);
+results.floatingAddCreated = await page.$$eval('.floating-task-title', (els) =>
+  els.map((el) => el.textContent.trim())
+);
 
 console.log(results);
 await browser.close();

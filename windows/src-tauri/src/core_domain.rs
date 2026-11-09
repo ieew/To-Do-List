@@ -152,9 +152,13 @@ pub struct HistoryOp {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+// 兼容旧版 preferences：新增字段缺失时回落到 Default，避免整份设置被重置。
+#[serde(default)]
 pub struct Settings {
     pub theme: String,
     pub density: String,
+    /// 便利贴底色透明度（整数百分比 0–100）。
+    pub sticky_opacity: i64,
     pub notifications: bool,
     pub reminder_lead: i64,
     pub dnd_enabled: bool,
@@ -174,6 +178,7 @@ impl Default for Settings {
         Self {
             theme: "light".into(),
             density: "comfortable".into(),
+            sticky_opacity: 94,
             notifications: true,
             reminder_lead: 10,
             dnd_enabled: false,

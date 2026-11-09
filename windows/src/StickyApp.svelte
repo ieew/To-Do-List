@@ -11,6 +11,11 @@
   let focusTaskId = $state<string | null>(null);
   let label = $state('sticky-main');
 
+  // 便利贴窗口同样跟随主窗口选择的主题（此前从未设置 data-theme，暗色下仍是浅色）。
+  $effect(() => {
+    document.documentElement.dataset.theme = store.theme;
+  });
+
   onMount(() => {
     void (async () => {
       await store.init();
@@ -76,7 +81,7 @@
     gap: 6px;
     width: 100%;
     height: 100%;
-    border-radius: var(--radius-lg);
+    border-radius: var(--radius-sticky);
     background: var(--color-card);
     color: var(--color-text-3);
     font-size: var(--text-sm);
