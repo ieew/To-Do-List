@@ -3,7 +3,13 @@ export type TaskStatus = 'todo' | 'done';
 export type Source = 'human' | 'ai' | 'import';
 export type DrawerTab = 'detail' | 'history';
 export type MainView = 'today' | 'calendar' | 'stats';
-export type SyncStatus = 'synced' | 'syncing' | 'offline' | 'retrying';
+export type SyncStatus =
+  | 'signed_out'
+  | 'syncing'
+  | 'synced'
+  | 'offline'
+  | 'retrying'
+  | 'auth_required';
 export type Theme = 'light' | 'dark';
 export type Density = 'comfortable' | 'compact';
 
@@ -179,4 +185,50 @@ export interface BootstrapResponse {
   settings: Settings;
   aiKeyConfigured: boolean;
   deviceId: string;
+  sync: SyncStateDto;
+}
+
+export interface SyncAccount {
+  serverUrl: string;
+  userId: string;
+  username: string;
+  displayName: string;
+}
+
+export interface SyncStateDto {
+  status: SyncStatus;
+  account: SyncAccount | null;
+  pendingCount: number;
+  rejectedCount: number;
+  lastSyncedAt: number | null;
+  lastError: string | null;
+  cursor: number;
+}
+
+export interface SyncNoticeDto {
+  kind: 'clock_skew' | 'permission' | 'auth' | 'error';
+  code: string;
+  message: string;
+  retryable: boolean;
+  at: number;
+}
+
+export interface AuthResult {
+  account: SyncAccount;
+  backupPath: string | null;
+  sync: SyncStateDto;
+}
+
+export interface SyncPreflight {
+  localOpCount: number;
+  backupDir: string;
+}
+
+export interface AuthRegisterInput {
+  serverUrl: string;
+  username: string;
+  password: string;
+  email?: string;
+  displayName?: string;
+  workspaceName?: string;
 }

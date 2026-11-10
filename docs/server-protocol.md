@@ -706,17 +706,21 @@ sequenceDiagram
 - 服务端不得因 `source` / `source_meta` 改变裁决；`source_meta` 只落库。
 - 服务端拒绝为功能追加特例分支：合并原语只有 LWW 与 OR-Set 两种。
 
-## 十四、Windows 端接入契约（本期只写文档，不改客户端）
+## 十四、Windows 端接入契约（已实现）
 
-1. **身份绑定**：登录成功后，Rust 侧把本地偏好 `current_user_id` 设为服务端 `user.user_id`，`device_id` 沿用本地 `device_id`；op 的 `actor_id` 一律取该值。
-2. **首登数据处置**：本期要求本地库为空或仅含首次启动种子（`ws-me` + `me-*`）。若本地已有未同步业务 op，**暂不支持自动迁移**，需先导出本地备份再清库登录；迁移流程列为后续迭代。
-3. **同步循环**（`windows/src-tauri/src/sync/`，后续实现）：
-   - 推送：读取 `pending_ops` → `POST /v1/sync/push` → `accepted`/`duplicate` 出队，`rejected` 标记终态 `REJECTED`；
-   - 拉取：`GET /v1/sync/pull?workspace_id=<active>&since_seq=<cursor>`，直到 `has_more = false`；
-   - 应用顺序：先 push 再 pull；pull 结果经 `core_domain` reducer 合并后广播 `projection-updated`；
-   - 退避：网络错误指数退避（1s → 2s → 4s，上限 60s），`sync_interval`（默认 5 分钟）为正常轮询间隔。
-4. **时钟校正**：收到 `server_hlc` 时按 HLC 规则推进本地 `local_hlc`，UI 显示黄色条「本机时间偏差较大，已按服务器时间校正」。
-5. **权限拒绝**：`workspace_access_revoked` 对应抽屉顶部红条「权限已变更，此操作未生效」，带 `server_hlc`，不自动重试。
-6. **令牌存储**：访问/刷新令牌存 Windows 凭据管理器（DPAPI）；不得落入 SQLite、日志、备份。
+实现细节见 [`client-sync-integration.md`](./client-sync-integration.md)。本节保留双方必须遵守的约束。
+
+1. **身份绑定**：登录成功后，Rust 侧把 `preferences.current_user_id` 设为服务端 `user.user_id`，`device_id` 沿用本地 `device_id`；op 的 `actor_id` 一律取该值。
+2. **账户切换与本地数据**：登录到不同账户时，客户端先用 `VACUUM INTO` 把本地库备份到 `<数据目录>\backups\`，再清空 `op_log` 与 `sync_*` 元数据并全量拉取；同一账户再次登录保留本地 op 与游标。未做 id 重映射，因此不尝试把本地历史迁移到新账户。
+3. **同步循环**（`windows/src-tauri/src/sync/`）：
+   - 推送：读取 `sync_state = 'pending'` 的 op，每批最多 100 条；`accepted`/`duplicate` 标记 `synced` 并写 `server_seq`，`rejected` 标记终态并记录 `sync_error`；
+   - 拉取：`GET /v1/sync/pull?since_seq=<cursor>&limit=200`，不带 `workspace_id`，拉取调用者全部工作区，直到 `has_more = false`（单轮最多 20 页）；
+   - 应用顺序：先 push 再 pull；pull 每页在同一 SQLite 事务内落库并推进游标，随后广播 `projection-updated`；
+   - 触发：本地写入 / 手动同步 / 登录通过 `Notify` 立即唤醒；正常间隔取 `sync_interval`（最小 1 分钟）；
+   - 退避：网络错误指数退避（1s → 2s → 4s，上限 60s）；`413` 批次减半；`401` 刷新令牌后重试一次。
+4. **时钟校正**：收到 `server_hlc` 时按 HLC 规则推进本地 `local_hlc`（只前进），UI 显示黄色条「本机时间偏差较大，已按服务器时间校正」。
+5. **权限拒绝**：`workspace_access_revoked` / `forbidden` 对应红条「权限已变更，此操作未生效」，带 `server_hlc`，不自动重试。
+6. **令牌存储**：访问/刷新令牌存 Windows 凭据管理器（service `com.todo.windows.session`）；不得落入 SQLite、日志、备份。刷新令牌每次轮换，客户端必须保存新值。
 7. **Wire 映射**：按 3.3 表在同步层完成 `camelCase ↔ snake_case` 与 HLC 嵌套/扁平转换，领域层与 IPC 类型不变。
 8. **工作区级事件**：拉取到 `workspace.__deleted` / `membership` 变更后，广播 `projection-updated` 且 `workspaceId = null`（与 `windows-frontend-spec.md` 第四节一致）。
+9. **清单 / 标签与成员**：清单/标签 CRUD 以普通 op 推送；成员邀请/改角色/移除在已登录时改走 `/v1/workspace/*` REST，成功后立即 pull 一次。

@@ -3,12 +3,19 @@
 
 use crate::core_domain::{HistoryOp, Op, Projection, Settings, Workspace};
 use crate::storage;
+use crate::sync::{
+    self,
+    client::Api,
+    engine,
+    session::{self, AccountRecord, Tokens},
+};
 use crate::AppState;
 use anyhow::{anyhow, Result as AnyResult};
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use tauri::{AppHandle, Emitter, State};
+use std::path::PathBuf;
+use tauri::{AppHandle, Emitter, Manager, State};
 use uuid::Uuid;
 
 const KEYRING_SERVICE: &str = "com.todo.windows.ai";
@@ -21,6 +28,22 @@ pub struct BootstrapResponse {
     pub settings: Settings,
     pub ai_key_configured: bool,
     pub device_id: String,
+    pub sync: sync::SyncStateDto,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthResult {
+    pub account: AccountRecord,
+    pub backup_path: Option<String>,
+    pub sync: sync::SyncStateDto,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncPreflight {
+    pub local_op_count: i64,
+    pub backup_dir: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -70,15 +93,21 @@ fn with_db_tx<T>(
 }
 
 fn emit_projection(app: &AppHandle, workspace_id: &str) {
-    let _ = app.emit(
-        "projection-updated",
-        json!({ "workspaceId": workspace_id }),
-    );
+    wake_sync(app);
+    let _ = app.emit("projection-updated", json!({ "workspaceId": workspace_id }));
 }
 
 /// 工作区列表本身发生变化时使用全局事件：`workspaceId = null` 让所有窗口刷新。
 fn emit_workspaces_changed(app: &AppHandle) {
+    wake_sync(app);
     let _ = app.emit("projection-updated", json!({ "workspaceId": null }));
+}
+
+/// 本地写入后立即唤醒后台同步；未登录时 worker 会在 Notify 上等待。
+fn wake_sync(app: &AppHandle) {
+    if let Some(state) = app.try_state::<AppState>() {
+        state.sync.wake();
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -184,7 +213,9 @@ fn ensure_workspace_owner(projection: &Projection, current_user: &str) -> AnyRes
     if is_owner {
         Ok(())
     } else {
-        Err(anyhow!("workspace_forbidden: 只有所有者可以重命名或删除工作区"))
+        Err(anyhow!(
+            "workspace_forbidden: 只有所有者可以重命名或删除工作区"
+        ))
     }
 }
 
@@ -206,11 +237,13 @@ pub fn bootstrap(
             settings.clone(),
             false,
         );
+        let sync_state = sync::snapshot(conn, &state.sync);
         Ok(BootstrapResponse {
             projection,
             settings,
             ai_key_configured: ai_key_configured(),
             device_id: storage::device_id(conn)?,
+            sync: sync_state,
         })
     })
 }
@@ -250,26 +283,47 @@ pub fn create_workspace(
         let device = storage::device_id(conn)?;
         let actor = storage::current_user_id(conn);
         append(
-            conn, &device, &actor, &workspace_id, "workspace", &workspace_id, "set",
-            "__created", json!(chrono::Local::now().to_rfc3339()), "human", None,
-        )?;
-        append(
-            conn, &device, &actor, &workspace_id, "workspace", &workspace_id, "set",
-            "name", json!(clean), "human", None,
-        )?;
-        let membership_id = format!("{workspace_id}:{actor}");
-        append(
-            conn, &device, &actor, &workspace_id, "membership", &membership_id, "set",
-            "__role", json!("owner"), "human", None,
-        )?;
-        // 新工作区与默认工作区共用同一份预设清单/标签定义。
-        storage::seed_workspace_presets(
             conn,
             &device,
             &actor,
             &workspace_id,
+            "workspace",
             &workspace_id,
+            "set",
+            "__created",
+            json!(chrono::Local::now().to_rfc3339()),
+            "human",
+            None,
         )?;
+        append(
+            conn,
+            &device,
+            &actor,
+            &workspace_id,
+            "workspace",
+            &workspace_id,
+            "set",
+            "name",
+            json!(clean),
+            "human",
+            None,
+        )?;
+        let membership_id = format!("{workspace_id}:{actor}");
+        append(
+            conn,
+            &device,
+            &actor,
+            &workspace_id,
+            "membership",
+            &membership_id,
+            "set",
+            "__role",
+            json!("owner"),
+            "human",
+            None,
+        )?;
+        // 新工作区与默认工作区共用同一份预设清单/标签定义。
+        storage::seed_workspace_presets(conn, &device, &actor, &workspace_id, &workspace_id)?;
         storage::pref_set(conn, "active_workspace_id", &workspace_id)?;
         Ok(Workspace {
             id: workspace_id.clone(),
@@ -301,8 +355,17 @@ pub fn rename_workspace(
         ensure_workspace_owner(&projection, &actor)?;
         let device = storage::device_id(conn)?;
         append(
-            conn, &device, &actor, &workspace_id, "workspace", &workspace_id, "set",
-            "name", json!(clean), "human", None,
+            conn,
+            &device,
+            &actor,
+            &workspace_id,
+            "workspace",
+            &workspace_id,
+            "set",
+            "name",
+            json!(clean),
+            "human",
+            None,
         )
     })?;
     emit_workspaces_changed(&app);
@@ -350,8 +413,17 @@ pub fn delete_workspace(
 
         let device = storage::device_id(conn)?;
         append(
-            conn, &device, &actor, &workspace_id, "workspace", &workspace_id, "set",
-            "__deleted", json!(true), "human", None,
+            conn,
+            &device,
+            &actor,
+            &workspace_id,
+            "workspace",
+            &workspace_id,
+            "set",
+            "__deleted",
+            json!(true),
+            "human",
+            None,
         )?;
         storage::pref_set(conn, "active_workspace_id", &next_active)?;
         Ok(next_active)
@@ -392,8 +464,17 @@ pub fn create_task(
             .unwrap_or_else(|| chrono::Local::now().to_rfc3339());
 
         append(
-            conn, &device, &actor, &workspace_id, "task", &task_id, "set", "__created",
-            json!(chrono::Local::now().to_rfc3339()), source, input.model.as_deref(),
+            conn,
+            &device,
+            &actor,
+            &workspace_id,
+            "task",
+            &task_id,
+            "set",
+            "__created",
+            json!(chrono::Local::now().to_rfc3339()),
+            source,
+            input.model.as_deref(),
         )?;
         for (field, value) in [
             ("title", json!(title)),
@@ -410,34 +491,87 @@ pub fn create_task(
             ("order", json!(order)),
         ] {
             append(
-                conn, &device, &actor, &workspace_id, "task", &task_id, "set", field,
-                value, source, input.model.as_deref(),
+                conn,
+                &device,
+                &actor,
+                &workspace_id,
+                "task",
+                &task_id,
+                "set",
+                field,
+                value,
+                source,
+                input.model.as_deref(),
             )?;
         }
 
         for tag_id in &input.tag_ids {
             append(
-                conn, &device, &actor, &workspace_id, "task", &task_id, "add", "__tag",
-                json!(tag_id), source, input.model.as_deref(),
+                conn,
+                &device,
+                &actor,
+                &workspace_id,
+                "task",
+                &task_id,
+                "add",
+                "__tag",
+                json!(tag_id),
+                source,
+                input.model.as_deref(),
             )?;
         }
         for (index, text) in input.subtasks.iter().enumerate() {
             let sub_id = format!("sub-{}", &Uuid::new_v4().to_string()[..8]);
             append(
-                conn, &device, &actor, &workspace_id, "task", &task_id, "add", "__subtask",
-                json!(sub_id), source, input.model.as_deref(),
+                conn,
+                &device,
+                &actor,
+                &workspace_id,
+                "task",
+                &task_id,
+                "add",
+                "__subtask",
+                json!(sub_id),
+                source,
+                input.model.as_deref(),
             )?;
             append(
-                conn, &device, &actor, &workspace_id, "task", &task_id, "set",
-                &format!("__subtask:{sub_id}:text"), json!(text), source, input.model.as_deref(),
+                conn,
+                &device,
+                &actor,
+                &workspace_id,
+                "task",
+                &task_id,
+                "set",
+                &format!("__subtask:{sub_id}:text"),
+                json!(text),
+                source,
+                input.model.as_deref(),
             )?;
             append(
-                conn, &device, &actor, &workspace_id, "task", &task_id, "set",
-                &format!("__subtask:{sub_id}:done"), json!(false), source, input.model.as_deref(),
+                conn,
+                &device,
+                &actor,
+                &workspace_id,
+                "task",
+                &task_id,
+                "set",
+                &format!("__subtask:{sub_id}:done"),
+                json!(false),
+                source,
+                input.model.as_deref(),
             )?;
             append(
-                conn, &device, &actor, &workspace_id, "task", &task_id, "set",
-                &format!("__subtask:{sub_id}:order"), json!(index as f64), source,
+                conn,
+                &device,
+                &actor,
+                &workspace_id,
+                "task",
+                &task_id,
+                "set",
+                &format!("__subtask:{sub_id}:order"),
+                json!(index as f64),
+                source,
                 input.model.as_deref(),
             )?;
         }
@@ -479,22 +613,49 @@ pub fn update_task_field(
                 .unwrap_or_default();
             for tag_id in next.iter().filter(|id| !task.tag_ids.contains(id)) {
                 append(
-                    conn, &device, &actor, &workspace_id, "task", &task_id, "add", "__tag",
-                    json!(tag_id), "human", None,
+                    conn,
+                    &device,
+                    &actor,
+                    &workspace_id,
+                    "task",
+                    &task_id,
+                    "add",
+                    "__tag",
+                    json!(tag_id),
+                    "human",
+                    None,
                 )?;
             }
             for tag_id in task.tag_ids.iter().filter(|id| !next.contains(id)) {
                 append(
-                    conn, &device, &actor, &workspace_id, "task", &task_id, "remove", "__tag",
-                    json!(tag_id), "human", None,
+                    conn,
+                    &device,
+                    &actor,
+                    &workspace_id,
+                    "task",
+                    &task_id,
+                    "remove",
+                    "__tag",
+                    json!(tag_id),
+                    "human",
+                    None,
                 )?;
             }
             return Ok(());
         }
 
         append(
-            conn, &device, &actor, &workspace_id, "task", &task_id, "set",
-            map_field(&field), value, "human", None,
+            conn,
+            &device,
+            &actor,
+            &workspace_id,
+            "task",
+            &task_id,
+            "set",
+            map_field(&field),
+            value,
+            "human",
+            None,
         )
     })?;
     emit_projection(&app, &workspace_id);
@@ -512,8 +673,17 @@ pub fn delete_task(
         let device = storage::device_id(conn)?;
         let actor = storage::current_user_id(conn);
         append(
-            conn, &device, &actor, &workspace_id, "task", &task_id, "set",
-            "__deleted", json!(true), "human", None,
+            conn,
+            &device,
+            &actor,
+            &workspace_id,
+            "task",
+            &task_id,
+            "set",
+            "__deleted",
+            json!(true),
+            "human",
+            None,
         )
     })?;
     emit_projection(&app, &workspace_id);
@@ -551,8 +721,17 @@ pub fn reorder_task(
         for (index, task) in tasks.iter().enumerate() {
             if (task.order - index as f64).abs() > f64::EPSILON {
                 append(
-                    conn, &device, &actor, &workspace_id, "task", &task.id, "set",
-                    "order", json!(index as f64), "human", None,
+                    conn,
+                    &device,
+                    &actor,
+                    &workspace_id,
+                    "task",
+                    &task.id,
+                    "set",
+                    "order",
+                    json!(index as f64),
+                    "human",
+                    None,
                 )?;
             }
         }
@@ -587,20 +766,56 @@ pub fn add_subtask(
             .find(|item| item.id == task_id)
             .ok_or_else(|| anyhow!("任务不存在"))?;
         append(
-            conn, &device, &actor, &workspace_id, "task", &task_id, "add", "__subtask",
-            json!(subtask_id), "human", None,
+            conn,
+            &device,
+            &actor,
+            &workspace_id,
+            "task",
+            &task_id,
+            "add",
+            "__subtask",
+            json!(subtask_id),
+            "human",
+            None,
         )?;
         append(
-            conn, &device, &actor, &workspace_id, "task", &task_id, "set",
-            &format!("__subtask:{subtask_id}:text"), json!(clean), "human", None,
+            conn,
+            &device,
+            &actor,
+            &workspace_id,
+            "task",
+            &task_id,
+            "set",
+            &format!("__subtask:{subtask_id}:text"),
+            json!(clean),
+            "human",
+            None,
         )?;
         append(
-            conn, &device, &actor, &workspace_id, "task", &task_id, "set",
-            &format!("__subtask:{subtask_id}:done"), json!(false), "human", None,
+            conn,
+            &device,
+            &actor,
+            &workspace_id,
+            "task",
+            &task_id,
+            "set",
+            &format!("__subtask:{subtask_id}:done"),
+            json!(false),
+            "human",
+            None,
         )?;
         append(
-            conn, &device, &actor, &workspace_id, "task", &task_id, "set",
-            &format!("__subtask:{subtask_id}:order"), json!(task.subtasks.len() as f64), "human", None,
+            conn,
+            &device,
+            &actor,
+            &workspace_id,
+            "task",
+            &task_id,
+            "set",
+            &format!("__subtask:{subtask_id}:order"),
+            json!(task.subtasks.len() as f64),
+            "human",
+            None,
         )?;
         Ok(())
     })?;
@@ -631,8 +846,17 @@ pub fn toggle_subtask(
         let device = storage::device_id(conn)?;
         let actor = storage::current_user_id(conn);
         append(
-            conn, &device, &actor, &workspace_id, "task", &task_id, "set",
-            &format!("__subtask:{subtask_id}:done"), json!(!subtask.done), "human", None,
+            conn,
+            &device,
+            &actor,
+            &workspace_id,
+            "task",
+            &task_id,
+            "set",
+            &format!("__subtask:{subtask_id}:done"),
+            json!(!subtask.done),
+            "human",
+            None,
         )
     })?;
     emit_projection(&app, &workspace_id);
@@ -651,8 +875,17 @@ pub fn remove_subtask(
         let device = storage::device_id(conn)?;
         let actor = storage::current_user_id(conn);
         append(
-            conn, &device, &actor, &workspace_id, "task", &task_id, "remove", "__subtask",
-            json!(subtask_id), "human", None,
+            conn,
+            &device,
+            &actor,
+            &workspace_id,
+            "task",
+            &task_id,
+            "remove",
+            "__subtask",
+            json!(subtask_id),
+            "human",
+            None,
         )
     })?;
     emit_projection(&app, &workspace_id);
@@ -682,11 +915,7 @@ pub fn get_history(
 }
 
 #[tauri::command]
-pub fn undo_op(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    op_id: String,
-) -> Result<(), String> {
+pub fn undo_op(app: AppHandle, state: State<'_, AppState>, op_id: String) -> Result<(), String> {
     let workspace_id = with_db(&state, |conn| Ok(active_workspace(conn)))?;
     with_db(&state, |conn| {
         let ops = storage::load_ops(conn)?;
@@ -700,18 +929,45 @@ pub fn undo_op(
 
         if target.operation == "add" {
             append(
-                conn, &device, &actor, &workspace_id, &target.entity_type, &target.entity_id,
-                "remove", &target.field, target.value.clone(), "human", None,
+                conn,
+                &device,
+                &actor,
+                &workspace_id,
+                &target.entity_type,
+                &target.entity_id,
+                "remove",
+                &target.field,
+                target.value.clone(),
+                "human",
+                None,
             )?;
         } else if target.operation == "remove" {
             append(
-                conn, &device, &actor, &workspace_id, &target.entity_type, &target.entity_id,
-                "add", &target.field, target.value.clone(), "human", None,
+                conn,
+                &device,
+                &actor,
+                &workspace_id,
+                &target.entity_type,
+                &target.entity_id,
+                "add",
+                &target.field,
+                target.value.clone(),
+                "human",
+                None,
             )?;
         } else if target.field == "__created" {
             append(
-                conn, &device, &actor, &workspace_id, &target.entity_type, &target.entity_id,
-                "set", "__deleted", json!(true), "human", None,
+                conn,
+                &device,
+                &actor,
+                &workspace_id,
+                &target.entity_type,
+                &target.entity_id,
+                "set",
+                "__deleted",
+                json!(true),
+                "human",
+                None,
             )?;
         } else {
             let previous = ops
@@ -727,14 +983,32 @@ pub fn undo_op(
                 .map(|op| op.value.clone())
                 .unwrap_or(Value::Null);
             append(
-                conn, &device, &actor, &workspace_id, &target.entity_type, &target.entity_id,
-                "set", &target.field, previous, "human", None,
+                conn,
+                &device,
+                &actor,
+                &workspace_id,
+                &target.entity_type,
+                &target.entity_id,
+                "set",
+                &target.field,
+                previous,
+                "human",
+                None,
             )?;
         }
 
         append(
-            conn, &device, &actor, &workspace_id, &target.entity_type, &target.entity_id,
-            "set", "__undo_of", json!(target.op_id), "human", None,
+            conn,
+            &device,
+            &actor,
+            &workspace_id,
+            &target.entity_type,
+            &target.entity_id,
+            "set",
+            "__undo_of",
+            json!(target.op_id),
+            "human",
+            None,
         )?;
         Ok(())
     })?;
@@ -744,8 +1018,16 @@ pub fn undo_op(
 
 /* ------------------------------- 成员 ------------------------------- */
 
+/// 成员变更成功后立即拉取服务端生成的 op；失败时保留同步状态提示，后台循环会重试。
+async fn refresh_after_remote(app: &AppHandle, state: &AppState) {
+    match engine::pull_initial(state).await {
+        Ok(outcome) => sync::publish(app, state, &outcome),
+        Err(_) => sync::emit_state(app, state),
+    }
+}
+
 #[tauri::command]
-pub fn update_member_role(
+pub async fn update_member_role(
     app: AppHandle,
     state: State<'_, AppState>,
     workspace_id: String,
@@ -755,13 +1037,33 @@ pub fn update_member_role(
     if !matches!(role.as_str(), "owner" | "editor" | "viewer") {
         return Err("非法角色".to_string());
     }
+    if let Some((api, session)) = engine::authorized_session(&state)
+        .await
+        .map_err(|error| error.message)?
+    {
+        api.set_role(&session.tokens.access_token, &workspace_id, &user_id, &role)
+            .await
+            .map_err(|error| error.message)?;
+        refresh_after_remote(&app, &state).await;
+        return Ok(());
+    }
+
     with_db(&state, |conn| {
         let device = storage::device_id(conn)?;
         let actor = storage::current_user_id(conn);
         let membership_id = format!("{workspace_id}:{user_id}");
         append(
-            conn, &device, &actor, &workspace_id, "membership", &membership_id, "set",
-            "__role", json!(role), "human", None,
+            conn,
+            &device,
+            &actor,
+            &workspace_id,
+            "membership",
+            &membership_id,
+            "set",
+            "__role",
+            json!(role),
+            "human",
+            None,
         )
     })?;
     emit_projection(&app, &workspace_id);
@@ -769,12 +1071,23 @@ pub fn update_member_role(
 }
 
 #[tauri::command]
-pub fn remove_member(
+pub async fn remove_member(
     app: AppHandle,
     state: State<'_, AppState>,
     workspace_id: String,
     user_id: String,
 ) -> Result<(), String> {
+    if let Some((api, session)) = engine::authorized_session(&state)
+        .await
+        .map_err(|error| error.message)?
+    {
+        api.remove_member(&session.tokens.access_token, &workspace_id, &user_id)
+            .await
+            .map_err(|error| error.message)?;
+        refresh_after_remote(&app, &state).await;
+        return Ok(());
+    }
+
     with_db(&state, |conn| {
         let device = storage::device_id(conn)?;
         let actor = storage::current_user_id(conn);
@@ -783,8 +1096,17 @@ pub fn remove_member(
         }
         let membership_id = format!("{workspace_id}:{user_id}");
         append(
-            conn, &device, &actor, &workspace_id, "membership", &membership_id, "set",
-            "__removed", json!(true), "human", None,
+            conn,
+            &device,
+            &actor,
+            &workspace_id,
+            "membership",
+            &membership_id,
+            "set",
+            "__removed",
+            json!(true),
+            "human",
+            None,
         )
     })?;
     emit_projection(&app, &workspace_id);
@@ -792,7 +1114,7 @@ pub fn remove_member(
 }
 
 #[tauri::command]
-pub fn invite_member(
+pub async fn invite_member(
     app: AppHandle,
     state: State<'_, AppState>,
     workspace_id: String,
@@ -807,6 +1129,32 @@ pub fn invite_member(
     if !matches!(role.as_str(), "owner" | "editor" | "viewer") {
         return Err("非法角色".to_string());
     }
+
+    if let Some((api, session)) = engine::authorized_session(&state)
+        .await
+        .map_err(|error| error.message)?
+    {
+        // 服务端按已注册账号邀请：优先用邮箱，其次用户名。
+        let account = {
+            let email = email.trim();
+            if email.is_empty() {
+                clean_name.clone()
+            } else {
+                email.to_string()
+            }
+        };
+        let response = api
+            .invite(&session.tokens.access_token, &workspace_id, &account, &role)
+            .await
+            .map_err(|error| error.message)?;
+        refresh_after_remote(&app, &state).await;
+        return Ok(response
+            .get("user_id")
+            .and_then(|value| value.as_str())
+            .unwrap_or_default()
+            .to_string());
+    }
+
     let user_id = format!("u-{}", &Uuid::new_v4().to_string()[..8]);
     let initial = clean_name
         .chars()
@@ -826,19 +1174,723 @@ pub fn invite_member(
             ("email", json!(email)),
         ] {
             append(
-                conn, &device, &actor, &workspace_id, "user", &user_id, "set", field,
-                value, "human", None,
+                conn,
+                &device,
+                &actor,
+                &workspace_id,
+                "user",
+                &user_id,
+                "set",
+                field,
+                value,
+                "human",
+                None,
             )?;
         }
         let membership_id = format!("{workspace_id}:{user_id}");
         append(
-            conn, &device, &actor, &workspace_id, "membership", &membership_id, "set",
-            "__role", json!(role), "human", None,
+            conn,
+            &device,
+            &actor,
+            &workspace_id,
+            "membership",
+            &membership_id,
+            "set",
+            "__role",
+            json!(role),
+            "human",
+            None,
         )?;
         Ok(())
     })?;
     emit_projection(&app, &workspace_id);
     Ok(user_id)
+}
+
+/* --------------------------- 账户与同步 --------------------------- */
+
+fn backup_dir(state: &AppState) -> PathBuf {
+    state.data_dir.join("backups")
+}
+
+fn lock_db(state: &AppState) -> Result<std::sync::MutexGuard<'_, Connection>, String> {
+    state
+        .db
+        .lock()
+        .map_err(|_| "数据库连接锁失败，请重试".to_string())
+}
+
+fn save_server_url(conn: &Connection, server_url: &str) -> Result<(), String> {
+    let mut settings = storage::load_settings(conn);
+    if settings.server_url == server_url {
+        return Ok(());
+    }
+    settings.server_url = server_url.to_string();
+    storage::save_settings(conn, &settings).map_err(|error| error.to_string())
+}
+
+/// 登录/注册成功后切换到云端账户：先整库备份，再清空本地 op 与游标。
+fn prepare_account(
+    conn: &Connection,
+    state: &AppState,
+    account: &AccountRecord,
+    active_workspace: Option<&str>,
+) -> Result<Option<String>, String> {
+    let previous = session::account(conn);
+    let same_account = previous
+        .as_ref()
+        .map(|item| item.server_url == account.server_url && item.user_id == account.user_id)
+        .unwrap_or(false);
+
+    // 同一账户再次登录时保留本地库与游标，避免把离线期间生成的任务清掉。
+    let backup = if same_account {
+        None
+    } else {
+        if let Some(previous_account) = previous.as_ref() {
+            let _ = session::clear_tokens(previous_account);
+        }
+        storage::reset_for_account(conn, &backup_dir(state)).map_err(|error| error.to_string())?
+    };
+
+    storage::pref_set(conn, "current_user_id", &account.user_id)
+        .map_err(|error| error.to_string())?;
+    if !same_account {
+        if let Some(workspace) = active_workspace {
+            storage::pref_set(conn, "active_workspace_id", workspace)
+                .map_err(|error| error.to_string())?;
+        }
+    }
+    session::save_account(conn, account)?;
+    Ok(backup.map(|path| path.display().to_string()))
+}
+
+async fn finish_login(
+    app: &AppHandle,
+    state: &AppState,
+    account: AccountRecord,
+    backup_path: Option<String>,
+) -> AuthResult {
+    state.sync.set_signed_in(true);
+    match engine::run_once(state).await {
+        Ok(outcome) => sync::publish(app, state, &outcome),
+        Err(error) => {
+            if let Ok(mut runtime) = state.sync.runtime.lock() {
+                runtime.last_error = Some(error.message.clone());
+                runtime.status = if error.code == "auth_required" {
+                    sync::SyncStatus::AuthRequired
+                } else if error.is_retryable() {
+                    sync::SyncStatus::Retrying
+                } else {
+                    sync::SyncStatus::Offline
+                };
+            }
+            sync::emit_state(app, state);
+        }
+    }
+    AuthResult {
+        account,
+        backup_path,
+        sync: sync::snapshot_for(state),
+    }
+}
+
+fn normalize_optional(value: Option<String>) -> Option<String> {
+    value
+        .map(|item| item.trim().to_string())
+        .filter(|item| !item.is_empty())
+}
+
+#[tauri::command]
+pub async fn auth_register(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    server_url: String,
+    username: String,
+    password: String,
+    email: Option<String>,
+    display_name: Option<String>,
+    workspace_name: Option<String>,
+) -> Result<AuthResult, String> {
+    let username = username.trim().to_string();
+    if username.is_empty() || password.is_empty() {
+        return Err("用户名和密码不能为空".to_string());
+    }
+    let api = Api::new(&server_url).map_err(|error| error.message)?;
+    let device = with_db(&state, |conn| storage::device_id(conn))?;
+    let body = crate::sync::client::RegisterBody {
+        username,
+        password,
+        email: normalize_optional(email),
+        display_name: normalize_optional(display_name),
+        device_id: Some(device),
+        workspace_name: normalize_optional(workspace_name),
+    };
+    let response = api.register(&body).await.map_err(|error| error.message)?;
+    let account = AccountRecord {
+        server_url: api.base_url.clone(),
+        user_id: response.user.user_id.clone(),
+        username: response.user.username.clone(),
+        display_name: response.user.display_name.clone(),
+    };
+    let tokens = Tokens::from(&response.tokens);
+    session::save_tokens(&account, &tokens)?;
+    let backup_path = {
+        let conn = lock_db(&state)?;
+        let path = prepare_account(
+            &conn,
+            &state,
+            &account,
+            Some(response.default_workspace_id.as_str()),
+        )?;
+        save_server_url(&conn, &api.base_url)?;
+        path
+    };
+    Ok(finish_login(&app, &state, account, backup_path).await)
+}
+
+#[tauri::command]
+pub async fn auth_login(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    server_url: String,
+    username: String,
+    password: String,
+) -> Result<AuthResult, String> {
+    let username = username.trim().to_string();
+    if username.is_empty() || password.is_empty() {
+        return Err("用户名和密码不能为空".to_string());
+    }
+    let api = Api::new(&server_url).map_err(|error| error.message)?;
+    let device = with_db(&state, |conn| storage::device_id(conn))?;
+    let response = api
+        .login(&username, &password, &device)
+        .await
+        .map_err(|error| error.message)?;
+    let account = AccountRecord {
+        server_url: api.base_url.clone(),
+        user_id: response.user.user_id.clone(),
+        username: response.user.username.clone(),
+        display_name: response.user.display_name.clone(),
+    };
+    let tokens = Tokens::from(&response.tokens);
+    session::save_tokens(&account, &tokens)?;
+    let backup_path = {
+        let conn = lock_db(&state)?;
+        let workspace = response
+            .workspaces
+            .first()
+            .map(|item| item.workspace_id.clone());
+        let path = prepare_account(&conn, &state, &account, workspace.as_deref())?;
+        save_server_url(&conn, &api.base_url)?;
+        path
+    };
+    Ok(finish_login(&app, &state, account, backup_path).await)
+}
+
+#[tauri::command]
+pub async fn auth_logout(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    let session = {
+        let conn = lock_db(&state)?;
+        session::load_session(&conn)?
+    };
+    if let Some(session) = session {
+        if let Ok(api) = Api::new(&session.account.server_url) {
+            let _ = api.logout(&session.tokens.refresh_token).await;
+        }
+        session::clear_tokens(&session.account)?;
+    }
+    // 保留本地数据与 sync_account：同账户再次登录时不会重复清库。
+    state.sync.set_signed_in(false);
+    sync::emit_state(&app, &state);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn sync_now(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<sync::SyncStateDto, String> {
+    let outcome = engine::run_once(&state)
+        .await
+        .map_err(|error| error.message)?;
+    sync::publish(&app, &state, &outcome);
+    Ok(sync::snapshot_for(&state))
+}
+
+#[tauri::command]
+pub fn sync_preflight(state: State<'_, AppState>) -> Result<SyncPreflight, String> {
+    let count = with_db(&state, |conn| Ok(storage::load_all_ops(conn)?.len() as i64))?;
+    Ok(SyncPreflight {
+        local_op_count: count,
+        backup_dir: backup_dir(&state).display().to_string(),
+    })
+}
+
+/* --------------------------- 清单与标签 --------------------------- */
+
+fn clean_text(raw: &str, max: usize, label: &str) -> AnyResult<String> {
+    let clean = raw.trim();
+    let count = clean.chars().count();
+    if count == 0 || count > max {
+        return Err(anyhow!("{label}需为 1–{max} 个字符"));
+    }
+    Ok(clean.to_string())
+}
+
+fn clean_color(raw: &str, label: &str) -> AnyResult<String> {
+    let clean = raw.trim();
+    if clean.is_empty() || clean.len() > 32 {
+        return Err(anyhow!("{label}需为 1–32 个字符"));
+    }
+    Ok(clean.to_string())
+}
+
+fn require_role(
+    conn: &Connection,
+    workspace_id: &str,
+    user_id: &str,
+    allowed: &[&str],
+) -> AnyResult<()> {
+    let projection = build_projection(conn, workspace_id)?;
+    let role = projection
+        .members
+        .iter()
+        .find(|member| member.id == user_id)
+        .map(|member| member.role.as_str());
+    match role {
+        Some(role) if allowed.contains(&role) => Ok(()),
+        Some(_) => Err(anyhow!("workspace_forbidden: 当前角色没有该操作权限")),
+        None => Err(anyhow!("workspace_forbidden: 不是该工作区成员")),
+    }
+}
+
+fn validate_order(value: &Value) -> AnyResult<Value> {
+    let number = value.as_f64().ok_or_else(|| anyhow!("排序值必须是数字"))?;
+    if !number.is_finite() || number.abs() > 1e9 {
+        return Err(anyhow!("排序值超出范围"));
+    }
+    Ok(json!(number))
+}
+
+#[tauri::command]
+pub fn create_list(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    name: String,
+    color: Option<String>,
+) -> Result<String, String> {
+    let name = clean_text(&name, 60, "清单名称").map_err(|error| error.to_string())?;
+    let color = match color {
+        Some(raw) => clean_color(&raw, "清单颜色").map_err(|error| error.to_string())?,
+        None => "#3B82F6".to_string(),
+    };
+    let workspace_id = with_db(&state, |conn| Ok(active_workspace(conn)))?;
+    let list_id = format!("list-{}", &Uuid::new_v4().to_string()[..8]);
+    with_db_tx(&state, |conn| {
+        let device = storage::device_id(conn)?;
+        let actor = storage::current_user_id(conn);
+        require_role(conn, &workspace_id, &actor, &["owner"])?;
+        let order = build_projection(conn, &workspace_id)?.lists.len() as f64;
+        let created_at = chrono::Local::now().to_rfc3339();
+        append(
+            conn,
+            &device,
+            &actor,
+            &workspace_id,
+            "list",
+            &list_id,
+            "set",
+            "__created",
+            json!(created_at),
+            "human",
+            None,
+        )?;
+        append(
+            conn,
+            &device,
+            &actor,
+            &workspace_id,
+            "list",
+            &list_id,
+            "set",
+            "workspace_id",
+            json!(workspace_id),
+            "human",
+            None,
+        )?;
+        append(
+            conn,
+            &device,
+            &actor,
+            &workspace_id,
+            "list",
+            &list_id,
+            "set",
+            "name",
+            json!(name),
+            "human",
+            None,
+        )?;
+        append(
+            conn,
+            &device,
+            &actor,
+            &workspace_id,
+            "list",
+            &list_id,
+            "set",
+            "color",
+            json!(color),
+            "human",
+            None,
+        )?;
+        append(
+            conn,
+            &device,
+            &actor,
+            &workspace_id,
+            "list",
+            &list_id,
+            "set",
+            "order",
+            json!(order),
+            "human",
+            None,
+        )?;
+        Ok(())
+    })?;
+    emit_projection(&app, &workspace_id);
+    Ok(list_id)
+}
+
+#[tauri::command]
+pub fn update_list_field(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    list_id: String,
+    field: String,
+    value: Value,
+) -> Result<(), String> {
+    let workspace_id = with_db(&state, |conn| Ok(active_workspace(conn)))?;
+    with_db(&state, |conn| {
+        let projection = build_projection(conn, &workspace_id)?;
+        projection
+            .lists
+            .iter()
+            .find(|list| list.id == list_id)
+            .ok_or_else(|| anyhow!("清单不存在"))?;
+        let device = storage::device_id(conn)?;
+        let actor = storage::current_user_id(conn);
+        require_role(conn, &workspace_id, &actor, &["owner", "editor"])?;
+        let (field, value) = match field.as_str() {
+            "name" => (
+                "name",
+                json!(clean_text(
+                    value.as_str().unwrap_or_default(),
+                    60,
+                    "清单名称"
+                )?),
+            ),
+            "color" => (
+                "color",
+                json!(clean_color(value.as_str().unwrap_or_default(), "清单颜色")?),
+            ),
+            "order" => ("order", validate_order(&value)?),
+            _ => return Err(anyhow!("不支持的清单字段")),
+        };
+        append(
+            conn,
+            &device,
+            &actor,
+            &workspace_id,
+            "list",
+            &list_id,
+            "set",
+            field,
+            value,
+            "human",
+            None,
+        )
+    })?;
+    emit_projection(&app, &workspace_id);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn delete_list(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    list_id: String,
+) -> Result<(), String> {
+    let workspace_id = with_db(&state, |conn| Ok(active_workspace(conn)))?;
+    with_db_tx(&state, |conn| {
+        let projection = build_projection(conn, &workspace_id)?;
+        let list = projection
+            .lists
+            .iter()
+            .find(|item| item.id == list_id)
+            .ok_or_else(|| anyhow!("清单不存在"))?;
+        if list.smart == Some(true) {
+            return Err(anyhow!("智能清单不能删除"));
+        }
+        let today = projection
+            .lists
+            .iter()
+            .find(|item| item.smart == Some(true))
+            .map(|item| item.id.clone())
+            .ok_or_else(|| anyhow!("当前工作区缺少今天清单"))?;
+        let device = storage::device_id(conn)?;
+        let actor = storage::current_user_id(conn);
+        require_role(conn, &workspace_id, &actor, &["owner"])?;
+
+        // 删除前把任务迁到智能清单，避免任务指向不存在的清单。
+        for task in projection
+            .tasks
+            .iter()
+            .filter(|task| task.list_id == list_id)
+        {
+            append(
+                conn,
+                &device,
+                &actor,
+                &workspace_id,
+                "task",
+                &task.id,
+                "set",
+                "list_id",
+                json!(today),
+                "human",
+                None,
+            )?;
+        }
+        append(
+            conn,
+            &device,
+            &actor,
+            &workspace_id,
+            "list",
+            &list_id,
+            "set",
+            "__deleted",
+            json!(true),
+            "human",
+            None,
+        )
+    })?;
+    emit_projection(&app, &workspace_id);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn create_tag(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    name: String,
+    bg: Option<String>,
+    fg: Option<String>,
+) -> Result<String, String> {
+    let name = clean_text(&name, 60, "标签名称").map_err(|error| error.to_string())?;
+    let bg = match bg {
+        Some(raw) => clean_color(&raw, "标签背景色").map_err(|error| error.to_string())?,
+        None => "#EFF6FF".to_string(),
+    };
+    let fg = match fg {
+        Some(raw) => clean_color(&raw, "标签前景色").map_err(|error| error.to_string())?,
+        None => "#2563EB".to_string(),
+    };
+    let workspace_id = with_db(&state, |conn| Ok(active_workspace(conn)))?;
+    let tag_id = format!("tag-{}", &Uuid::new_v4().to_string()[..8]);
+    with_db_tx(&state, |conn| {
+        let device = storage::device_id(conn)?;
+        let actor = storage::current_user_id(conn);
+        require_role(conn, &workspace_id, &actor, &["owner"])?;
+        let created_at = chrono::Local::now().to_rfc3339();
+        append(
+            conn,
+            &device,
+            &actor,
+            &workspace_id,
+            "tag",
+            &tag_id,
+            "set",
+            "__created",
+            json!(created_at),
+            "human",
+            None,
+        )?;
+        append(
+            conn,
+            &device,
+            &actor,
+            &workspace_id,
+            "tag",
+            &tag_id,
+            "set",
+            "workspace_id",
+            json!(workspace_id),
+            "human",
+            None,
+        )?;
+        append(
+            conn,
+            &device,
+            &actor,
+            &workspace_id,
+            "tag",
+            &tag_id,
+            "set",
+            "name",
+            json!(name),
+            "human",
+            None,
+        )?;
+        append(
+            conn,
+            &device,
+            &actor,
+            &workspace_id,
+            "tag",
+            &tag_id,
+            "set",
+            "bg",
+            json!(bg),
+            "human",
+            None,
+        )?;
+        append(
+            conn,
+            &device,
+            &actor,
+            &workspace_id,
+            "tag",
+            &tag_id,
+            "set",
+            "fg",
+            json!(fg),
+            "human",
+            None,
+        )?;
+        append(
+            conn,
+            &device,
+            &actor,
+            &workspace_id,
+            "tag",
+            &tag_id,
+            "set",
+            "show_in_sidebar",
+            json!(true),
+            "human",
+            None,
+        )?;
+        Ok(())
+    })?;
+    emit_projection(&app, &workspace_id);
+    Ok(tag_id)
+}
+
+#[tauri::command]
+pub fn update_tag_field(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    tag_id: String,
+    field: String,
+    value: Value,
+) -> Result<(), String> {
+    let workspace_id = with_db(&state, |conn| Ok(active_workspace(conn)))?;
+    with_db(&state, |conn| {
+        let projection = build_projection(conn, &workspace_id)?;
+        projection
+            .tags
+            .iter()
+            .find(|tag| tag.id == tag_id)
+            .ok_or_else(|| anyhow!("标签不存在"))?;
+        let device = storage::device_id(conn)?;
+        let actor = storage::current_user_id(conn);
+        require_role(conn, &workspace_id, &actor, &["owner", "editor"])?;
+        let (field, value) = match field.as_str() {
+            "name" => (
+                "name",
+                json!(clean_text(
+                    value.as_str().unwrap_or_default(),
+                    60,
+                    "标签名称"
+                )?),
+            ),
+            "bg" => (
+                "bg",
+                json!(clean_color(
+                    value.as_str().unwrap_or_default(),
+                    "标签背景色"
+                )?),
+            ),
+            "fg" => (
+                "fg",
+                json!(clean_color(
+                    value.as_str().unwrap_or_default(),
+                    "标签前景色"
+                )?),
+            ),
+            "showInSidebar" | "show_in_sidebar" => {
+                let flag = value
+                    .as_bool()
+                    .ok_or_else(|| anyhow!("侧栏显示必须是布尔值"))?;
+                ("show_in_sidebar", json!(flag))
+            }
+            _ => return Err(anyhow!("不支持的标签字段")),
+        };
+        append(
+            conn,
+            &device,
+            &actor,
+            &workspace_id,
+            "tag",
+            &tag_id,
+            "set",
+            field,
+            value,
+            "human",
+            None,
+        )
+    })?;
+    emit_projection(&app, &workspace_id);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn delete_tag(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    tag_id: String,
+) -> Result<(), String> {
+    let workspace_id = with_db(&state, |conn| Ok(active_workspace(conn)))?;
+    with_db(&state, |conn| {
+        let projection = build_projection(conn, &workspace_id)?;
+        projection
+            .tags
+            .iter()
+            .find(|tag| tag.id == tag_id)
+            .ok_or_else(|| anyhow!("标签不存在"))?;
+        let device = storage::device_id(conn)?;
+        let actor = storage::current_user_id(conn);
+        require_role(conn, &workspace_id, &actor, &["owner"])?;
+        // 与共享 testvector 一致：任务上的 tag_ids 保留已删标签 id，不做清洗。
+        append(
+            conn,
+            &device,
+            &actor,
+            &workspace_id,
+            "tag",
+            &tag_id,
+            "set",
+            "__deleted",
+            json!(true),
+            "human",
+            None,
+        )
+    })?;
+    emit_projection(&app, &workspace_id);
+    Ok(())
 }
 
 /* ------------------------------- 设置 ------------------------------- */
@@ -894,7 +1946,8 @@ pub fn clear_ai_key(state: State<'_, AppState>) -> Result<bool, String> {
     if let Err(error) = entry.delete_credential() {
         let text = error.to_string().to_lowercase();
         // 条目本就不存在时也视为已清除。
-        if !text.contains("no entry") && !text.contains("not found") && !text.contains("不存在") {
+        if !text.contains("no entry") && !text.contains("not found") && !text.contains("不存在")
+        {
             return Err(format!("清除密钥失败: {error}"));
         }
     }

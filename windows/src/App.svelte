@@ -6,6 +6,7 @@
   import QuickAddModal from './components/QuickAddModal.svelte';
   import SettingsOverlay from './components/SettingsOverlay.svelte';
   import Sidebar from './components/Sidebar.svelte';
+  import SyncBanner from './components/SyncBanner.svelte';
   import TaskView from './components/TaskView.svelte';
   import TitleBar from './components/TitleBar.svelte';
   import Toast from './components/Toast.svelte';
@@ -174,6 +175,7 @@
       ></div>
 
       <main class="main-pane">
+        <SyncBanner />
         {#if store.globalHistory}
           {#await loadGlobalHistory() then { default: GlobalHistory }}
             <GlobalHistory />

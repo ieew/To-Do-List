@@ -12,6 +12,7 @@ import {
 import { errorMessage, ipc, isTauri } from './ipc';
 import type {
   AiPlanItem,
+  AuthRegisterInput,
   BootstrapResponse,
   ContextMenuState,
   Density,
@@ -25,6 +26,8 @@ import type {
   Settings,
   Source,
   Subtask,
+  SyncNoticeDto,
+  SyncStateDto,
   SyncStatus,
   Tag,
   Task,
@@ -48,6 +51,18 @@ import {
 
 /** 虚拟清单「全部」的 id：仅存在于前端，不写入 Rust 投影与 op_log。 */
 export const ALL_LIST_ID = 'all';
+
+function emptySyncState(): SyncStateDto {
+  return {
+    status: 'signed_out',
+    account: null,
+    pendingCount: 0,
+    rejectedCount: 0,
+    lastSyncedAt: null,
+    lastError: null,
+    cursor: 0
+  };
+}
 
 export interface NewTaskInput {
   title: string;
@@ -171,12 +186,16 @@ class TodoStore {
   themePreview = $state<Theme | null>(null);
   settings = $state<Settings>({ ...defaultSettings });
 
-  syncStatus = $state<SyncStatus>('synced');
+  syncStatus = $state<SyncStatus>('signed_out');
+  sync = $state<SyncStateDto>(emptySyncState());
+  syncNotice = $state<SyncNoticeDto | null>(null);
   contextMenu = $state<ContextMenuState | null>(null);
   toast = $state<ToastMessage | null>(null);
   private toastTimer: ReturnType<typeof setTimeout> | null = null;
   private projectionUnlisten: (() => void) | null = null;
   private settingsUnlisten: (() => void) | null = null;
+  private syncStatusUnlisten: (() => void) | null = null;
+  private syncNoticeUnlisten: (() => void) | null = null;
 
   constructor() {
     // 开始时间是动态边界：每分钟重新计算一次，避免视图停留在旧时间点。
@@ -220,6 +239,16 @@ class TodoStore {
           this.settings = { ...settings };
         });
       }
+      if (!this.syncStatusUnlisten) {
+        this.syncStatusUnlisten = await ipc.onSyncStatus((state) => {
+          this.applySyncState(state);
+        });
+      }
+      if (!this.syncNoticeUnlisten) {
+        this.syncNoticeUnlisten = await ipc.onSyncNotice((notice) => {
+          this.syncNotice = notice;
+        });
+      }
     } catch (error) {
       this.loadError = errorMessage(error);
     } finally {
@@ -241,12 +270,16 @@ class TodoStore {
     this.allMembers = projection.members;
     this.settings = { ...response.settings };
     this.aiKeyConfigured = response.aiKeyConfigured;
+    this.applySyncState(response.sync);
 
     if (
       this.activeListId !== this.allListId &&
       !this.lists.some((list) => list.id === this.activeListId)
     ) {
       this.activeListId = this.todayListId;
+    }
+    if (this.activeTagId && !this.tags.some((tag) => tag.id === this.activeTagId)) {
+      this.activeTagId = null;
     }
     if (resetSelection || previousWorkspace !== this.activeWorkspaceId) {
       this.selectedTaskId = null;
@@ -265,6 +298,23 @@ class TodoStore {
     } catch (error) {
       this.showToast(errorMessage(error), 'error');
     }
+  }
+
+  private applySyncState(state: SyncStateDto): void {
+    this.sync = state;
+    this.syncStatus = state.status;
+  }
+
+  get isSignedIn(): boolean {
+    return this.sync.account !== null && this.sync.status !== 'signed_out';
+  }
+
+  get pendingCount(): number {
+    return this.sync.pendingCount;
+  }
+
+  dismissSyncNotice(): void {
+    this.syncNotice = null;
   }
 
   /* ------------------------------- 读取 ------------------------------- */
@@ -1314,6 +1364,175 @@ class TodoStore {
     }
   }
 
+  /* ------------------------------ 清单 / 标签 ------------------------------ */
+
+  async createList(name: string, color = '#3B82F6'): Promise<boolean> {
+    const clean = name.trim();
+    if (!clean) {
+      this.showToast('清单名称不能为空', 'error');
+      return false;
+    }
+    if (isTauri) {
+      try {
+        const id = await ipc.createList(clean, color);
+        await this.refresh();
+        this.activeListId = id;
+        this.showToast(`已创建清单「${clean}」`);
+        return true;
+      } catch (error) {
+        this.showToast(errorMessage(error), 'error');
+        return false;
+      }
+    }
+    this.lists = [...this.lists, { id: uid('list'), name: clean, color }];
+    this.showToast(`已创建清单「${clean}」（预览内存）`, 'info');
+    return true;
+  }
+
+  async renameList(id: string, name: string): Promise<boolean> {
+    const clean = name.trim();
+    if (!clean) {
+      this.showToast('清单名称不能为空', 'error');
+      return false;
+    }
+    if (isTauri) {
+      try {
+        await ipc.updateListField(id, 'name', clean);
+        await this.refresh();
+        this.showToast('已重命名清单');
+        return true;
+      } catch (error) {
+        this.showToast(errorMessage(error), 'error');
+        return false;
+      }
+    }
+    this.lists = this.lists.map((list) => (list.id === id ? { ...list, name: clean } : list));
+    this.showToast('已重命名清单（预览内存）', 'info');
+    return true;
+  }
+
+  async updateListColor(id: string, color: string): Promise<void> {
+    if (isTauri) {
+      try {
+        await ipc.updateListField(id, 'color', color);
+        await this.refresh();
+      } catch (error) {
+        this.showToast(errorMessage(error), 'error');
+      }
+      return;
+    }
+    this.lists = this.lists.map((list) => (list.id === id ? { ...list, color } : list));
+  }
+
+  async deleteList(id: string): Promise<boolean> {
+    const target = this.listById(id);
+    if (!target) return false;
+    if (target.smart) {
+      this.showToast('智能清单不能删除', 'error');
+      return false;
+    }
+    if (isTauri) {
+      try {
+        await ipc.deleteList(id);
+        await this.refresh();
+        this.showToast(`已删除清单「${target.name}」，任务已移入今天`);
+        return true;
+      } catch (error) {
+        this.showToast(errorMessage(error), 'error');
+        return false;
+      }
+    }
+    this.lists = this.lists.filter((list) => list.id !== id);
+    this.tasks = this.tasks.map((task) =>
+      task.listId === id ? { ...task, listId: this.todayListId } : task
+    );
+    if (this.activeListId === id) this.activeListId = this.todayListId;
+    this.showToast(`已删除清单「${target.name}」（预览内存）`, 'info');
+    return true;
+  }
+
+  async createTag(name: string, bg = '#EFF6FF', fg = '#2563EB'): Promise<boolean> {
+    const clean = name.trim();
+    if (!clean) {
+      this.showToast('标签名称不能为空', 'error');
+      return false;
+    }
+    if (isTauri) {
+      try {
+        await ipc.createTag(clean, bg, fg);
+        await this.refresh();
+        this.showToast(`已创建标签「${clean}」`);
+        return true;
+      } catch (error) {
+        this.showToast(errorMessage(error), 'error');
+        return false;
+      }
+    }
+    this.tags = [
+      ...this.tags,
+      { id: uid('tag'), name: clean, bg, fg, showInSidebar: true }
+    ];
+    this.showToast(`已创建标签「${clean}」（预览内存）`, 'info');
+    return true;
+  }
+
+  async renameTag(id: string, name: string): Promise<boolean> {
+    const clean = name.trim();
+    if (!clean) {
+      this.showToast('标签名称不能为空', 'error');
+      return false;
+    }
+    if (isTauri) {
+      try {
+        await ipc.updateTagField(id, 'name', clean);
+        await this.refresh();
+        this.showToast('已重命名标签');
+        return true;
+      } catch (error) {
+        this.showToast(errorMessage(error), 'error');
+        return false;
+      }
+    }
+    this.tags = this.tags.map((tag) => (tag.id === id ? { ...tag, name: clean } : tag));
+    this.showToast('已重命名标签（预览内存）', 'info');
+    return true;
+  }
+
+  async setTagSidebar(id: string, visible: boolean): Promise<void> {
+    if (isTauri) {
+      try {
+        await ipc.updateTagField(id, 'showInSidebar', visible);
+        await this.refresh();
+      } catch (error) {
+        this.showToast(errorMessage(error), 'error');
+      }
+      return;
+    }
+    this.tags = this.tags.map((tag) =>
+      tag.id === id ? { ...tag, showInSidebar: visible } : tag
+    );
+  }
+
+  async deleteTag(id: string): Promise<boolean> {
+    const target = this.tagById(id);
+    if (!target) return false;
+    if (isTauri) {
+      try {
+        await ipc.deleteTag(id);
+        await this.refresh();
+        this.showToast(`已删除标签「${target.name}」`);
+        return true;
+      } catch (error) {
+        this.showToast(errorMessage(error), 'error');
+        return false;
+      }
+    }
+    this.tags = this.tags.filter((tag) => tag.id !== id);
+    if (this.activeTagId === id) this.activeTagId = null;
+    this.showToast(`已删除标签「${target.name}」（预览内存）`, 'info');
+    return true;
+  }
+
   /* ------------------------------- 设置 ------------------------------- */
 
   previewTheme(theme: Theme | null): void {
@@ -1336,13 +1555,81 @@ class TodoStore {
 
   /* ------------------------------- 同步与提示 ------------------------------- */
 
-  syncNow(): void {
-    if (this.syncStatus === 'syncing') return;
-    this.syncStatus = 'syncing';
-    setTimeout(() => {
-      this.syncStatus = 'synced';
-      this.showToast('同步完成，已拉到最新 op');
-    }, 900);
+  async login(serverUrl: string, username: string, password: string): Promise<boolean> {
+    if (!isTauri) {
+      this.showToast('浏览器预览不连接服务端', 'info');
+      return false;
+    }
+    try {
+      const result = await ipc.authLogin(serverUrl, username, password);
+      this.settings = { ...this.settings, serverUrl };
+      this.applySyncState(result.sync);
+      await this.refresh();
+      this.showToast(
+        result.backupPath
+          ? `已登录并同步；本地数据已备份到 ${result.backupPath}`
+          : '已登录并同步'
+      );
+      return true;
+    } catch (error) {
+      this.showToast(errorMessage(error), 'error');
+      return false;
+    }
+  }
+
+  async register(input: AuthRegisterInput): Promise<boolean> {
+    if (!isTauri) {
+      this.showToast('浏览器预览不连接服务端', 'info');
+      return false;
+    }
+    try {
+      const result = await ipc.authRegister(input);
+      this.settings = { ...this.settings, serverUrl: input.serverUrl };
+      this.applySyncState(result.sync);
+      await this.refresh();
+      this.showToast(
+        result.backupPath
+          ? `已注册并同步；本地数据已备份到 ${result.backupPath}`
+          : '已注册并同步'
+      );
+      return true;
+    } catch (error) {
+      this.showToast(errorMessage(error), 'error');
+      return false;
+    }
+  }
+
+  async logout(): Promise<void> {
+    if (!isTauri) return;
+    try {
+      await ipc.authLogout();
+      await this.refresh();
+      this.showToast('已退出登录，本地数据保留');
+    } catch (error) {
+      this.showToast(errorMessage(error), 'error');
+    }
+  }
+
+  async syncNow(): Promise<void> {
+    if (!isTauri) {
+      this.showToast('浏览器预览不连接服务端', 'info');
+      return;
+    }
+    if (!this.isSignedIn) {
+      this.showToast('请先在设置中登录云端账户', 'info');
+      return;
+    }
+    if (this.sync.status === 'syncing') return;
+    this.applySyncState({ ...this.sync, status: 'syncing' });
+    try {
+      const state = await ipc.syncNow();
+      this.applySyncState(state);
+      await this.refresh();
+      if (state.status === 'synced') this.showToast('同步完成，已拉到最新 op');
+    } catch (error) {
+      this.showToast(errorMessage(error), 'error');
+      await this.refresh();
+    }
   }
 
   showToast(message: string, tone: ToastMessage['tone'] = 'ok'): void {

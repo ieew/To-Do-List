@@ -75,8 +75,10 @@ npm run tauri dev
 
 - **S1 主窗口**：Windows 11 风格自绘标题栏（左侧图标、标题、同步状态；右侧业务按钮与最小化/最大化/关闭，控制按钮贴窗口右边缘，最大化后切换为还原图标）、可拖拽侧栏（150–300px，双击重置）、清单/标签/成员/AI 入口。
 - **Rust 数据层**：SQLite `op_log` 只追加；HLC 全序、字段级 LWW、标签与子任务 OR-Set、确定性投影 reducer；写操作同事务写 `op_log` + 推进 `local_hlc` + 广播 `projection-updated`。
+- **云端同步**：`src-tauri/src/sync/` 提供注册/登录/刷新/登出、push/pull 后台循环、HLC 校正与指数退避；令牌存 Windows 凭据管理器；设置页「同步与数据」内嵌账户登录，标题栏显示真实同步状态，时钟偏差/权限变更用黄色/红色提示条。首次登录到不同账户会先 `VACUUM INTO` 备份本地库再全量拉取；同账户重复登录保留本地 op。详见 [`../docs/client-sync-integration.md`](../docs/client-sync-integration.md)。
+- **清单 / 标签管理**：侧栏分组标题 `+` 内联新建，右键菜单重命名/删除/标签侧栏显示；删除清单会把任务迁到 `*-today` 智能清单。
 - **多工作区**：侧栏工作区切换 popover，支持切换与新建；`bootstrap` 按 `workspace_id` 读取工作区、成员、清单、标签、任务与历史；`active_workspace_id` 存本地偏好。
-- **成员列表**：侧栏与设置页均来自 `membership` 投影，按当前工作区过滤，角色徽章中文化；支持角色变更与移除（本地模拟，未连接服务端）。
+- **成员列表**：侧栏与设置页均来自 `membership` 投影，按当前工作区过滤，角色徽章中文化；支持角色变更与移除，已登录时走服务端 REST，未登录保留本地模拟。
 - **AI 密钥**：设置页密钥框可编辑、可显示/隐藏、可保存/清除，状态徽章「已配置/未配置」；Windows 落 Credential Manager，明文不写 SQLite / op_log / 日志；API 直连未配置时生成按钮禁用并引导到设置。
 - **独立便利贴窗口（S2/S3）**：点击「便利贴」后由 Rust 创建隐藏的 `sticky-main` 独立 `WebviewWindow`，其渲染就绪后显示自身并调用 `hide_main_window` 隐藏主窗口（换手过程不露桌面空白）；浮动便利贴各自独立窗口，最多 5 个；所有窗口从 Rust 投影取数并监听 `projection-updated`。
 - **任务**：分组统一按开始时间（已开始 →「今天」，未开始 →「即将到来」，另有「已完成」；截止时间不参与分组）、优先级、截止与提醒、开始时间、标签 chip、子任务进度、AI 徽章、逾期高亮、拖拽排序。侧栏清单区末尾提供「全部」虚拟清单（展示所有未完成任务）。
@@ -85,7 +87,7 @@ npm run tauri dev
 - **详情抽屉**：320px 固定宽、详情/历史 Tab、字段编辑、标签增删、子任务增删勾选、备注、删除确认、保存生成历史 op。
 - **历史时间线**：人工/AI/系统节点样式、全部/仅 AI/仅我筛选、diff、op_id/model/source、撤销生成反向 op（不删除原 op）。
 - **全局历史（S4）**：侧栏入口、跨任务时间线、点击任务跳转。
-- **设置覆盖层**：外观（浅色/暗色、密度、侧栏宽度）、任务、提醒、AI、同步与数据、成员、快捷键、关于；脏状态、保存/放弃。
+- **设置覆盖层**：外观（浅色/暗色、密度、侧栏宽度）、任务、提醒、AI、同步与数据（账户登录/注册/同步状态/立即同步/退出）、成员、快捷键、关于；脏状态、保存/放弃。
 - **AI 助手**：API 直连兼容 OpenAI Chat Completions（DeepSeek / Ollama / LM Studio 等），密钥仅在 Rust 侧读取；草案预览、字段告警、批量阈值二次确认后写入（`source="ai"`），历史可撤销。网页版 DeepSeek 桥接源码保留，当前通过 `SHOW_WEB_BRIDGE = false` 在界面上隐藏，改为 `true` 即可恢复。
 - **快捷添加与右键菜单**：延期、钉为便利贴、查看历史、删除。
 - **键盘**：`Esc`、`Ctrl+N`、`Ctrl+F`、`Ctrl+Shift+T`、`Ctrl+,`、`Ctrl+Enter`、`↑/↓`、`Enter`、`Space`。
@@ -168,6 +170,9 @@ npm run shoot           # 用 Edge 批量截图（需先启动 dev）
 npm run interact        # 端到端交互回归（需先启动 dev）
 npm run verify:changes  # 工作区/成员/密钥/独立便利贴专项验收（需先启动 dev）
 npm run verify:native   # 原生双窗口 + Rust 投影 DOM 自检（需先构建调试版）
+npm run verify:sync     # 同步单测 + 临时 uvicorn 端到端（无需手工启服务端）
+
+纯逻辑单测请用 `cd src-tauri; cargo test --lib --no-default-features`：Windows GNU 下带 Tauri 的测试二进制缺少 Common-Controls v6 清单，会在启动时以 `0xc0000139` 退出。
 cd src-tauri/ai-core && cargo test   # AI 提示词/JSON 解析/schema 归一化单元测试
 ```
 
@@ -190,6 +195,6 @@ stickyDom=http://127.0.0.1:1420/sticky.html#STICKY_OK:4
 ## 后续工作
 
 1. 用 `tauri-specta` 生成 `src/lib/ipc-bindings.generated.ts`，替换手写 DTO，CI 校验生成结果无 diff。
-2. 接入服务端 `/v1/sync/push`、`/v1/sync/pull`，把本地 `pending_ops` 推送并按 cursor 拉取；当前 `syncNow` 仍为本地模拟。
+2. 增量投影：目前每轮 pull 后仍全量读取 `op_log` 重建投影，op 数增长后需要按 `server_seq` 做缓存或增量应用。
 3. 通知接 `tauri-plugin-notifications`，实现 `remind_at` 调度与补发。
 4. Android 端按同一套 `op_log` reducer 与 `shared/testvectors/` 实现。

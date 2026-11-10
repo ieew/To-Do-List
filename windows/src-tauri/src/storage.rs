@@ -2,7 +2,7 @@
 //!
 //! 业务状态不落业务表作为真相；启动时读取 op_log，由 core_domain 的 reducer 重建投影。
 
-use crate::core_domain::{Hlc, Op, Settings};
+use crate::core_domain::{Hlc, Op, Projection, Settings};
 use anyhow::{Context, Result};
 use chrono::Local;
 use rusqlite::{params, Connection, OptionalExtension};
@@ -115,8 +115,8 @@ pub fn open(path: &Path) -> Result<Connection> {
         std::fs::create_dir_all(parent)
             .with_context(|| format!("创建数据目录失败: {}", parent.display()))?;
     }
-    let conn = Connection::open(path)
-        .with_context(|| format!("打开 SQLite 失败: {}", path.display()))?;
+    let conn =
+        Connection::open(path).with_context(|| format!("打开 SQLite 失败: {}", path.display()))?;
     conn.pragma_update(None, "journal_mode", "WAL")?;
     conn.pragma_update(None, "foreign_keys", "ON")?;
     migrate(&conn)?;
@@ -165,24 +165,74 @@ fn migrate(conn: &Connection) -> Result<()> {
         "#,
     )?;
 
+    // 同步状态列：旧库通过 ALTER 补齐，新库由上面的 CREATE 后同样走这里（幂等）。
+    add_column_if_missing(
+        conn,
+        "op_log",
+        "sync_state",
+        "TEXT NOT NULL DEFAULT 'pending'",
+    )?;
+    add_column_if_missing(conn, "op_log", "server_seq", "INTEGER")?;
+    add_column_if_missing(conn, "op_log", "sync_error", "TEXT")?;
+    conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_op_sync_state ON op_log(sync_state);")?;
+
     let exists: Option<i64> = conn
-        .query_row("SELECT id FROM local_hlc WHERE id = 1", [], |row| row.get(0))
+        .query_row("SELECT id FROM local_hlc WHERE id = 1", [], |row| {
+            row.get(0)
+        })
         .optional()?;
     if exists.is_none() {
         conn.execute(
             "INSERT INTO local_hlc (id, node_id, physical_ms, counter) VALUES (1, ?1, ?2, 0)",
-            params![format!("win-{}", &Uuid::new_v4().to_string()[..8]), now_ms()],
+            params![
+                format!("win-{}", &Uuid::new_v4().to_string()[..8]),
+                now_ms()
+            ],
         )?;
     }
     Ok(())
 }
 
+fn add_column_if_missing(
+    conn: &Connection,
+    table: &str,
+    column: &str,
+    definition: &str,
+) -> Result<()> {
+    let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
+    let mut rows = stmt.query([])?;
+    let mut exists = false;
+    while let Some(row) = rows.next()? {
+        let name: String = row.get(1)?;
+        if name == column {
+            exists = true;
+            break;
+        }
+    }
+    if !exists {
+        conn.execute_batch(&format!(
+            "ALTER TABLE {table} ADD COLUMN {column} {definition}"
+        ))?;
+    }
+    Ok(())
+}
+
+/// 投影用：不包含同步被拒的 op（服务端永远不会让它生效）。
 pub fn load_ops(conn: &Connection) -> Result<Vec<Op>> {
-    let mut stmt = conn.prepare(
+    load_ops_where(conn, "WHERE sync_state <> 'rejected'")
+}
+
+/// 导出/排障用：包含被拒 op。
+pub fn load_all_ops(conn: &Connection) -> Result<Vec<Op>> {
+    load_ops_where(conn, "")
+}
+
+fn load_ops_where(conn: &Connection, filter: &str) -> Result<Vec<Op>> {
+    let mut stmt = conn.prepare(&format!(
         "SELECT op_id, workspace_id, entity_type, entity_id, actor_id, device_id,
                 operation, field, value_json, physical_ms, counter, node_id, source, model
-         FROM op_log",
-    )?;
+         FROM op_log {filter}"
+    ))?;
     let rows = stmt.query_map([], |row| {
         let value_json: String = row.get(8)?;
         let value: Value = serde_json::from_str(&value_json).unwrap_or(Value::Null);
@@ -211,6 +261,14 @@ pub fn load_ops(conn: &Connection) -> Result<Vec<Op>> {
     Ok(ops)
 }
 
+/// 拉取到的远端 op 及其服务端全局序号。
+pub struct PulledOp {
+    pub op: Op,
+    pub seq: i64,
+    pub received_at: Option<i64>,
+}
+
+/// 本地新建的 op 默认处于 pending，由同步层负责推送后改状态。
 pub fn insert_op(conn: &Connection, op: &Op) -> Result<()> {
     conn.execute(
         "INSERT OR IGNORE INTO op_log
@@ -236,6 +294,210 @@ pub fn insert_op(conn: &Connection, op: &Op) -> Result<()> {
         ],
     )?;
     Ok(())
+}
+
+/// 拉取落库：已存在（例如自己刚推送的同 op）时只补同步状态；否则以 synced 状态插入。
+/// 调用方负责包事务。
+pub fn insert_pulled_ops(conn: &Connection, items: &[PulledOp]) -> Result<usize> {
+    let mut inserted = 0usize;
+    for item in items {
+        let created_at = item.received_at.unwrap_or(item.op.physical_ms);
+        let changed = conn.execute(
+            "INSERT OR IGNORE INTO op_log
+             (op_id, workspace_id, entity_type, entity_id, actor_id, device_id,
+              operation, field, value_json, physical_ms, counter, node_id, source, model,
+              created_at, sync_state, server_seq)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15,
+                     'synced', ?16)",
+            params![
+                item.op.op_id,
+                item.op.workspace_id,
+                item.op.entity_type,
+                item.op.entity_id,
+                item.op.actor_id,
+                item.op.device_id,
+                item.op.operation,
+                item.op.field,
+                serde_json::to_string(&item.op.value)?,
+                item.op.physical_ms,
+                item.op.counter,
+                item.op.node_id,
+                item.op.source,
+                item.op.model,
+                created_at,
+                item.seq,
+            ],
+        )?;
+        inserted += changed;
+        conn.execute(
+            "UPDATE op_log
+                SET sync_state = 'synced', server_seq = COALESCE(server_seq, ?2)
+              WHERE op_id = ?1 AND sync_state IN ('pending', 'synced')",
+            params![item.op.op_id, item.seq],
+        )?;
+    }
+    Ok(inserted)
+}
+
+/// 待推送队列：仅本地生成且尚未被服务端确认的 op。
+pub fn pending_ops(conn: &Connection, limit: usize) -> Result<Vec<Op>> {
+    let mut stmt = conn.prepare(
+        "SELECT op_id, workspace_id, entity_type, entity_id, actor_id, device_id,
+                operation, field, value_json, physical_ms, counter, node_id, source, model
+         FROM op_log
+         WHERE sync_state = 'pending'
+         ORDER BY created_at, rowid
+         LIMIT ?1",
+    )?;
+    let rows = stmt.query_map(params![limit as i64], |row| {
+        let value_json: String = row.get(8)?;
+        Ok(Op {
+            op_id: row.get(0)?,
+            workspace_id: row.get(1)?,
+            entity_type: row.get(2)?,
+            entity_id: row.get(3)?,
+            actor_id: row.get(4)?,
+            device_id: row.get(5)?,
+            operation: row.get(6)?,
+            field: row.get(7)?,
+            value: serde_json::from_str(&value_json).unwrap_or(Value::Null),
+            physical_ms: row.get(9)?,
+            counter: row.get(10)?,
+            node_id: row.get(11)?,
+            source: row.get(12)?,
+            model: row.get(13)?,
+        })
+    })?;
+    let mut ops = Vec::new();
+    for row in rows {
+        ops.push(row?);
+    }
+    Ok(ops)
+}
+
+pub fn pending_count(conn: &Connection) -> Result<i64> {
+    Ok(conn.query_row(
+        "SELECT COUNT(*) FROM op_log WHERE sync_state = 'pending'",
+        [],
+        |row| row.get(0),
+    )?)
+}
+
+pub fn rejected_count(conn: &Connection) -> Result<i64> {
+    Ok(conn.query_row(
+        "SELECT COUNT(*) FROM op_log WHERE sync_state = 'rejected'",
+        [],
+        |row| row.get(0),
+    )?)
+}
+
+pub fn mark_ops_synced(conn: &Connection, items: &[(String, i64)]) -> Result<()> {
+    for (op_id, seq) in items {
+        conn.execute(
+            "UPDATE op_log SET sync_state = 'synced', server_seq = ?2, sync_error = NULL
+              WHERE op_id = ?1",
+            params![op_id, seq],
+        )?;
+    }
+    Ok(())
+}
+
+pub fn mark_op_rejected(conn: &Connection, op_id: &str, error: &str) -> Result<()> {
+    conn.execute(
+        "UPDATE op_log SET sync_state = 'rejected', sync_error = ?2 WHERE op_id = ?1",
+        params![op_id, error],
+    )?;
+    Ok(())
+}
+
+pub fn meta_get(conn: &Connection, key: &str) -> Option<String> {
+    conn.query_row(
+        "SELECT value FROM meta WHERE key = ?1",
+        params![key],
+        |row| row.get(0),
+    )
+    .optional()
+    .ok()
+    .flatten()
+}
+
+pub fn meta_set(conn: &Connection, key: &str, value: &str) -> Result<()> {
+    conn.execute(
+        "INSERT INTO meta (key, value) VALUES (?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        params![key, value],
+    )?;
+    Ok(())
+}
+
+pub fn cursor(conn: &Connection) -> i64 {
+    meta_get(conn, "sync_cursor")
+        .and_then(|raw| raw.parse::<i64>().ok())
+        .unwrap_or(0)
+}
+
+pub fn set_cursor(conn: &Connection, seq: i64) -> Result<()> {
+    meta_set(conn, "sync_cursor", &seq.to_string())
+}
+
+/// 收到远端 HLC 后推进本地时钟，保证后续 op 的全序不会落在已知事件之前。
+pub fn observe_hlc(conn: &Connection, physical_ms: i64, counter: u64) -> Result<()> {
+    let (local_physical, local_counter): (i64, u64) = conn.query_row(
+        "SELECT physical_ms, counter FROM local_hlc WHERE id = 1",
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
+    let (next_physical, next_counter) = if physical_ms > local_physical {
+        (physical_ms, counter)
+    } else if physical_ms == local_physical {
+        (local_physical, local_counter.max(counter))
+    } else {
+        (local_physical, local_counter)
+    };
+    conn.execute(
+        "UPDATE local_hlc SET physical_ms = ?1, counter = ?2 WHERE id = 1",
+        params![next_physical, next_counter],
+    )?;
+    Ok(())
+}
+
+pub fn set_sync_account(conn: &Connection, account: Option<&str>) -> Result<()> {
+    match account {
+        Some(value) => meta_set(conn, "sync_account", value),
+        None => {
+            conn.execute("DELETE FROM meta WHERE key = 'sync_account'", [])?;
+            Ok(())
+        }
+    }
+}
+
+pub fn sync_account(conn: &Connection) -> Option<String> {
+    meta_get(conn, "sync_account")
+}
+
+/// 登录到新的云端账户前，把当前库整库备份，然后清空本地 op 与同步游标。
+/// 返回备份文件路径；本地没有任何 op 时不备份。
+pub fn reset_for_account(conn: &Connection, backup_dir: &Path) -> Result<Option<PathBuf>> {
+    let count: i64 = conn.query_row("SELECT COUNT(*) FROM op_log", [], |row| row.get(0))?;
+    let mut backup_path = None;
+    if count > 0 {
+        std::fs::create_dir_all(backup_dir)
+            .with_context(|| format!("创建备份目录失败: {}", backup_dir.display()))?;
+        let stamp = Local::now().format("%Y%m%d-%H%M%S-%3f");
+        let target = backup_dir.join(format!("todo-{stamp}.sqlite3"));
+        let target_text = target.to_string_lossy().replace('\'', "''");
+        conn.execute_batch(&format!("VACUUM INTO '{target_text}'"))
+            .with_context(|| format!("备份本地库失败: {}", target.display()))?;
+        backup_path = Some(target);
+    }
+
+    conn.execute("DELETE FROM op_log", [])?;
+    conn.execute("DELETE FROM meta", [])?;
+    conn.execute(
+        "UPDATE local_hlc SET physical_ms = ?1, counter = 0 WHERE id = 1",
+        params![now_ms()],
+    )?;
+    Ok(backup_path)
 }
 
 pub fn next_hlc(conn: &Connection) -> Result<Hlc> {
@@ -309,6 +571,19 @@ pub fn load_settings(conn: &Connection) -> Settings {
 
 pub fn save_settings(conn: &Connection, settings: &Settings) -> Result<()> {
     pref_set(conn, "settings", &serde_json::to_string(settings)?)
+}
+
+/// 同步引擎与测试用的投影入口：不需要 Tauri 的 AI 密钥状态。
+pub fn build_projection(conn: &Connection, workspace_id: &str) -> Result<Projection> {
+    let ops = load_ops(conn)?;
+    let settings = load_settings(conn);
+    Ok(Projection::build(
+        ops,
+        Some(workspace_id),
+        &current_user_id(conn),
+        settings,
+        false,
+    ))
 }
 
 struct SeedOp<'a> {
@@ -444,7 +719,15 @@ pub fn seed_if_empty(conn: &Connection) -> Result<()> {
 
     seed_workspace(conn, &device, me, workspace, "我的空间")?;
     seed_user(
-        conn, &device, me, workspace, me, "我", "我", "#3B82F6", "me@todo.local",
+        conn,
+        &device,
+        me,
+        workspace,
+        me,
+        "我",
+        "我",
+        "#3B82F6",
+        "me@todo.local",
     )?;
     seed_membership(conn, &device, me, workspace, me, "owner")?;
     seed_workspace_presets(conn, &device, me, workspace, "me")?;
@@ -465,10 +748,38 @@ pub fn with_transaction<T>(
     Ok(output)
 }
 
-fn seed_workspace(conn: &Connection, device: &str, actor: &str, id: &str, name: &str) -> Result<()> {
+fn seed_workspace(
+    conn: &Connection,
+    device: &str,
+    actor: &str,
+    id: &str,
+    name: &str,
+) -> Result<()> {
     let created_at = Local::now().to_rfc3339();
-    seed_set(conn, device, actor, id, "workspace", id, "__created", json!(created_at), "human", None)?;
-    seed_set(conn, device, actor, id, "workspace", id, "name", json!(name), "human", None)?;
+    seed_set(
+        conn,
+        device,
+        actor,
+        id,
+        "workspace",
+        id,
+        "__created",
+        json!(created_at),
+        "human",
+        None,
+    )?;
+    seed_set(
+        conn,
+        device,
+        actor,
+        id,
+        "workspace",
+        id,
+        "name",
+        json!(name),
+        "human",
+        None,
+    )?;
     Ok(())
 }
 
@@ -483,10 +794,54 @@ fn seed_user(
     color: &str,
     email: &str,
 ) -> Result<()> {
-    seed_set(conn, device, actor, workspace, "user", id, "name", json!(name), "system", None)?;
-    seed_set(conn, device, actor, workspace, "user", id, "initial", json!(initial), "system", None)?;
-    seed_set(conn, device, actor, workspace, "user", id, "color", json!(color), "system", None)?;
-    seed_set(conn, device, actor, workspace, "user", id, "email", json!(email), "system", None)?;
+    seed_set(
+        conn,
+        device,
+        actor,
+        workspace,
+        "user",
+        id,
+        "name",
+        json!(name),
+        "system",
+        None,
+    )?;
+    seed_set(
+        conn,
+        device,
+        actor,
+        workspace,
+        "user",
+        id,
+        "initial",
+        json!(initial),
+        "system",
+        None,
+    )?;
+    seed_set(
+        conn,
+        device,
+        actor,
+        workspace,
+        "user",
+        id,
+        "color",
+        json!(color),
+        "system",
+        None,
+    )?;
+    seed_set(
+        conn,
+        device,
+        actor,
+        workspace,
+        "user",
+        id,
+        "email",
+        json!(email),
+        "system",
+        None,
+    )?;
     Ok(())
 }
 
@@ -499,7 +854,18 @@ fn seed_membership(
     role: &str,
 ) -> Result<()> {
     let entity_id = format!("{workspace}:{user}");
-    seed_set(conn, device, actor, workspace, "membership", &entity_id, "__role", json!(role), "human", None)?;
+    seed_set(
+        conn,
+        device,
+        actor,
+        workspace,
+        "membership",
+        &entity_id,
+        "__role",
+        json!(role),
+        "human",
+        None,
+    )?;
     Ok(())
 }
 
@@ -514,11 +880,66 @@ fn seed_list(
     order: f64,
 ) -> Result<()> {
     let created_at = Local::now().to_rfc3339();
-    seed_set(conn, device, actor, workspace, "list", id, "__created", json!(created_at), "human", None)?;
-    seed_set(conn, device, actor, workspace, "list", id, "workspace_id", json!(workspace), "human", None)?;
-    seed_set(conn, device, actor, workspace, "list", id, "name", json!(name), "human", None)?;
-    seed_set(conn, device, actor, workspace, "list", id, "color", json!(color), "human", None)?;
-    seed_set(conn, device, actor, workspace, "list", id, "order", json!(order), "human", None)?;
+    seed_set(
+        conn,
+        device,
+        actor,
+        workspace,
+        "list",
+        id,
+        "__created",
+        json!(created_at),
+        "human",
+        None,
+    )?;
+    seed_set(
+        conn,
+        device,
+        actor,
+        workspace,
+        "list",
+        id,
+        "workspace_id",
+        json!(workspace),
+        "human",
+        None,
+    )?;
+    seed_set(
+        conn,
+        device,
+        actor,
+        workspace,
+        "list",
+        id,
+        "name",
+        json!(name),
+        "human",
+        None,
+    )?;
+    seed_set(
+        conn,
+        device,
+        actor,
+        workspace,
+        "list",
+        id,
+        "color",
+        json!(color),
+        "human",
+        None,
+    )?;
+    seed_set(
+        conn,
+        device,
+        actor,
+        workspace,
+        "list",
+        id,
+        "order",
+        json!(order),
+        "human",
+        None,
+    )?;
     Ok(())
 }
 
@@ -534,12 +955,78 @@ fn seed_tag(
     sidebar: bool,
 ) -> Result<()> {
     let created_at = Local::now().to_rfc3339();
-    seed_set(conn, device, actor, workspace, "tag", id, "__created", json!(created_at), "human", None)?;
-    seed_set(conn, device, actor, workspace, "tag", id, "workspace_id", json!(workspace), "human", None)?;
-    seed_set(conn, device, actor, workspace, "tag", id, "name", json!(name), "human", None)?;
-    seed_set(conn, device, actor, workspace, "tag", id, "bg", json!(bg), "human", None)?;
-    seed_set(conn, device, actor, workspace, "tag", id, "fg", json!(fg), "human", None)?;
-    seed_set(conn, device, actor, workspace, "tag", id, "show_in_sidebar", json!(sidebar), "human", None)?;
+    seed_set(
+        conn,
+        device,
+        actor,
+        workspace,
+        "tag",
+        id,
+        "__created",
+        json!(created_at),
+        "human",
+        None,
+    )?;
+    seed_set(
+        conn,
+        device,
+        actor,
+        workspace,
+        "tag",
+        id,
+        "workspace_id",
+        json!(workspace),
+        "human",
+        None,
+    )?;
+    seed_set(
+        conn,
+        device,
+        actor,
+        workspace,
+        "tag",
+        id,
+        "name",
+        json!(name),
+        "human",
+        None,
+    )?;
+    seed_set(
+        conn,
+        device,
+        actor,
+        workspace,
+        "tag",
+        id,
+        "bg",
+        json!(bg),
+        "human",
+        None,
+    )?;
+    seed_set(
+        conn,
+        device,
+        actor,
+        workspace,
+        "tag",
+        id,
+        "fg",
+        json!(fg),
+        "human",
+        None,
+    )?;
+    seed_set(
+        conn,
+        device,
+        actor,
+        workspace,
+        "tag",
+        id,
+        "show_in_sidebar",
+        json!(sidebar),
+        "human",
+        None,
+    )?;
     Ok(())
 }
 
@@ -624,5 +1111,100 @@ mod tests {
         assert!(projection.workspaces.is_empty());
         assert!(projection.lists.is_empty());
         assert!(projection.tags.is_empty());
+    }
+
+    #[test]
+    fn rejected_ops_are_excluded_from_projection() {
+        let conn = Connection::open_in_memory().expect("打开内存库失败");
+        migrate(&conn).expect("建表失败");
+        let workspace = seed_test_workspace(&conn);
+        let ops = load_all_ops(&conn).expect("读取 op 失败");
+        let target = ops.first().expect("种子 op 为空");
+
+        mark_op_rejected(&conn, &target.op_id, "forbidden: 测试").expect("标记失败");
+
+        assert_eq!(load_ops(&conn).expect("读取 op 失败").len(), ops.len() - 1);
+        assert_eq!(rejected_count(&conn).expect("统计失败"), 1);
+        let projection = build_for(&conn, &workspace);
+        assert_eq!(projection.workspaces.len(), 1);
+    }
+
+    #[test]
+    fn pending_queue_transitions_to_synced() {
+        let conn = Connection::open_in_memory().expect("打开内存库失败");
+        migrate(&conn).expect("建表失败");
+        seed_test_workspace(&conn);
+
+        let pending = pending_ops(&conn, 10_000).expect("读取待推送失败");
+        assert!(!pending.is_empty());
+        let items: Vec<(String, i64)> = pending
+            .iter()
+            .enumerate()
+            .map(|(index, op)| (op.op_id.clone(), index as i64 + 10))
+            .collect();
+        mark_ops_synced(&conn, &items).expect("标记失败");
+
+        assert_eq!(pending_count(&conn).expect("统计失败"), 0);
+        for (op_id, seq) in &items {
+            let stored: Option<i64> = conn
+                .query_row(
+                    "SELECT server_seq FROM op_log WHERE op_id = ?1",
+                    params![op_id],
+                    |row| row.get(0),
+                )
+                .optional()
+                .expect("查询失败");
+            assert_eq!(stored, Some(*seq));
+        }
+    }
+
+    #[test]
+    fn observe_hlc_only_moves_forward() {
+        let conn = Connection::open_in_memory().expect("打开内存库失败");
+        migrate(&conn).expect("建表失败");
+
+        let local = next_hlc(&conn).expect("本地 HLC 失败");
+        observe_hlc(&conn, local.physical_ms, local.counter + 5).expect("校正失败");
+        let after = next_hlc(&conn).expect("本地 HLC 失败");
+        assert!(after.physical_ms >= local.physical_ms);
+
+        let far = local.physical_ms + 10_000;
+        observe_hlc(&conn, far, 7).expect("校正失败");
+        let advanced = next_hlc(&conn).expect("本地 HLC 失败");
+        assert!(advanced.physical_ms >= far);
+    }
+
+    #[test]
+    fn reset_for_account_backs_up_then_clears() {
+        let conn = Connection::open_in_memory().expect("打开内存库失败");
+        migrate(&conn).expect("建表失败");
+        seed_test_workspace(&conn);
+        set_cursor(&conn, 42).expect("写游标失败");
+        let node_before: String = conn
+            .query_row("SELECT node_id FROM local_hlc WHERE id = 1", [], |row| {
+                row.get(0)
+            })
+            .expect("读取 node_id 失败");
+
+        let dir = std::env::temp_dir().join(format!(
+            "todo-backup-test-{}",
+            Uuid::new_v4().to_string()[..8].to_string()
+        ));
+        let backup = reset_for_account(&conn, &dir).expect("重置失败");
+
+        let backup = backup.expect("应当生成备份");
+        assert!(backup.exists(), "备份文件不存在: {}", backup.display());
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM op_log", [], |row| row.get(0))
+            .expect("统计失败");
+        assert_eq!(count, 0);
+        assert_eq!(cursor(&conn), 0);
+        let node_after: String = conn
+            .query_row("SELECT node_id FROM local_hlc WHERE id = 1", [], |row| {
+                row.get(0)
+            })
+            .expect("读取 node_id 失败");
+        assert_eq!(node_before, node_after);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

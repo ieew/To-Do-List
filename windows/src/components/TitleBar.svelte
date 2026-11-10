@@ -21,14 +21,23 @@
   let maximized = $state(false);
 
   const syncLabel = $derived(
-    store.syncStatus === 'synced'
-      ? '已同步'
-      : store.syncStatus === 'syncing'
+    store.sync.status === 'signed_out'
+      ? '未登录'
+      : store.sync.status === 'syncing'
         ? '同步中'
-        : store.syncStatus === 'offline'
-          ? '离线'
-          : '重试中'
+        : store.sync.status === 'synced'
+          ? '已同步'
+          : store.sync.status === 'retrying'
+            ? '重试中'
+            : store.sync.status === 'offline'
+              ? '离线'
+              : '登录失效'
   );
+
+  function openSyncSettings(): void {
+    store.settingsSection = 'sync';
+    store.settingsOpen = true;
+  }
 
   onMount(() => {
     if (!isTauri) return;
@@ -81,13 +90,13 @@
     <span class="win-title">待办清单</span>
     <button
       class="win-sync"
-      class:is-syncing={store.syncStatus === 'syncing'}
-      title="点击立即同步"
-      onclick={() => store.syncNow()}
+      class:is-syncing={store.sync.status === 'syncing'}
+      title={store.isSignedIn ? '点击立即同步' : '点击登录云端账户'}
+      onclick={() => (store.isSignedIn ? store.syncNow() : openSyncSettings())}
     >
-      {#if store.syncStatus === 'syncing'}
+      {#if store.sync.status === 'syncing'}
         <RefreshCw class="spin" size="12" />
-      {:else if store.syncStatus === 'offline'}
+      {:else if store.sync.status === 'offline' || store.sync.status === 'signed_out' || store.sync.status === 'auth_required'}
         <CloudOff size="12" />
       {:else}
         <Cloud size="12" />

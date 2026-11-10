@@ -17,6 +17,7 @@
   - 组件局部 UI 状态：`$state` 在组件内。
   - 全局 UI 状态（主题、侧栏、便利贴置顶）：`$state` 在 `.svelte.ts` 模块中。
   - 投影数据（任务、标签、历史、同步状态）：Rust 是唯一真相源；前端通过 typed commands 拉取，存入 `$state` 或 `$derived`，拉取即覆盖。
+- 同步层只存在于 Rust：前端不实现 push/pull、HLC 校正、令牌刷新或权限判断。前端通过 `BootstrapResponse.sync` 获取初始状态，并监听 `sync-status-changed` / `sync-notice`；`projection-updated` 携带 `workspaceId = null` 时刷新整个投影。
 - 前端禁止将业务数据持久化到 `localStorage` / `IndexedDB`。唯一持久化在 Rust 侧 SQLite。
 - 允许用 `localStorage` 缓存**纯 UI 偏好**，用于启动首帧避免闪变（当前白名单仅 `todo.theme`）；任务、工作区、成员、历史、密钥等一律不得写入，仍只经 Rust 投影。
 - 前端禁止实现任何合并、HLC、权限裁决逻辑。
@@ -36,9 +37,8 @@
 
 ## 五、目录结构
 
-- `src-tauri/src/commands/` 按功能纵向切分（`task.rs` / `sync.rs` / `history.rs` / `sticky.rs`）。
-- `ui/src/views/` 按功能纵向切分（`tasks/` / `history/` / `sticky-note/`）。
-- `ui/src/lib/state/` 按域拆分 `.svelte.ts` 全局状态模块。
+- `src-tauri/src/commands.rs` 按功能纵向切分命令；`src-tauri/src/sync/` 负责会话、wire 映射、HTTP 客户端、同步引擎与后台循环。
+- `src/components/` 按界面区块拆分；`src/lib/` 存放 IPC、类型、派生状态与演示数据。
 - 禁止横向巨型层（一个 `services/` 或 `utils/` 装所有逻辑）。
 
 ## 六、启动与首屏

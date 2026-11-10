@@ -7,14 +7,16 @@
     Info,
     Keyboard,
     ListTodo,
+    LogIn,
+    LogOut,
     Palette,
     RefreshCw,
     Sparkles,
     Users
   } from 'lucide-svelte';
-  import { isTauri } from '../lib/ipc';
+  import { ipc, isTauri } from '../lib/ipc';
   import { store } from '../lib/store.svelte';
-  import type { Priority, Role, Settings } from '../lib/types';
+  import type { Priority, Role, Settings, SyncPreflight } from '../lib/types';
 
   type SectionId =
     | 'appearance'
@@ -52,6 +54,29 @@
   let inviteRole = $state<Role>('editor');
   let inviting = $state(false);
   let confirmRemoveId = $state<string | null>(null);
+
+  let authMode = $state<'login' | 'register'>('login');
+  let authUsername = $state('');
+  let authPassword = $state('');
+  let authEmail = $state('');
+  let authDisplayName = $state('');
+  let authWorkspaceName = $state('');
+  let authBusy = $state(false);
+  let authPreflight = $state<SyncPreflight | null>(null);
+
+  const syncStatusLabels: Record<string, string> = {
+    signed_out: '未登录',
+    syncing: '同步中',
+    synced: '已同步',
+    offline: '离线',
+    retrying: '重试中',
+    auth_required: '登录失效'
+  };
+
+  function lastSyncedText(value: number | null): string {
+    if (!value) return '尚未同步';
+    return new Date(value).toLocaleString('zh-CN', { hour12: false });
+  }
 
   const roleLabels: Record<Role, string> = {
     owner: '所有者',
@@ -96,6 +121,12 @@
       inviteEmail = '';
       inviteRole = 'editor';
       confirmRemoveId = null;
+      authUsername = '';
+      authPassword = '';
+      authEmail = '';
+      authDisplayName = '';
+      authWorkspaceName = '';
+      authPreflight = null;
     } else {
       store.previewTheme(null);
     }
@@ -110,6 +141,52 @@
   function close(): void {
     store.previewTheme(null);
     store.settingsOpen = false;
+  }
+
+  async function submitAuth(): Promise<void> {
+    if (authBusy) return;
+    if (authUsername.trim().length === 0 || authPassword.length === 0) {
+      store.showToast('请填写用户名和密码', 'error');
+      return;
+    }
+    if (!authPreflight && isTauri) {
+      try {
+        const preflight = await ipc.syncPreflight();
+        if (preflight.localOpCount > 0) {
+          authPreflight = preflight;
+          return;
+        }
+      } catch {
+        // 预检失败不阻塞登录，后端仍会备份并清库。
+      }
+    }
+
+    authBusy = true;
+    const serverUrl = draft.serverUrl;
+    const ok =
+      authMode === 'login'
+        ? await store.login(serverUrl, authUsername, authPassword)
+        : await store.register({
+            serverUrl,
+            username: authUsername,
+            password: authPassword,
+            email: authEmail,
+            displayName: authDisplayName,
+            workspaceName: authWorkspaceName
+          });
+    authBusy = false;
+    if (ok) {
+      authPassword = '';
+      authPreflight = null;
+      draft = { ...store.settings };
+    }
+  }
+
+  async function logout(): Promise<void> {
+    if (authBusy) return;
+    authBusy = true;
+    await store.logout();
+    authBusy = false;
   }
 
   async function save(): Promise<void> {
@@ -503,18 +580,114 @@
           <p class="panel-desc">同步只推送 pending_ops、按 cursor 拉取增量；seq 只表达交付顺序，因果与冲突由 HLC 裁决。</p>
 
           <div class="setting-group">
-            <div class="setting-group-title">连接</div>
-            <div class="setting-row vertical">
-              <div class="setting-label">
-                <div class="setting-title">服务端地址</div>
-                <div class="setting-desc">FastAPI 服务端，接口前缀 /v1。</div>
+            <div class="setting-group-title">云端账户</div>
+            {#if store.sync.account}
+              {@const account = store.sync.account}
+              <div class="account-card">
+                <span class="account-avatar">{account.displayName.slice(0, 1) || '用'}</span>
+                <div class="account-meta">
+                  <div class="account-name">
+                    {account.displayName}
+                    <span class="account-username">@{account.username}</span>
+                  </div>
+                  <div class="account-server">{account.serverUrl}</div>
+                </div>
+                <span class="status-pill" class:is-syncing={store.sync.status === 'syncing'}>
+                  {syncStatusLabels[store.sync.status] ?? store.sync.status}
+                </span>
               </div>
-              <input class="field-input mono-input" bind:value={draft.serverUrl} spellcheck="false" />
-            </div>
+              <div class="setting-row">
+                <div class="setting-label">
+                  <div class="setting-title">同步状态</div>
+                  <div class="setting-desc">
+                    待推送 {store.sync.pendingCount} 条 · 已拒绝 {store.sync.rejectedCount} 条 · 游标 {store.sync.cursor}
+                  </div>
+                  <div class="setting-desc">上次同步：{lastSyncedText(store.sync.lastSyncedAt)}</div>
+                </div>
+                <div class="setting-control">
+                  <button class="btn" onclick={() => store.syncNow()}>
+                    <RefreshCw size="13" />
+                    立即同步
+                  </button>
+                  <button class="btn danger-outline" onclick={logout} disabled={authBusy}>
+                    <LogOut size="13" />
+                    退出登录
+                  </button>
+                </div>
+              </div>
+              {#if store.sync.lastError}
+                <div class="info-banner warning">
+                  <Info size="13" class="info-icon" />
+                  <span>{store.sync.lastError}</span>
+                </div>
+              {/if}
+            {:else}
+              <div class="setting-row vertical">
+                <div class="setting-label">
+                  <div class="setting-title">服务端地址</div>
+                  <div class="setting-desc">FastAPI 服务端根地址，可带或不带 /v1。</div>
+                </div>
+                <input class="field-input mono-input" bind:value={draft.serverUrl} spellcheck="false" />
+              </div>
+
+              <div class="auth-tabs">
+                <button class:active={authMode === 'login'} onclick={() => (authMode = 'login')}>登录</button>
+                <button class:active={authMode === 'register'} onclick={() => (authMode = 'register')}>注册</button>
+              </div>
+
+              <div class="auth-grid">
+                <input class="field-input" placeholder="用户名（3–32 位字母/数字/下划线）" bind:value={authUsername} />
+                <input
+                  class="field-input"
+                  type="password"
+                  placeholder="密码（至少 8 位）"
+                  bind:value={authPassword}
+                />
+                {#if authMode === 'register'}
+                  <input class="field-input" placeholder="显示名称（可选）" bind:value={authDisplayName} />
+                  <input class="field-input" placeholder="邮箱（可选）" bind:value={authEmail} />
+                  <input class="field-input" placeholder="默认工作区名称（可选）" bind:value={authWorkspaceName} />
+                {/if}
+              </div>
+
+              {#if authPreflight}
+                <div class="info-banner danger">
+                  <Info size="13" class="info-icon" />
+                  <span>
+                    本地有 {authPreflight.localOpCount} 条 op。若这是另一个云端账户，登录会先备份到
+                    {authPreflight.backupDir}，然后清空本地库并从服务端全量拉取；同一账户则保留本地数据。
+                  </span>
+                </div>
+              {/if}
+
+              <div class="setting-row">
+                <div class="setting-label">
+                  <div class="setting-desc">
+                    令牌只保存在 Windows 凭据管理器；同一账户重复登录不会再次清空本地数据。
+                  </div>
+                </div>
+                <div class="setting-control">
+                  <button class="btn btn-primary" onclick={submitAuth} disabled={authBusy}>
+                    <LogIn size="13" />
+                    {authBusy
+                      ? '处理中…'
+                      : authPreflight
+                        ? '确认登录并切换账户'
+                        : authMode === 'login'
+                          ? '登录'
+                          : '注册并登录'}
+                  </button>
+                </div>
+              </div>
+            {/if}
+          </div>
+
+          <div class="setting-group">
+            <div class="setting-group-title">同步</div>
             <div class="setting-row">
               <div class="setting-label">
-                <div class="setting-title">前台同步间隔</div>
-                <div class="setting-desc">托盘计时循环与前台同步互相独立。</div>
+                <div class="setting-title">同步间隔</div>
+                <div class="setting-desc">后台循环的正常轮询间隔；本地写入会立即唤醒一次同步。</div>
               </div>
               <div class="setting-control">
                 <select class="field-select compact-select" bind:value={draft.syncInterval}>
@@ -523,21 +696,6 @@
                   <option value={5}>5 分钟</option>
                   <option value={10}>10 分钟</option>
                 </select>
-              </div>
-            </div>
-            <div class="setting-row">
-              <div class="setting-label">
-                <div class="setting-title">当前状态</div>
-                <div class="setting-desc">标题栏同步状态绑定同步循环，不是静态文案。</div>
-              </div>
-              <div class="setting-control">
-                <span class="status-pill" class:is-syncing={store.syncStatus === 'syncing'}>
-                  {store.syncStatus === 'synced' ? '已同步' : store.syncStatus === 'syncing' ? '同步中' : store.syncStatus === 'offline' ? '离线' : '重试中'}
-                </span>
-                <button class="btn" onclick={() => store.syncNow()}>
-                  <RefreshCw size="13" />
-                  立即同步
-                </button>
               </div>
             </div>
           </div>
@@ -611,8 +769,13 @@
           <div class="invite-box">
             <div class="setting-group-title">邀请成员</div>
             <div class="invite-grid">
-              <input class="field-input" bind:value={inviteName} placeholder="成员名称" maxlength="20" />
-              <input class="field-input" bind:value={inviteEmail} placeholder="邮箱（可选）" />
+              <input
+                class="field-input"
+                bind:value={inviteName}
+                placeholder={store.isSignedIn ? '用户名（已注册账号）' : '成员名称'}
+                maxlength="32"
+              />
+              <input class="field-input" bind:value={inviteEmail} placeholder="邮箱（可选，优先按邮箱邀请）" />
               <select class="field-select" bind:value={inviteRole} aria-label="邀请角色">
                 <option value="editor">可编辑</option>
                 <option value="viewer">只读</option>
@@ -623,7 +786,11 @@
             </div>
             <div class="info-banner">
               <Info size="13" class="info-icon" />
-              <span>原型阶段写本地 op_log，未连接服务端；真实邀请由服务端发送。</span>
+              {#if store.isSignedIn}
+                <span>邀请由服务端校验已注册账号，成功后自动拉取成员变更。</span>
+              {:else}
+                <span>未登录：本地模拟写入 op_log；登录后成员变更改走服务端。</span>
+              {/if}
             </div>
           </div>
         </div>
@@ -1008,6 +1175,99 @@
   .status-pill.is-syncing {
     border-color: #bfdbfe;
     color: var(--color-primary);
+  }
+
+  .account-card {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin: 10px var(--space-4);
+    padding: 10px var(--space-3);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-border-2);
+  }
+
+  .account-avatar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: var(--color-primary);
+    color: #fff;
+    font-size: 14px;
+    font-weight: var(--weight-semibold);
+    flex-shrink: 0;
+  }
+
+  .account-meta {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .account-name {
+    font-size: var(--text-base);
+    font-weight: var(--weight-medium);
+    color: var(--color-text);
+  }
+
+  .account-username {
+    margin-left: 4px;
+    color: var(--color-text-3);
+    font-size: var(--text-sm);
+    font-weight: normal;
+  }
+
+  .account-server {
+    margin-top: 2px;
+    color: var(--color-text-3);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .auth-tabs {
+    display: inline-flex;
+    gap: 4px;
+    margin: 10px var(--space-4) 0;
+    padding: 3px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-border-2);
+  }
+
+  .auth-tabs button {
+    padding: 4px 14px;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--color-text-2);
+    font-size: var(--text-sm);
+    cursor: pointer;
+  }
+
+  .auth-tabs button.active {
+    background: var(--color-card);
+    color: var(--color-text);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+  }
+
+  .auth-grid {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    margin: 10px var(--space-4);
+  }
+
+  .info-banner.danger {
+    border-color: #fca5a5;
+    background: #fef2f2;
+    color: #991b1b;
+    margin: 0 var(--space-4) 12px;
   }
 
   .code-path {

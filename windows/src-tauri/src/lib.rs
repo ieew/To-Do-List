@@ -1,14 +1,20 @@
+#[cfg(feature = "desktop")]
 mod ai;
+#[cfg(feature = "desktop")]
 mod commands;
-mod core_domain;
-mod storage;
+pub mod core_domain;
+pub mod storage;
+pub mod sync;
+#[cfg(feature = "desktop")]
 mod windows;
 
 use rusqlite::Connection;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::Mutex;
+#[cfg(feature = "desktop")]
 use tauri::window::Color;
+#[cfg(feature = "desktop")]
 use tauri::Manager;
 
 /// 便利贴窗口的创建上下文。独立 Webview 通过 label 反查模式与聚焦任务。
@@ -22,8 +28,12 @@ pub struct StickyContext {
 pub struct AppState {
     pub db: Mutex<Connection>,
     pub sticky_contexts: Mutex<HashMap<String, StickyContext>>,
+    /// 数据目录，用于登录前备份本地库。
+    pub data_dir: std::path::PathBuf,
+    pub sync: sync::SyncState,
 }
 
+#[cfg(feature = "desktop")]
 #[derive(Serialize)]
 struct AppInfo {
     name: &'static str,
@@ -32,6 +42,7 @@ struct AppInfo {
     data_mode: &'static str,
 }
 
+#[cfg(feature = "desktop")]
 #[tauri::command]
 fn app_info() -> AppInfo {
     AppInfo {
@@ -42,6 +53,7 @@ fn app_info() -> AppInfo {
     }
 }
 
+#[cfg(feature = "desktop")]
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -56,6 +68,7 @@ pub fn run() {
             println!("数据目录: {}", data_dir.display());
             let conn = storage::open(&data_dir.join(storage::DB_FILE))?;
             storage::seed_if_empty(&conn)?;
+            let sync_state = sync::SyncState::new(&conn);
 
             // 主窗口在配置里是隐藏创建的，等前端首帧就绪后再显示，避免 WebView2
             // 初始化期间用户看到一个空白窗口。这里先把底色同步成当前主题，
@@ -86,7 +99,11 @@ pub fn run() {
             app.manage(AppState {
                 db: Mutex::new(conn),
                 sticky_contexts: Mutex::new(HashMap::new()),
+                data_dir: data_dir.clone(),
+                sync: sync_state,
             });
+
+            sync::worker::start(app.handle().clone());
 
             // 仅调试构建：设置 TODO_VERIFY_WINDOWS=1 时自动创建便利贴窗口，
             // 把实际 WebviewWindow label 写入临时文件后退出，用于验证双窗口。
@@ -165,6 +182,17 @@ pub fn run() {
             commands::remove_member,
             commands::invite_member,
             commands::save_settings,
+            commands::auth_register,
+            commands::auth_login,
+            commands::auth_logout,
+            commands::sync_now,
+            commands::sync_preflight,
+            commands::create_list,
+            commands::update_list_field,
+            commands::delete_list,
+            commands::create_tag,
+            commands::update_tag_field,
+            commands::delete_tag,
             commands::ai_key_status,
             commands::set_ai_key,
             commands::clear_ai_key,

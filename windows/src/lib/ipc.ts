@@ -1,6 +1,15 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import type { AiPlanResponse, BootstrapResponse, Settings } from './types';
+import type {
+  AiPlanResponse,
+  AuthRegisterInput,
+  AuthResult,
+  BootstrapResponse,
+  Settings,
+  SyncNoticeDto,
+  SyncPreflight,
+  SyncStateDto
+} from './types';
 
 export const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
@@ -81,6 +90,41 @@ export const ipc = {
 
   saveSettings: (settings: Settings) => invoke<void>('save_settings', { settings }),
 
+  authRegister: (input: AuthRegisterInput) =>
+    invoke<AuthResult>('auth_register', {
+      serverUrl: input.serverUrl,
+      username: input.username,
+      password: input.password,
+      email: input.email ?? null,
+      displayName: input.displayName ?? null,
+      workspaceName: input.workspaceName ?? null
+    }),
+
+  authLogin: (serverUrl: string, username: string, password: string) =>
+    invoke<AuthResult>('auth_login', { serverUrl, username, password }),
+
+  authLogout: () => invoke<void>('auth_logout'),
+
+  syncNow: () => invoke<SyncStateDto>('sync_now'),
+
+  syncPreflight: () => invoke<SyncPreflight>('sync_preflight'),
+
+  createList: (name: string, color?: string | null) =>
+    invoke<string>('create_list', { name, color: color ?? null }),
+
+  updateListField: (listId: string, field: string, value: unknown) =>
+    invoke<void>('update_list_field', { listId, field, value }),
+
+  deleteList: (listId: string) => invoke<void>('delete_list', { listId }),
+
+  createTag: (name: string, bg?: string | null, fg?: string | null) =>
+    invoke<string>('create_tag', { name, bg: bg ?? null, fg: fg ?? null }),
+
+  updateTagField: (tagId: string, field: string, value: unknown) =>
+    invoke<void>('update_tag_field', { tagId, field, value }),
+
+  deleteTag: (tagId: string) => invoke<void>('delete_tag', { tagId }),
+
   aiKeyStatus: () => invoke<boolean>('ai_key_status'),
 
   setAiKey: (apiKey: string) => invoke<boolean>('set_ai_key', { apiKey }),
@@ -126,6 +170,16 @@ export const ipc = {
 
   onSettingsUpdated: (handler: (settings: Settings) => void): Promise<UnlistenFn> =>
     listen<Settings>('settings-updated', (event) => {
+      handler(event.payload);
+    }),
+
+  onSyncStatus: (handler: (state: SyncStateDto) => void): Promise<UnlistenFn> =>
+    listen<SyncStateDto>('sync-status-changed', (event) => {
+      handler(event.payload);
+    }),
+
+  onSyncNotice: (handler: (notice: SyncNoticeDto) => void): Promise<UnlistenFn> =>
+    listen<SyncNoticeDto>('sync-notice', (event) => {
       handler(event.payload);
     })
 };

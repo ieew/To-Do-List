@@ -15,7 +15,8 @@
     "shoot": "node scripts/shoot.mjs",
     "interact": "node scripts/interact.mjs",
     "verify:changes": "node scripts/verify-changes.mjs",
-    "verify:native": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-native.ps1"
+    "verify:native": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-native.ps1",
+    "verify:sync": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-sync.ps1"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",

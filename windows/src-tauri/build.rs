@@ -18,6 +18,10 @@ const ICONS: &[&str] = &[
 
 fn main() {
     println!("cargo:rerun-if-changed=icons/icon.ico");
+    if env::var_os("CARGO_FEATURE_DESKTOP").is_none() {
+        // 纯逻辑测试（--no-default-features）不需要 Tauri 构建期资源。
+        return;
+    }
     if let Err(error) = prepare_ascii_icons() {
         println!("cargo:warning=无法准备 ASCII 图标路径: {error}");
     }
@@ -77,8 +81,8 @@ fn prepare_ascii_icons() -> Result<(), String> {
         .ok_or_else(|| "bundle 配置不是 JSON 对象".to_string())?
         .insert("icon".to_string(), serde_json::json!(ascii_icons));
 
-    let serialized =
-        serde_json::to_string(&config).map_err(|error| format!("序列化 TAURI_CONFIG 失败: {error}"))?;
+    let serialized = serde_json::to_string(&config)
+        .map_err(|error| format!("序列化 TAURI_CONFIG 失败: {error}"))?;
     env::set_var("TAURI_CONFIG", serialized);
     Ok(())
 }
