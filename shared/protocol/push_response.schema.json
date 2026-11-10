@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://todo.local/protocol/push_response.schema.json",
+  "title": "PushResponse",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["server_hlc", "server_seq", "results"],
+  "properties": {
+    "server_hlc": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["physical_ms", "counter", "node_id"],
+      "properties": {
+        "physical_ms": { "type": "integer" },
+        "counter": { "type": "integer" },
+        "node_id": { "type": "string" }
+      }
+    },
+    "server_seq": { "type": "integer", "minimum": 0 },
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["op_id", "status"],
+        "properties": {
+          "op_id": { "type": "string" },
+          "status": { "enum": ["accepted", "duplicate", "rejected"] },
+          "seq": { "type": "integer", "minimum": 1 },
+          "error": { "$ref": "error.schema.json#/properties/error" }
+        }
+      }
+    }
+  }
+}

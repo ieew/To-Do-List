@@ -1,0 +1,76 @@
+{
+  "name": "orset_add_wins",
+  "description": "OR-Set：并发 add/remove 同一元素时 add 胜出；不同元素全部保留；add 早于 remove 时元素被移除。",
+  "ops": [
+    {
+      "op_id": "op-1",
+      "workspace_id": "ws-t",
+      "entity_type": "task",
+      "entity_id": "task-1",
+      "actor_id": "u-1",
+      "device_id": "win-a",
+      "operation": "add",
+      "field": "__tag",
+      "value": "tag-concurrent",
+      "hlc": { "physical_ms": 3000, "counter": 0, "node_id": "node-a" },
+      "source": "human"
+    },
+    {
+      "op_id": "op-2",
+      "workspace_id": "ws-t",
+      "entity_type": "task",
+      "entity_id": "task-1",
+      "actor_id": "u-2",
+      "device_id": "win-b",
+      "operation": "remove",
+      "field": "__tag",
+      "value": "tag-concurrent",
+      "hlc": { "physical_ms": 2000, "counter": 0, "node_id": "node-b" },
+      "source": "human"
+    },
+    {
+      "op_id": "op-3",
+      "workspace_id": "ws-t",
+      "entity_type": "task",
+      "entity_id": "task-1",
+      "actor_id": "u-1",
+      "device_id": "win-a",
+      "operation": "add",
+      "field": "__tag",
+      "value": "tag-removed",
+      "hlc": { "physical_ms": 1000, "counter": 0, "node_id": "node-a" },
+      "source": "human"
+    },
+    {
+      "op_id": "op-4",
+      "workspace_id": "ws-t",
+      "entity_type": "task",
+      "entity_id": "task-1",
+      "actor_id": "u-2",
+      "device_id": "win-b",
+      "operation": "remove",
+      "field": "__tag",
+      "value": "tag-removed",
+      "hlc": { "physical_ms": 2000, "counter": 0, "node_id": "node-b" },
+      "source": "human"
+    },
+    {
+      "op_id": "op-5",
+      "workspace_id": "ws-t",
+      "entity_type": "task",
+      "entity_id": "task-1",
+      "actor_id": "u-1",
+      "device_id": "win-a",
+      "operation": "add",
+      "field": "__tag",
+      "value": "tag-other",
+      "hlc": { "physical_ms": 1500, "counter": 0, "node_id": "node-a" },
+      "source": "human"
+    }
+  ],
+  "expect": {
+    "collections": {
+      "task:task-1:__tag": ["tag-concurrent", "tag-other"]
+    }
+  }
+}

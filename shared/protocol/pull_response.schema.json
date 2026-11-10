@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://todo.local/protocol/pull_response.schema.json",
+  "title": "PullResponse",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["ops", "next_seq", "has_more", "server_seq", "server_hlc"],
+  "properties": {
+    "ops": {
+      "type": "array",
+      "items": {
+        "allOf": [
+          { "$ref": "op_envelope.schema.json" },
+          {
+            "type": "object",
+            "required": ["seq", "received_at"],
+            "properties": {
+              "seq": { "type": "integer", "minimum": 1 },
+              "received_at": { "type": "integer", "minimum": 0 }
+            }
+          }
+        ]
+      }
+    },
+    "next_seq": { "type": "integer", "minimum": 0 },
+    "has_more": { "type": "boolean" },
+    "server_seq": { "type": "integer", "minimum": 0 },
+    "server_hlc": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["physical_ms", "counter", "node_id"],
+      "properties": {
+        "physical_ms": { "type": "integer" },
+        "counter": { "type": "integer" },
+        "node_id": { "type": "string" }
+      }
+    }
+  }
+}

@@ -1,0 +1,81 @@
+{
+  "name": "subtask_fields",
+  "description": "子任务：集合成员用 OR-Set；text/done/order 是独立 LWW 单元格；并发修改不同字段都存活，同字段按全序裁决。",
+  "ops": [
+    {
+      "op_id": "sub-add",
+      "workspace_id": "ws-t",
+      "entity_type": "task",
+      "entity_id": "task-1",
+      "actor_id": "u-1",
+      "device_id": "win-a",
+      "operation": "add",
+      "field": "__subtask",
+      "value": "sub-1",
+      "hlc": { "physical_ms": 1000, "counter": 0, "node_id": "node-a" },
+      "source": "human"
+    },
+    {
+      "op_id": "sub-text-a",
+      "workspace_id": "ws-t",
+      "entity_type": "task",
+      "entity_id": "task-1",
+      "actor_id": "u-1",
+      "device_id": "win-a",
+      "operation": "set",
+      "field": "__subtask:sub-1:text",
+      "value": "写文档",
+      "hlc": { "physical_ms": 2000, "counter": 0, "node_id": "node-a" },
+      "source": "human"
+    },
+    {
+      "op_id": "sub-text-b",
+      "workspace_id": "ws-t",
+      "entity_type": "task",
+      "entity_id": "task-1",
+      "actor_id": "u-2",
+      "device_id": "win-b",
+      "operation": "set",
+      "field": "__subtask:sub-1:text",
+      "value": "写设计文档",
+      "hlc": { "physical_ms": 2500, "counter": 0, "node_id": "node-b" },
+      "source": "human"
+    },
+    {
+      "op_id": "sub-done",
+      "workspace_id": "ws-t",
+      "entity_type": "task",
+      "entity_id": "task-1",
+      "actor_id": "u-2",
+      "device_id": "win-b",
+      "operation": "set",
+      "field": "__subtask:sub-1:done",
+      "value": true,
+      "hlc": { "physical_ms": 2600, "counter": 0, "node_id": "node-b" },
+      "source": "human"
+    },
+    {
+      "op_id": "sub-order",
+      "workspace_id": "ws-t",
+      "entity_type": "task",
+      "entity_id": "task-1",
+      "actor_id": "u-1",
+      "device_id": "win-a",
+      "operation": "set",
+      "field": "__subtask:sub-1:order",
+      "value": 3.0,
+      "hlc": { "physical_ms": 2400, "counter": 0, "node_id": "node-a" },
+      "source": "human"
+    }
+  ],
+  "expect": {
+    "fields": {
+      "task:task-1:__subtask:sub-1:text": "写设计文档",
+      "task:task-1:__subtask:sub-1:done": true,
+      "task:task-1:__subtask:sub-1:order": 3.0
+    },
+    "collections": {
+      "task:task-1:__subtask": ["sub-1"]
+    }
+  }
+}
