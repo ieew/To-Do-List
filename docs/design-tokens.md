@@ -93,6 +93,10 @@ Android 端对应 `FontFamily.Default` 与 `FontFamily.Monospace`，不要自定
 
 > 字号单位为 px。Android 端用 `sp`，数值一致。
 
+**Android 端当前偏差（2026-11-12）**：为提升手机阅读舒适度，`Tokens.Type` 里除「清单页任务标题」外全部 +1sp
+（`greeting` 20、`pageTitle` 18、`section` 14、`taskTitle` 14、`body` 13.5、`meta` 11.5、`chip` 12、`badge` 11、
+`number` 23、`mono` 12）；清单页任务标题单独用 `taskTitleList` = 16/24。Windows 端仍沿用上表。
+
 ### 2.3 字重
 
 | 令牌 | 值 | 用途 |

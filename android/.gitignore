@@ -1,0 +1,17 @@
+.gradle/
+build/
+*/build/
+**/build/
+local.properties
+.idea/
+*.iml
+captures/
+.externalNativeBuild/
+.cxx/
+
+# 交付产物与调试截图不入库
+dist/
+shots/
+
+# Kotlin 编译期诊断日志
+.kotlin/

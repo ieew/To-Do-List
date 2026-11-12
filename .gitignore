@@ -1,0 +1,16 @@
+# 本地编辑器/工具目录
+.vscode/
+.idea/
+
+# Python 虚拟环境与缓存
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+
+# 服务端本地数据
+server/data/*.sqlite3
+server/data/*.sqlite3-shm
+server/data/*.sqlite3-wal
+server/data/*.lock

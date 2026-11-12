@@ -1,0 +1,53 @@
+{
+  "name": "lww_field_tiebreak",
+  "description": "同一字段并发写：按 (physical_ms, counter, node_id, op_id) 全序取最大；op_id 参与平局裁决。",
+  "ops": [
+    {
+      "op_id": "op-a",
+      "workspace_id": "ws-t",
+      "entity_type": "task",
+      "entity_id": "task-1",
+      "actor_id": "u-1",
+      "device_id": "win-a",
+      "operation": "set",
+      "field": "title",
+      "value": "标题 A",
+      "hlc": { "physical_ms": 1000, "counter": 0, "node_id": "node-a" },
+      "source": "human",
+      "source_meta": { "model": null, "prompt_hash": null }
+    },
+    {
+      "op_id": "op-b",
+      "workspace_id": "ws-t",
+      "entity_type": "task",
+      "entity_id": "task-1",
+      "actor_id": "u-2",
+      "device_id": "win-b",
+      "operation": "set",
+      "field": "title",
+      "value": "标题 B",
+      "hlc": { "physical_ms": 2000, "counter": 0, "node_id": "node-b" },
+      "source": "human",
+      "source_meta": { "model": null, "prompt_hash": null }
+    },
+    {
+      "op_id": "op-c",
+      "workspace_id": "ws-t",
+      "entity_type": "task",
+      "entity_id": "task-1",
+      "actor_id": "u-3",
+      "device_id": "win-c",
+      "operation": "set",
+      "field": "title",
+      "value": "标题 C",
+      "hlc": { "physical_ms": 2000, "counter": 0, "node_id": "node-c" },
+      "source": "human",
+      "source_meta": { "model": null, "prompt_hash": null }
+    }
+  ],
+  "expect": {
+    "fields": {
+      "task:task-1:title": "标题 C"
+    }
+  }
+}

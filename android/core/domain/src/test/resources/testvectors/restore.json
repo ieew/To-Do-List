@@ -1,0 +1,66 @@
+{
+  "name": "restore_field_and_collection",
+  "description": "恢复意图：只恢复快照中存在的实体；标量字段做 LWW set，集合做 add/remove 差集；不删除快照之后新增的实体。",
+  "target": {
+    "lists": [{ "id": "list-1", "name": "工作", "color": "#3B82F6", "order": 0.0 }],
+    "tags": [],
+    "members": [],
+    "tasks": [
+      {
+        "id": "task-1",
+        "title": "旧标题",
+        "notes": "",
+        "priority": "mid",
+        "status": "todo",
+        "list_id": "list-1",
+        "order": 0.0,
+        "tag_ids": ["tag-1"],
+        "subtasks": [{ "id": "sub-1", "text": "旧子任务", "done": false, "order": 0.0 }]
+      }
+    ]
+  },
+  "current": {
+    "lists": [{ "id": "list-1", "name": "工作", "color": "#3B82F6", "order": 0.0 }],
+    "tags": [],
+    "members": [],
+    "tasks": [
+      {
+        "id": "task-1",
+        "title": "新标题",
+        "notes": "",
+        "priority": "high",
+        "status": "done",
+        "list_id": "list-1",
+        "order": 2.0,
+        "tag_ids": ["tag-2"],
+        "subtasks": [
+          { "id": "sub-1", "text": "旧子任务", "done": true, "order": 0.0 },
+          { "id": "sub-2", "text": "快照之后新增", "done": false, "order": 1.0 }
+        ]
+      },
+      {
+        "id": "task-2",
+        "title": "快照之后新建的任务",
+        "notes": "",
+        "priority": "mid",
+        "status": "todo",
+        "list_id": "list-1",
+        "order": 3.0,
+        "tag_ids": [],
+        "subtasks": []
+      }
+    ]
+  },
+  "expect": {
+    "changes": [
+      ["task-1", "set", "title", "旧标题"],
+      ["task-1", "set", "priority", "mid"],
+      ["task-1", "set", "status", "todo"],
+      ["task-1", "set", "order", 0.0],
+      ["task-1", "set", "__subtask:sub-1:done", false],
+      ["task-1", "add", "__tag", "tag-1"],
+      ["task-1", "remove", "__tag", "tag-2"],
+      ["task-1", "remove", "__subtask", "sub-2"]
+    ]
+  }
+}

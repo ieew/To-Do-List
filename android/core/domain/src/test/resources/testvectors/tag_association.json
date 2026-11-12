@@ -1,0 +1,132 @@
+{
+  "name": "tag_association",
+  "description": "标签关联：tag 实体删除后关联 op 保留（task.tag_ids 仍为 tag-1），投影的 tags 列表过滤已删除实体；恢复标签后历史关联重新生效。",
+  "ops": [
+    {
+      "op_id": "tag-created",
+      "workspace_id": "ws-t",
+      "entity_type": "tag",
+      "entity_id": "tag-1",
+      "actor_id": "u-1",
+      "device_id": "win-a",
+      "operation": "set",
+      "field": "__created",
+      "value": "2026-11-01T09:00:00+08:00",
+      "hlc": { "physical_ms": 1000, "counter": 0, "node_id": "node-a" },
+      "source": "human"
+    },
+    {
+      "op_id": "tag-name",
+      "workspace_id": "ws-t",
+      "entity_type": "tag",
+      "entity_id": "tag-1",
+      "actor_id": "u-1",
+      "device_id": "win-a",
+      "operation": "set",
+      "field": "name",
+      "value": "重要",
+      "hlc": { "physical_ms": 1001, "counter": 0, "node_id": "node-a" },
+      "source": "human"
+    },
+    {
+      "op_id": "tag-workspace",
+      "workspace_id": "ws-t",
+      "entity_type": "tag",
+      "entity_id": "tag-1",
+      "actor_id": "u-1",
+      "device_id": "win-a",
+      "operation": "set",
+      "field": "workspace_id",
+      "value": "ws-t",
+      "hlc": { "physical_ms": 1002, "counter": 0, "node_id": "node-a" },
+      "source": "human"
+    },
+    {
+      "op_id": "task-created",
+      "workspace_id": "ws-t",
+      "entity_type": "task",
+      "entity_id": "task-1",
+      "actor_id": "u-1",
+      "device_id": "win-a",
+      "operation": "set",
+      "field": "__created",
+      "value": "2026-11-01T09:00:00+08:00",
+      "hlc": { "physical_ms": 1100, "counter": 0, "node_id": "node-a" },
+      "source": "human"
+    },
+    {
+      "op_id": "task-list",
+      "workspace_id": "ws-t",
+      "entity_type": "task",
+      "entity_id": "task-1",
+      "actor_id": "u-1",
+      "device_id": "win-a",
+      "operation": "set",
+      "field": "list_id",
+      "value": "list-1",
+      "hlc": { "physical_ms": 1101, "counter": 0, "node_id": "node-a" },
+      "source": "human"
+    },
+    {
+      "op_id": "list-created",
+      "workspace_id": "ws-t",
+      "entity_type": "list",
+      "entity_id": "list-1",
+      "actor_id": "u-1",
+      "device_id": "win-a",
+      "operation": "set",
+      "field": "__created",
+      "value": "2026-11-01T09:00:00+08:00",
+      "hlc": { "physical_ms": 900, "counter": 0, "node_id": "node-a" },
+      "source": "human"
+    },
+    {
+      "op_id": "list-workspace",
+      "workspace_id": "ws-t",
+      "entity_type": "list",
+      "entity_id": "list-1",
+      "actor_id": "u-1",
+      "device_id": "win-a",
+      "operation": "set",
+      "field": "workspace_id",
+      "value": "ws-t",
+      "hlc": { "physical_ms": 901, "counter": 0, "node_id": "node-a" },
+      "source": "human"
+    },
+    {
+      "op_id": "task-tag-add",
+      "workspace_id": "ws-t",
+      "entity_type": "task",
+      "entity_id": "task-1",
+      "actor_id": "u-1",
+      "device_id": "win-a",
+      "operation": "add",
+      "field": "__tag",
+      "value": "tag-1",
+      "hlc": { "physical_ms": 1200, "counter": 0, "node_id": "node-a" },
+      "source": "human"
+    },
+    {
+      "op_id": "tag-deleted",
+      "workspace_id": "ws-t",
+      "entity_type": "tag",
+      "entity_id": "tag-1",
+      "actor_id": "u-1",
+      "device_id": "win-a",
+      "operation": "set",
+      "field": "__deleted",
+      "value": true,
+      "hlc": { "physical_ms": 1300, "counter": 0, "node_id": "node-a" },
+      "source": "human"
+    }
+  ],
+  "expect": {
+    "collections": {
+      "task:task-1:__tag": ["tag-1"]
+    },
+    "projection": {
+      "tags_empty": true,
+      "task_tag_ids": ["tag-1"]
+    }
+  }
+}
