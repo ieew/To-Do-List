@@ -17,7 +17,9 @@ import com.todo.android.core.network.wire.RemoveMemberRequest
 import com.todo.android.core.network.wire.UserOut
 import com.todo.android.core.network.wire.WireRoleRequest
 import com.todo.android.core.network.wire.WorkspaceOut
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonElement
 import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.PATCH
@@ -30,8 +32,21 @@ data class MeResponse(val user: UserOut)
 @Serializable
 data class WorkspacesResponse(val workspaces: List<WorkspaceOut> = emptyList())
 
+/** `GET /v1/health` 的响应；`server_hlc` 结构用 `JsonElement` 承接，避免与 wire 模型耦合。 */
+@Serializable
+data class HealthResponse(
+    val status: String,
+    @SerialName("protocol_version") val protocolVersion: String? = null,
+    @SerialName("db_seq") val dbSeq: Long = 0,
+    @SerialName("server_hlc") val serverHlc: JsonElement? = null,
+    @SerialName("writer_queue_depth") val queueDepth: Int = 0,
+)
+
 /** 路径不带前导斜杠：baseUrl 由 `BaseUrlInterceptor` 重写到设置中的服务器地址。 */
 interface AuthApi {
+    @GET("v1/health")
+    suspend fun health(): HealthResponse
+
     @POST("v1/auth/register")
     suspend fun register(@Body body: RegisterRequest): RegisterResponse
 

@@ -15,6 +15,11 @@ import com.todo.android.core.data.settings.StartupModes
 import com.todo.android.core.data.settings.ThemeModes
 import com.todo.android.core.domain.WorkspaceProjection
 import com.todo.android.core.network.ApiResult
+import com.todo.android.core.network.BaseUrl
+import com.todo.android.core.network.ServerConfig
+import com.todo.android.core.network.api.AuthApi
+import com.todo.android.core.network.apiCall
+import com.todo.android.core.network.session.SessionManager
 import com.todo.android.core.reminder.KeepAliveManager
 import com.todo.android.core.reminder.KeepAliveStats
 import com.todo.android.core.reminder.ReminderScheduler
@@ -30,6 +35,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.Json
 
 data class SettingsUiState(
     val settings: AppSettings = AppSettings(),
@@ -61,6 +67,10 @@ class SettingsViewModel @Inject constructor(
     private val reminderScheduler: ReminderScheduler,
     private val keepAliveManager: KeepAliveManager,
     private val backupService: BackupService,
+    private val serverConfig: ServerConfig,
+    private val authApi: AuthApi,
+    private val sessionManager: SessionManager,
+    private val json: Json,
     @ApplicationContext private val context: Context,
 ) : ViewModel() {
     private val local = MutableStateFlow(LocalState())
@@ -191,6 +201,46 @@ class SettingsViewModel @Inject constructor(
 
     fun setSyncInterval(minutes: Int) {
         viewModelScope.launch { settingsStore.update { it.copy(syncIntervalMinutes = minutes) } }
+    }
+
+    /** 服务器地址落库并立即生效，避免只存在于登录对话框里、登录后就丢。 */
+    fun setServerUrl(raw: String) {
+        val normalized = BaseUrl.normalize(raw)
+        viewModelScope.launch {
+            val previous = sessionManager.load()
+            settingsStore.update { it.copy(serverUrl = normalized) }
+            serverConfig.update(normalized)
+            // 令牌是按旧服务器签发的，换地址后必须重新登录，否则会一直 401。
+            val needRelogin = previous != null && previous.serverUrl != normalized
+            if (needRelogin) {
+                sessionManager.clear()
+                syncEngine.bootstrap()
+            }
+            local.value = local.value.copy(
+                toast = if (needRelogin) {
+                    "地址已改为 $normalized，请重新登录"
+                } else {
+                    "服务器地址已保存：$normalized"
+                },
+            )
+        }
+    }
+
+    /** 打 `/v1/health`，把“连不上”和“配置错”区分开。 */
+    fun testConnection() {
+        viewModelScope.launch {
+            local.value = local.value.copy(busy = true)
+            val result = apiCall(json) { authApi.health() }
+            local.value = local.value.copy(
+                busy = false,
+                toast = when (result) {
+                    is ApiResult.Success ->
+                        "连接成功：${result.value.status} · seq ${result.value.dbSeq}"
+
+                    is ApiResult.Failure -> result.failure.message
+                },
+            )
+        }
     }
 
     fun syncNow() {

@@ -188,6 +188,9 @@ private fun CommonPanel(
     onLogin: () -> Unit,
     onOpenMembers: (String) -> Unit,
 ) {
+    val colors = TodoTheme.colors
+    var serverEditOpen by remember { mutableStateOf(false) }
+
     SettingsGroup(title = "账户") {
         SettingRow(
             title = if (state.signedIn) "我的账号" else "登录 / 注册",
@@ -202,6 +205,30 @@ private fun CommonPanel(
         )
     }
     SyncSettings(state = state, viewModel = viewModel, now = now)
+    SettingsGroup(title = "服务器") {
+        SettingRow(
+            title = "服务器地址",
+            description = state.settings.serverUrl,
+            trailing = {
+                Text(
+                    text = "修改",
+                    style = Tokens.Type.chip,
+                    color = colors.primary,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(Tokens.Radius.sm))
+                        .clickable { serverEditOpen = true }
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                )
+            },
+            onClick = { serverEditOpen = true },
+        )
+        SettingDivider()
+        SettingRow(
+            title = "测试连接",
+            description = "请求 /v1/health，确认地址与网络是否可达",
+            onClick = { if (!state.busy) viewModel.testConnection() },
+        )
+    }
     SettingsGroup(title = "通用") {
         SettingRow(title = "界面语言", description = "中文（简体）")
         SettingDivider()
@@ -226,6 +253,58 @@ private fun CommonPanel(
             )
         }
     }
+    if (serverEditOpen) {
+        ServerUrlDialog(
+            initial = state.settings.serverUrl,
+            onDismiss = { serverEditOpen = false },
+            onConfirm = { url ->
+                viewModel.setServerUrl(url)
+                serverEditOpen = false
+            },
+        )
+    }
+}
+
+@Composable
+private fun ServerUrlDialog(
+    initial: String,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit,
+) {
+    val colors = TodoTheme.colors
+    var value by remember { mutableStateOf(initial) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = colors.card,
+        title = { Text("服务器地址", style = Tokens.Type.pageTitle, color = colors.text) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = value,
+                    onValueChange = { value = it },
+                    label = { Text("例如 http://192.168.1.8:8000") },
+                    singleLine = true,
+                    textStyle = Tokens.Type.body.copy(color = colors.text),
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = dialogFieldColors(colors),
+                )
+                Text(
+                    "手机与电脑需在同一网段；保存后可通过下方「测试连接」自检。",
+                    style = Tokens.Type.meta,
+                    color = colors.text2,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { if (value.isNotBlank()) onConfirm(value) }) {
+                Text("保存", color = colors.primary)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消", color = colors.text2) }
+        },
+    )
 }
 
 @Composable

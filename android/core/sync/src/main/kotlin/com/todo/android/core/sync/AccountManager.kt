@@ -94,6 +94,9 @@ class AccountManager @Inject constructor(
         if (repository.syncAccount() != accountKey) {
             repository.resetForAccount()
         }
+        // 地址必须落库：SyncEngine.runOnce 会用设置里的地址覆盖 ServerConfig，
+        // 不保存就会在登录后立刻退回默认的 127.0.0.1。
+        settingsStore.update { it.copy(serverUrl = serverConfig.baseUrl) }
         sessionManager.save(
             SessionTokens(
                 accessToken = tokens.accessToken,

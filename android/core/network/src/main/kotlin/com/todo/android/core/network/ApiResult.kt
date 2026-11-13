@@ -34,10 +34,36 @@ suspend fun <T> apiCall(json: Json, block: suspend () -> T): ApiResult<T> = try 
     ApiResult.Failure(
         ApiFailure(
             code = "network_error",
-            message = "网络连接失败，请稍后重试",
+            message = networkErrorMessage(e),
             retryable = true,
         ),
     )
+}
+
+/**
+ * 网络异常按类型给出可操作的中文原因：
+ * 明文被拦截 / DNS / 连接被拒 / 超时 各自的排查方向完全不同。
+ */
+private fun networkErrorMessage(e: IOException): String {
+    val raw = e.message.orEmpty()
+    return when {
+        raw.contains("CLEARTEXT", ignoreCase = true) ->
+            "明文 HTTP 被系统拦截，请在网络安全配置中放行该地址"
+
+        e is java.net.UnknownHostException ->
+            "域名解析失败：${raw.ifBlank { "未知主机" }}"
+
+        e is java.net.SocketTimeoutException ->
+            "连接超时，请检查服务器地址、端口与防火墙"
+
+        e is java.net.ConnectException ->
+            "无法连接服务器（连接被拒绝），请确认地址与端口正确且服务端已监听该网卡"
+
+        e is java.net.SocketException ->
+            "网络中断：${raw.ifBlank { e.javaClass.simpleName }}"
+
+        else -> "网络连接失败：${e.javaClass.simpleName} ${raw.take(120)}".trim()
+    }
 }
 
 fun parseHttpError(json: Json, error: HttpException): ApiFailure {

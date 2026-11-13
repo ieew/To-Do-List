@@ -1,10 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <!-- 只允许本地联调地址使用明文 HTTP，其余域名强制 HTTPS。 -->
-    <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="false">127.0.0.1</domain>
-        <domain includeSubdomains="false">localhost</domain>
-        <domain includeSubdomains="false">10.0.2.2</domain>
-    </domain-config>
-    <base-config cleartextTrafficPermitted="false" />
+    <!--
+        自建服务端默认为局域网明文 HTTP（http://<内网IP>:8000）。
+        Android 9+ 默认禁止明文流量，白名单只能写具体主机名、无法覆盖网段，
+        因此这里整体放行明文；若服务端改走 HTTPS，可把 cleartextTrafficPermitted 改回 false。
+    -->
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
 </network-security-config>

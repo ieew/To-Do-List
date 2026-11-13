@@ -61,9 +61,10 @@ class SyncEngine @Inject constructor(
 
     suspend fun runOnce(): SyncState = mutex.withLock {
         val settings = settingsStore.current()
-        serverConfig.update(settings.serverUrl)
-
         var session = sessionManager.load()
+        // 令牌是按某台服务器签发的，已登录时以会话里的地址为准，
+        // 否则设置里的默认值会把刚登录用的地址顶掉。
+        serverConfig.update(session?.serverUrl ?: settings.serverUrl)
         if (session == null) {
             return@withLock publish(SyncStatus.SIGNED_OUT)
         }
