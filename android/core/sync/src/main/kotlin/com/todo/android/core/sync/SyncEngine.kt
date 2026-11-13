@@ -3,6 +3,8 @@ package com.todo.android.core.sync
 import com.todo.android.core.data.repository.OpRepository
 import com.todo.android.core.data.repository.PulledOp
 import com.todo.android.core.data.settings.SettingsStore
+import com.todo.android.core.domain.Fields
+import com.todo.android.core.domain.Op
 import com.todo.android.core.network.ApiResult
 import com.todo.android.core.network.ServerConfig
 import com.todo.android.core.network.api.SyncApi
@@ -22,6 +24,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonPrimitive
+import kotlin.math.abs
 
 /**
  * 同步唯一入口：`runOnce()` 用 Mutex 防重入，先 push 后 pull。
@@ -59,33 +63,64 @@ class SyncEngine @Inject constructor(
         return next
     }
 
+    /**
+     * 同步入口：任何未预期的异常都转成 OFFLINE 状态返回，
+     * 不能抛给 `viewModelScope` —— 那样会直接把 App 打闪退，且 pending op 会让下次启动重复崩。
+     */
     suspend fun runOnce(): SyncState = mutex.withLock {
+        try {
+            syncOnce()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            publish(
+                SyncStatus.OFFLINE,
+                null,
+                error = "同步异常：" + (e.message ?: e.javaClass.simpleName).take(160),
+            )
+        }
+    }
+
+    private suspend fun syncOnce(): SyncState {
         val settings = settingsStore.current()
         var session = sessionManager.load()
         // 令牌是按某台服务器签发的，已登录时以会话里的地址为准，
         // 否则设置里的默认值会把刚登录用的地址顶掉。
         serverConfig.update(session?.serverUrl ?: settings.serverUrl)
         if (session == null) {
-            return@withLock publish(SyncStatus.SIGNED_OUT)
+            return publish(SyncStatus.SIGNED_OUT)
         }
         publish(SyncStatus.SYNCING, session)
 
         session = sessionManager.ensureFresh()
         if (session == null) {
-            return@withLock publish(SyncStatus.AUTH_REQUIRED, error = "登录已过期，请重新登录")
+            return publish(SyncStatus.AUTH_REQUIRED, error = "登录已过期，请重新登录")
         }
 
         val pushStep = pushAll(session)
-        if (pushStep is Step.Stop) return@withLock pushStep.state
+        if (pushStep is Step.Stop) return pushStep.state
 
         val pullStep = pullAll()
-        if (pullStep is Step.Stop) return@withLock pullStep.state
+        if (pullStep is Step.Stop) return pullStep.state
 
         repairActiveWorkspace()
-        publish(SyncStatus.SYNCED, session, lastSyncedAt = System.currentTimeMillis())
+        return publish(SyncStatus.SYNCED, session, lastSyncedAt = System.currentTimeMillis())
     }
 
     fun cachedToken(): String? = sessionManager.cachedToken()
+
+    /**
+     * 兼容历史数据：早期版本把 epoch 毫秒（约 1.7e12）当成 order 写入 op，
+     * 超出服务端 `|order| <= 1e9` 的约束，会导致整条 task 的 op 全部被拒。
+     * 推送前归一化；本地 op 保持不可变语义，不修改已落库的值。
+     */
+    private fun normalizeLegacyOrder(op: Op): Op {
+        if (op.field != Fields.ORDER) return op
+        val primitive = op.value as? JsonPrimitive ?: return op
+        val raw = primitive.content.toDoubleOrNull() ?: return op
+        if (abs(raw) <= ORDER_LIMIT) return op
+        return op.copy(value = JsonPrimitive(raw / 1_000_000.0))
+    }
 
     private suspend fun pushAll(session: SessionTokens): Step {
         var batchLimit = PUSH_BATCH
@@ -94,7 +129,10 @@ class SyncEngine @Inject constructor(
             if (pending.isEmpty()) return Step.Continue
 
             val deviceId = repository.deviceId()
-            val request = PushRequest(deviceId = deviceId, ops = pending.map { WireMapper.toOut(it.op) })
+            val request = PushRequest(
+                deviceId = deviceId,
+                ops = pending.map { WireMapper.toOut(normalizeLegacyOrder(it.op)) },
+            )
             when (val result = apiCall(json) { syncApi.push(request) }) {
                 is ApiResult.Success -> {
                     val response = result.value
@@ -261,6 +299,9 @@ class SyncEngine @Inject constructor(
         const val PUSH_BATCH = 100
         const val PULL_LIMIT = 200
         const val MAX_PULL_PAGES = 20
+
+        /** 与服务端 `_is_number` 一致的上限。 */
+        private const val ORDER_LIMIT = 1_000_000_000.0
 
         private val AUTH_CODES = setOf(
             "unauthorized",

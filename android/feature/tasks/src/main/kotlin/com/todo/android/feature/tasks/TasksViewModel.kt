@@ -18,6 +18,7 @@ import com.todo.android.core.domain.TaskScoping
 import com.todo.android.core.domain.WorkspaceProjection
 import com.todo.android.core.sync.SyncEngine
 import com.todo.android.core.sync.SyncState
+import com.todo.android.core.sync.SyncStatus
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -43,6 +44,8 @@ data class TasksUiState(
     /** 非空时 Toast 显示「撤销」（删除后可恢复）。 */
     val undoTaskId: String? = null,
     val loading: Boolean = true,
+    /** 下拉刷新中。 */
+    val refreshing: Boolean = false,
 ) {
     val tagsById get() = projection.tags.associateBy { it.id }
     val activeListName: String
@@ -67,6 +70,7 @@ class TasksViewModel @Inject constructor(
         val toast: String? = null,
         val undoTaskId: String? = null,
         val loading: Boolean = true,
+        val refreshing: Boolean = false,
     )
 
     private val local = MutableStateFlow(Local())
@@ -99,6 +103,7 @@ class TasksViewModel @Inject constructor(
             toast = localState.toast,
             undoTaskId = localState.undoTaskId,
             loading = localState.loading,
+            refreshing = localState.refreshing,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TasksUiState())
 
@@ -110,6 +115,25 @@ class TasksViewModel @Inject constructor(
 
     fun refreshClock() {
         nowMs.value = TimeText.now()
+    }
+
+    /** 下拉刷新：立刻跑一轮 push + pull，结果用 Toast 反馈。 */
+    fun refresh() {
+        if (local.value.refreshing) return
+        viewModelScope.launch {
+            local.value = local.value.copy(refreshing = true)
+            val result = syncEngine.runOnce()
+            local.value = local.value.copy(
+                refreshing = false,
+                toast = when (result.status) {
+                    SyncStatus.SYNCED -> "已同步"
+                    SyncStatus.SIGNED_OUT -> "未登录，本地修改会稍后推送"
+                    SyncStatus.AUTH_REQUIRED -> "登录已过期，请重新登录"
+                    else -> result.lastError ?: "网络不稳定，稍后重试"
+                },
+            )
+            refreshClock()
+        }
     }
 
     fun selectScope(all: Boolean) {

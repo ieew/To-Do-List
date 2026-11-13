@@ -30,6 +30,15 @@ suspend fun <T> apiCall(json: Json, block: suspend () -> T): ApiResult<T> = try 
     ApiResult.Success(block())
 } catch (e: HttpException) {
     ApiResult.Failure(parseHttpError(json, e))
+} catch (e: kotlinx.serialization.SerializationException) {
+    // 响应字段与模型不一致时必须降级为失败，不能把异常抛给调用方（会在协程里直接闪退）。
+    ApiResult.Failure(
+        ApiFailure(
+            code = "decode_error",
+            message = "服务器响应无法识别：" + (e.message ?: e.javaClass.simpleName).take(160),
+            retryable = false,
+        ),
+    )
 } catch (e: IOException) {
     ApiResult.Failure(
         ApiFailure(

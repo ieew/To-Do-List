@@ -62,6 +62,10 @@ data class PushRequest(
 data class WireOpError(
     val code: String,
     val message: String = "",
+    // 协议 error.schema.json 里 retryable 是必填项；漏了字段会在 ignoreUnknownKeys=false 下解码失败。
+    val retryable: Boolean = false,
+    val details: JsonElement? = null,
+    @SerialName("server_hlc") val serverHlc: WireHlc? = null,
 )
 
 @Serializable

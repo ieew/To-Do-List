@@ -34,6 +34,9 @@ class TaskCommands @Inject constructor(
     ): String {
         val taskId = newId("task")
         val now = wallClock.nowMs()
+        // 与服务端约束（|order| <= 1e9）和 Windows 端 next_task_order 保持一致：
+        // 用「当前最大 order + 1」，不能拿 epoch 毫秒当 order。
+        val order = nextTaskOrder(workspaceId)
         append(workspaceId, source, model) { context ->
             listOf(
                 context.op(taskId, EntityType.TASK, OpOperation.SET, Fields.CREATED, JsonPrimitive(IsoTime.nowIso(now))),
@@ -42,10 +45,25 @@ class TaskCommands @Inject constructor(
                 context.op(taskId, EntityType.TASK, OpOperation.SET, Fields.START_AT, JsonPrimitive(startAtIso)),
                 context.op(taskId, EntityType.TASK, OpOperation.SET, Fields.DUE_AT, JsonPrimitive(dueAtIso)),
                 context.op(taskId, EntityType.TASK, OpOperation.SET, Fields.PRIORITY, JsonPrimitive(priority)),
-                context.op(taskId, EntityType.TASK, OpOperation.SET, Fields.ORDER, JsonPrimitive(now.toDouble())),
+                context.op(taskId, EntityType.TASK, OpOperation.SET, Fields.ORDER, JsonPrimitive(order)),
             )
         }
         return taskId
+    }
+
+    /**
+     * 新任务排在末尾：取同工作区已写入 task order 的最大值 + 1。
+     * 直接扫 op 而不是读投影，避免投影尚未发出首帧（或清单缺失）时全部回落到 0。
+     * 并发创建可能拿到相同值，由 id 作为次级排序键。
+     */
+    private suspend fun nextTaskOrder(workspaceId: String): Double {
+        val max = repository.loadAllOps()
+            .asSequence()
+            .filter { it.workspaceId == workspaceId && it.entityType == EntityType.TASK && it.field == Fields.ORDER }
+            .mapNotNull { (it.value as? JsonPrimitive)?.content?.toDoubleOrNull() }
+            .maxOrNull()
+            ?: -1.0
+        return max + 1.0
     }
 
     suspend fun updateField(

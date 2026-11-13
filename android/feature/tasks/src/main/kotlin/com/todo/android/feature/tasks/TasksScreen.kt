@@ -36,6 +36,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
+import androidx.compose.material3.pulltorefresh.pullToRefresh
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -87,6 +90,7 @@ fun TasksScreen(
 
     val colors = TodoTheme.colors
     val nowMs = TimeText.now()
+    val refreshState = rememberPullToRefreshState()
 
     LaunchedEffect(state.toast, state.undoTaskId) {
         if (state.toast != null) {
@@ -97,8 +101,7 @@ fun TasksScreen(
     }
 
     Box(modifier = modifier.fillMaxSize().background(colors.bg)) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            TopBar(
+        Column(modifier = Modifier.fillMaxSize()) {            TopBar(
                 workspace = state.projection.workspaces.firstOrNull { it.id == state.projection.activeWorkspaceId },
                 onWorkspaceClick = { sheetOpen = true },
                 onSearchClick = { searchOpen = !searchOpen },
@@ -120,7 +123,15 @@ fun TasksScreen(
             if (state.loading) {
                 SkeletonScreen(modifier = Modifier.padding(top = 16.dp))
             } else {
-                LazyColumn(modifier = Modifier.fillMaxSize()) {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .pullToRefresh(
+                            isRefreshing = state.refreshing,
+                            state = refreshState,
+                            onRefresh = { viewModel.refresh() },
+                        ),
+                ) {
                     item {
                         Column(modifier = Modifier.padding(horizontal = 16.dp)) {
                             Spacer(Modifier.height(4.dp))
@@ -217,6 +228,14 @@ fun TasksScreen(
                 }
             }
         }
+
+        PullToRefreshDefaults.Indicator(
+            state = refreshState,
+            isRefreshing = state.refreshing,
+            modifier = Modifier.align(Alignment.TopCenter),
+            containerColor = colors.card,
+            color = colors.primary,
+        )
 
         TodoToast(
             message = state.toast,

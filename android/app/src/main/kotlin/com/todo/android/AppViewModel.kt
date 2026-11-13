@@ -93,7 +93,8 @@ class AppViewModel @Inject constructor(
         viewModelScope.launch {
             syncEngine.state.collect {
                 _sync.value = it
-                if (it.status == SyncStatus.SYNCED) reminderScheduler.rescheduleAll()
+                // 提醒重建属于旁路任务，失败不能打断收集协程（否则直接闪退）。
+                if (it.status == SyncStatus.SYNCED) runCatching { reminderScheduler.rescheduleAll() }
             }
         }
         viewModelScope.launch { syncEngine.notices.collect { noticeChannel.send(it) } }
@@ -118,8 +119,8 @@ class AppViewModel @Inject constructor(
                 BootState.Failed("初始化超时，请重试")
             }
             if (ok == true) {
-                reminderScheduler.rescheduleAll()
-                syncEngine.runOnce()
+                runCatching { reminderScheduler.rescheduleAll() }
+                runCatching { syncEngine.runOnce() }
                 // 后台任务放到首帧之后，避免启动期就碰 WorkManager / 闹钟。
                 runCatching { syncScheduler.schedulePeriodic(SyncScheduler.DEFAULT_INTERVAL_MINUTES) }
                 runCatching { keepAliveManager.bootstrap() }
