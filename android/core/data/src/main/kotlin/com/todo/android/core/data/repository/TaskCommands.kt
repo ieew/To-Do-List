@@ -31,13 +31,37 @@ class TaskCommands @Inject constructor(
         priority: String = "mid",
         source: OpSource = OpSource.HUMAN,
         model: String? = null,
-    ): String {
+    ): String = createTaskWithOps(
+        workspaceId = workspaceId,
+        listId = listId,
+        title = title,
+        startAtIso = startAtIso,
+        dueAtIso = dueAtIso,
+        priority = priority,
+        source = source,
+        model = model,
+    ).first
+
+    /**
+     * 同 [createTask]，额外返回本次写入的 opId：
+     * AI 批量写入后需要能一次性定位/撤销这批 op。
+     */
+    suspend fun createTaskWithOps(
+        workspaceId: String,
+        listId: String,
+        title: String,
+        startAtIso: String,
+        dueAtIso: String,
+        priority: String = "mid",
+        source: OpSource = OpSource.HUMAN,
+        model: String? = null,
+    ): Pair<String, List<String>> {
         val taskId = newId("task")
         val now = wallClock.nowMs()
         // 与服务端约束（|order| <= 1e9）和 Windows 端 next_task_order 保持一致：
         // 用「当前最大 order + 1」，不能拿 epoch 毫秒当 order。
         val order = nextTaskOrder(workspaceId)
-        append(workspaceId, source, model) { context ->
+        val ops = append(workspaceId, source, model) { context ->
             listOf(
                 context.op(taskId, EntityType.TASK, OpOperation.SET, Fields.CREATED, JsonPrimitive(IsoTime.nowIso(now))),
                 context.op(taskId, EntityType.TASK, OpOperation.SET, Fields.TITLE, JsonPrimitive(title.trim())),
@@ -48,7 +72,7 @@ class TaskCommands @Inject constructor(
                 context.op(taskId, EntityType.TASK, OpOperation.SET, Fields.ORDER, JsonPrimitive(order)),
             )
         }
-        return taskId
+        return taskId to ops.map { it.opId }
     }
 
     /**
@@ -81,13 +105,11 @@ class TaskCommands @Inject constructor(
         value: JsonElement,
         source: OpSource = OpSource.HUMAN,
         model: String? = null,
-    ) {
+    ): List<String> =
         write(taskId, workspaceId, EntityType.TASK, OpOperation.SET, field, value, source, model)
-    }
 
-    suspend fun setDone(taskId: String, workspaceId: String, done: Boolean) {
+    suspend fun setDone(taskId: String, workspaceId: String, done: Boolean): List<String> =
         updateField(taskId, workspaceId, Fields.STATUS, JsonPrimitive(if (done) "done" else "todo"))
-    }
 
     suspend fun setNotes(
         taskId: String,
@@ -95,9 +117,8 @@ class TaskCommands @Inject constructor(
         notes: String,
         source: OpSource = OpSource.HUMAN,
         model: String? = null,
-    ) {
+    ): List<String> =
         updateField(taskId, workspaceId, Fields.NOTES, JsonPrimitive(notes), source, model)
-    }
 
     suspend fun addTag(
         taskId: String,
@@ -105,13 +126,11 @@ class TaskCommands @Inject constructor(
         tagId: String,
         source: OpSource = OpSource.HUMAN,
         model: String? = null,
-    ) {
+    ): List<String> =
         write(taskId, workspaceId, EntityType.TASK, OpOperation.ADD, Fields.TAG, JsonPrimitive(tagId), source, model)
-    }
 
-    suspend fun removeTag(taskId: String, workspaceId: String, tagId: String) {
+    suspend fun removeTag(taskId: String, workspaceId: String, tagId: String): List<String> =
         write(taskId, workspaceId, EntityType.TASK, OpOperation.REMOVE, Fields.TAG, JsonPrimitive(tagId))
-    }
 
     suspend fun addSubtask(
         taskId: String,
@@ -120,9 +139,9 @@ class TaskCommands @Inject constructor(
         order: Double,
         source: OpSource = OpSource.HUMAN,
         model: String? = null,
-    ) {
+    ): List<String> {
         val subtaskId = newId("sub")
-        append(workspaceId, source, model) { context ->
+        val ops = append(workspaceId, source, model) { context ->
             listOf(
                 context.op(taskId, EntityType.TASK, OpOperation.ADD, Fields.SUBTASK, JsonPrimitive(subtaskId)),
                 context.op(taskId, EntityType.TASK, OpOperation.SET, Fields.subtaskText(subtaskId), JsonPrimitive(text.trim())),
@@ -130,15 +149,14 @@ class TaskCommands @Inject constructor(
                 context.op(taskId, EntityType.TASK, OpOperation.SET, Fields.subtaskOrder(subtaskId), JsonPrimitive(order)),
             )
         }
+        return ops.map { it.opId }
     }
 
-    suspend fun setSubtaskDone(taskId: String, workspaceId: String, subtaskId: String, done: Boolean) {
+    suspend fun setSubtaskDone(taskId: String, workspaceId: String, subtaskId: String, done: Boolean): List<String> =
         updateField(taskId, workspaceId, Fields.subtaskDone(subtaskId), JsonPrimitive(done))
-    }
 
-    suspend fun deleteSubtask(taskId: String, workspaceId: String, subtaskId: String) {
+    suspend fun deleteSubtask(taskId: String, workspaceId: String, subtaskId: String): List<String> =
         write(taskId, workspaceId, EntityType.TASK, OpOperation.REMOVE, Fields.SUBTASK, JsonPrimitive(subtaskId))
-    }
 
     suspend fun renameList(listId: String, workspaceId: String, name: String) {
         write(listId, workspaceId, EntityType.LIST, OpOperation.SET, Fields.NAME, JsonPrimitive(name.trim()))
@@ -264,10 +282,11 @@ class TaskCommands @Inject constructor(
         value: JsonElement,
         source: OpSource = OpSource.HUMAN,
         model: String? = null,
-    ) {
-        append(workspaceId, source, model) { context ->
+    ): List<String> {
+        val ops = append(workspaceId, source, model) { context ->
             listOf(context.op(entityId, entityType, operation, field, value))
         }
+        return ops.map { it.opId }
     }
 
     private suspend fun append(
@@ -275,10 +294,10 @@ class TaskCommands @Inject constructor(
         source: OpSource = OpSource.HUMAN,
         model: String? = null,
         build: (OpContext) -> List<Op>,
-    ) {
+    ): List<Op> {
         val actor = repository.currentUserId()
         val device = repository.deviceId()
-        repository.appendOps(workspaceId) { clock ->
+        return repository.appendOps(workspaceId) { clock ->
             build(OpContext(actor, device, clock, workspaceId, source, model))
         }
     }

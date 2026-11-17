@@ -96,6 +96,70 @@ class AiClient @Inject constructor(
         )
     }
 
+    /**
+     * 意图通道：system 提示词带工作区快照，返回原始 JSON 文本。
+     * 与 [generate] 只有 system prompt 与返回值不同，HTTP 细节一致。
+     */
+    suspend fun generateIntent(
+        endpoint: String,
+        model: String,
+        systemPrompt: String,
+        userPrompt: String,
+        imageDataUrls: List<String> = emptyList(),
+    ): AiRawResult = withContext(Dispatchers.IO) {
+        val key = keyStore.read()
+            ?: return@withContext AiRawResult.Failure("ai_key_missing", "请先在设置中配置 API 密钥")
+        val url = endpoint.trim().trimEnd('/') + "/chat/completions"
+
+        val userContent = buildJsonArray {
+            add(buildJsonObject { put("type", "text"); put("text", userPrompt) })
+            imageDataUrls.take(5).forEach { dataUrl ->
+                add(
+                    buildJsonObject {
+                        put("type", "image_url")
+                        put("image_url", buildJsonObject { put("url", dataUrl) })
+                    },
+                )
+            }
+        }
+        val payload = buildJsonObject {
+            put("model", model)
+            put("temperature", 0.2)
+            put("stream", false)
+            put("response_format", buildJsonObject { put("type", "json_object") })
+            put(
+                "messages",
+                buildJsonArray {
+                    add(buildJsonObject { put("role", "system"); put("content", systemPrompt) })
+                    add(buildJsonObject { put("role", "user"); put("content", userContent) })
+                },
+            )
+        }
+        val request = Request.Builder()
+            .url(url)
+            .addHeader("Authorization", "Bearer $key")
+            .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
+            .build()
+
+        runCatching { client.newCall(request).execute() }.fold(
+            onSuccess = { response ->
+                response.use {
+                    val body = it.body.string()
+                    if (!it.isSuccessful) {
+                        return@withContext AiRawResult.Failure(
+                            code = "ai_http_${it.code}",
+                            message = parseErrorMessage(body) ?: "AI 请求失败（${it.code}）",
+                        )
+                    }
+                    val content = extractContent(body)
+                        ?: return@withContext AiRawResult.Failure("ai_schema_error", "AI 返回格式不正确，已忽略")
+                    AiRawResult.Success(content)
+                }
+            },
+            onFailure = { AiRawResult.Failure("network_error", "网络连接失败，请稍后重试") },
+        )
+    }
+
     private fun extractContent(body: String): String? = runCatching {
         val root = json.parseToJsonElement(body).jsonObject
         val choices = root["choices"] as JsonArray

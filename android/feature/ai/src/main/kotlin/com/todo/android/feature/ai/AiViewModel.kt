@@ -6,11 +6,11 @@ import android.util.Base64
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.todo.android.core.ai.AiClient
-import com.todo.android.core.ai.AiDraftResult
+import com.todo.android.core.ai.AiIntentApplier
+import com.todo.android.core.ai.AiIntentParser
+import com.todo.android.core.ai.AiIntentPlan
 import com.todo.android.core.ai.AiKeyStore
-import com.todo.android.core.ai.AiPlan
-import com.todo.android.core.ai.AiPlanner
-import com.todo.android.core.ai.AiWriter
+import com.todo.android.core.ai.AiRawResult
 import com.todo.android.core.data.ProjectionHolder
 import com.todo.android.core.data.settings.AppSettings
 import com.todo.android.core.data.settings.SettingsStore
@@ -29,7 +29,7 @@ import kotlinx.coroutines.withContext
 data class AiUiState(
     val input: String = "",
     val generating: Boolean = false,
-    val plan: AiPlan? = null,
+    val intent: AiIntentPlan? = null,
     val error: String? = null,
     val settings: AppSettings = AppSettings(),
     val keyConfigured: Boolean = false,
@@ -43,8 +43,7 @@ data class AiUiState(
 class AiViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val client: AiClient,
-    private val planner: AiPlanner,
-    private val writer: AiWriter,
+    private val applier: AiIntentApplier,
     private val keyStore: AiKeyStore,
     private val projectionHolder: ProjectionHolder,
     private val settingsStore: SettingsStore,
@@ -52,7 +51,7 @@ class AiViewModel @Inject constructor(
     private data class Local(
         val input: String = "",
         val generating: Boolean = false,
-        val plan: AiPlan? = null,
+        val intent: AiIntentPlan? = null,
         val error: String? = null,
         val confirmPending: Boolean = false,
         val imageDataUrls: List<String> = emptyList(),
@@ -70,7 +69,7 @@ class AiViewModel @Inject constructor(
         AiUiState(
             input = localState.input,
             generating = localState.generating,
-            plan = localState.plan,
+            intent = localState.intent,
             error = localState.error,
             settings = settings,
             keyConfigured = configured,
@@ -130,19 +129,24 @@ class AiViewModel @Inject constructor(
                 return@launch
             }
             local.value = local.value.copy(generating = true, error = null)
-            val result = client.generate(
-                endpoint = settings.aiEndpoint,
-                model = settings.aiModel,
-                prompt = input,
-                imageDataUrls = local.value.imageDataUrls,
-            )
-            when (result) {
-                is AiDraftResult.Success -> {
-                    val plan = planner.plan(result.tasks, projectionHolder.projection.value, System.currentTimeMillis())
-                    local.value = local.value.copy(generating = false, plan = plan, error = null)
+            val projection = projectionHolder.projection.value
+            val now = System.currentTimeMillis()
+            val systemPrompt = AiIntentParser.buildPrompt(projection, now)
+            when (
+                val result = client.generateIntent(
+                    endpoint = settings.aiEndpoint,
+                    model = settings.aiModel,
+                    systemPrompt = systemPrompt,
+                    userPrompt = input,
+                    imageDataUrls = local.value.imageDataUrls,
+                )
+            ) {
+                is AiRawResult.Success -> {
+                    val intent = AiIntentParser.parse(result.content, projection, now)
+                    local.value = local.value.copy(generating = false, intent = intent, error = null)
                 }
 
-                is AiDraftResult.Failure -> {
+                is AiRawResult.Failure -> {
                     local.value = local.value.copy(generating = false, error = result.message)
                 }
             }
@@ -150,9 +154,10 @@ class AiViewModel @Inject constructor(
     }
 
     fun requestWrite() {
-        val plan = local.value.plan ?: return
+        val intent = local.value.intent ?: return
         val threshold = settingsThreshold()
-        if (plan.tasks.size >= threshold) {
+        // 危险操作（删除 / 标记完成）无论多少条都弹确认，其余按阈值。
+        if (intent.hasDangerous || intent.operations.size >= threshold) {
             local.value = local.value.copy(confirmPending = true)
         } else {
             writeNow()
@@ -169,7 +174,7 @@ class AiViewModel @Inject constructor(
     }
 
     fun cancelPlan() {
-        local.value = local.value.copy(plan = null, error = null)
+        local.value = local.value.copy(intent = null, error = null)
     }
 
     fun showToast(message: String?) {
@@ -177,16 +182,29 @@ class AiViewModel @Inject constructor(
     }
 
     private fun writeNow() {
-        val plan = local.value.plan ?: return
-        val workspaceId = projectionHolder.projection.value.activeWorkspaceId
+        val intent = local.value.intent ?: return
+        val projection = projectionHolder.projection.value
+        val workspaceId = projection.activeWorkspaceId
         if (workspaceId.isEmpty()) {
             local.value = local.value.copy(toast = "当前没有可用工作区")
             return
         }
         viewModelScope.launch {
             val model = currentSettings().aiModel
-            val count = writer.write(workspaceId, plan.tasks, model)
-            local.value = local.value.copy(plan = null, toast = "已写入 $count 条任务")
+            val result = applier.apply(
+                workspaceId = workspaceId,
+                operations = intent.operations,
+                model = model,
+                projection = projection,
+            )
+            val message = buildString {
+                append("已执行 ").append(result.applied).append(" 条操作")
+                if (result.warnings.isNotEmpty()) {
+                    append("，").append(result.warnings.size).append(" 条被跳过")
+                }
+                append("；可在任务历史里逐条撤销")
+            }
+            local.value = local.value.copy(intent = null, toast = message)
         }
     }
 

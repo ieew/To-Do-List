@@ -184,6 +184,36 @@
 ### 未做（下一批）
 - AI 意图契约对齐：Android 仍是「一次性生成草案（create only）」，缺 `update_fields / add_subtasks / set_subtask_done / add_tags / remove_tags / set_status / delete_task` 与批量撤销、图片输入。
 
+## 八、2026-11-17 Phase E 第二批（AI 意图契约）
+
+### 契约与解析（`core/ai`）
+- 新增 `AiIntent.kt`：
+  - `AiOperation` 密封类型：`create_task` / `update_fields` / `add_subtasks` / `set_subtask_done` / `add_tags` / `remove_tags` / `set_status` / `delete_task`，与 Windows `ai-core/src/intent.rs` 的 op 名和字段一致。
+  - `AiIntentParser.buildPrompt(projection, now)`：输出工作区快照 JSON（`now` / `lists` / `tags` / 最多 120 条未完成任务及其子任务 id）+ 规则文本；模型只能引用快照里出现过的 `task_id` / `subtask_id`。
+  - `AiIntentParser.parse`：容错解析。未知 `op`、非法 `task_id`、越界字段、非法时间/优先级/状态都只产生 warning 并跳过；兼容旧 `{"tasks":[...]}` 格式（全部按新建处理）；单批上限 50 条。
+  - 危险操作标记：`delete_task` 与 `set_status(done)` 的 `dangerous = true`。
+- `AiClient.generateIntent(...)`：与 `generate` 同一条 HTTP 链路，但 system prompt 换成快照 + 规则，返回原始 JSON 文本（`AiRawResult`）。
+- `AiIntentApplier.apply(...)`：把操作转成普通 op（全部 `source=ai`），返回 `opIds` / `taskIds` / 成功条数 / 失败告警；单条失败不影响后续。
+
+### 数据层
+- `TaskCommands` 的写方法统一返回 `List<String>`（本次写入的 opId），新增 `createTaskWithOps(...)` 返回 `(taskId, opIds)`；原有调用点按语句使用，行为不变。
+- 目的：AI 写入后可定位这批 op（后续可接批量撤销；当前撤销走任务历史页逐条撤销）。
+
+### UI（`feature/ai`）
+- 预览从「任务草案卡片」改为「操作列表」：每条显示中文摘要，危险操作加「危险」徽章与红色描边。
+- 底部按钮 `执行 N 条操作`；包含危险操作时**无条件**弹二次确认（其余仍按 `aiConfirmThreshold`）。
+- 执行完成 toast：`已执行 X 条操作，Y 条被跳过；可在任务历史里逐条撤销`。
+
+### 验证
+- 新增 `core/ai/src/test/.../AiIntentParserTest.kt`（8 项）：创建解析清单/标签名、旧格式兼容、越界字段过滤、未知 task_id、危险标记、子任务校验、非法状态、坏 JSON 不崩。
+- `:core:ai:testDebugUnitTest` → tests=8 failures=0；`:app:assembleDebug`、全模块 `test` → BUILD SUCCESSFUL。
+- 真机：AI 页正常打开，`mark KEEP1 …` 触发真实请求，返回服务端错误「接口不存在」并正确展示在 UI（说明请求/错误解析链路可用；该 404 与设置里的 AI 端点/密钥有关，与本次改造无关）。
+
+### 与 Windows 的差异
+- Android 暂未把 `opIds` 做成「一次性批量撤销」按钮，撤销仍走任务历史（每条 op 可单独撤销）。
+- 图片输入沿用已有实现（≤5 张，data URL 直传），未做端上压缩。
+
+
 
 - `android> .\gradlew.bat test` → **BUILD SUCCESSFUL**（领域层含架构门禁、Room Robolectric、网络层含新增 `MemberApiTest` 4 项、日历 `MonthGridTest` 3 项）。
 - 测试向量：`shared/testvectors` 下 5 个 JSON 由 Gradle `Copy` 同步并做 SHA-256 一致性校验（禁止手抄）。

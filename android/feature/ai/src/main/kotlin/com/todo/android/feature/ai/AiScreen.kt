@@ -42,7 +42,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.todo.android.core.ai.PlannedTask
+import com.todo.android.core.ai.AiOperation
 import com.todo.android.core.designsystem.SegmentedControl
 import com.todo.android.core.designsystem.StatusBadge
 import com.todo.android.core.designsystem.TagChip
@@ -255,20 +255,20 @@ fun AiScreen(
                     }
                 }
 
-                val plan = state.plan
-                if (plan != null) {
+                val intent = state.intent
+                if (intent != null) {
                     item {
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 6.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Text("草案预览", style = Tokens.Type.section, color = colors.text2)
+                            Text("操作预览", style = Tokens.Type.section, color = colors.text2)
                             Spacer(Modifier.width(6.dp))
-                            Text("${plan.tasks.size} 条", style = Tokens.Type.meta, color = colors.text3)
+                            Text("${intent.operations.size} 条", style = Tokens.Type.meta, color = colors.text3)
                         }
                     }
-                    items(plan.tasks) { task -> DraftCard(task) }
-                    if (plan.warnings.isNotEmpty()) {
+                    items(intent.operations) { op -> OperationCard(op) }
+                    if (intent.warnings.isNotEmpty()) {
                         item {
                             Column(
                                 modifier = Modifier
@@ -279,7 +279,7 @@ fun AiScreen(
                                     .padding(horizontal = 12.dp, vertical = 8.dp),
                                 verticalArrangement = Arrangement.spacedBy(2.dp),
                             ) {
-                                plan.warnings.forEach {
+                                intent.warnings.forEach {
                                     Text("· $it", style = Tokens.Type.meta, color = colors.warningFg)
                                 }
                             }
@@ -289,7 +289,7 @@ fun AiScreen(
                 item { Spacer(Modifier.height(96.dp)) }
             }
 
-            if (state.plan != null) {
+            if (state.intent != null) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -299,7 +299,7 @@ fun AiScreen(
                 ) {
                     FooterButton("取消", false, Modifier.weight(1f)) { viewModel.cancelPlan() }
                     FooterButton(
-                        "写入 ${state.plan?.tasks?.size ?: 0} 条任务",
+                        "执行 ${state.intent?.operations?.size ?: 0} 条操作",
                         true,
                         Modifier.weight(1f),
                     ) { viewModel.requestWrite() }
@@ -321,21 +321,26 @@ fun AiScreen(
     }
 
     if (state.confirmPending) {
-        val plan = state.plan
+        val intent = state.intent
         AlertDialog(
             onDismissRequest = viewModel::dismissConfirm,
             containerColor = colors.card,
-            title = { Text("AI 想写入 ${plan?.tasks?.size ?: 0} 条任务", style = Tokens.Type.pageTitle) },
+            title = { Text("AI 想执行 ${intent?.operations?.size ?: 0} 条操作", style = Tokens.Type.pageTitle) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    plan?.tasks?.take(5)?.forEach { Text("· ${it.title}", style = Tokens.Type.body, color = colors.text) }
-                    if ((plan?.tasks?.size ?: 0) > 5) {
-                        Text("…还有 ${(plan?.tasks?.size ?: 0) - 5} 条", style = Tokens.Type.meta, color = colors.text3)
+                    intent?.operations?.take(6)?.forEach {
+                        Text("· ${it.summary}", style = Tokens.Type.body, color = colors.text)
+                    }
+                    if ((intent?.operations?.size ?: 0) > 6) {
+                        Text("…还有 ${(intent?.operations?.size ?: 0) - 6} 条", style = Tokens.Type.meta, color = colors.text3)
+                    }
+                    if (intent?.hasDangerous == true) {
+                        Text("其中包含删除或完成标记，请确认", style = Tokens.Type.meta, color = colors.danger)
                     }
                 }
             },
             confirmButton = {
-                TextButton(onClick = viewModel::confirmWrite) { Text("确认写入", color = colors.primary) }
+                TextButton(onClick = viewModel::confirmWrite) { Text("确认执行", color = colors.primary) }
             },
             dismissButton = {
                 TextButton(onClick = viewModel::dismissConfirm) { Text("取消", color = colors.text2) }
@@ -345,33 +350,31 @@ fun AiScreen(
 }
 
 @Composable
-private fun DraftCard(task: PlannedTask) {
+private fun OperationCard(op: AiOperation) {
     val colors = TodoTheme.colors
-    Column(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(bottom = 8.dp)
+            .padding(bottom = 6.dp)
             .clip(RoundedCornerShape(Tokens.Radius.md))
             .background(colors.card)
-            .border(1.dp, colors.border2, RoundedCornerShape(Tokens.Radius.md))
-            .padding(12.dp),
+            .border(
+                width = 1.dp,
+                color = if (op.dangerous) colors.dangerBorder else colors.border2,
+                shape = RoundedCornerShape(Tokens.Radius.md),
+            )
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(task.title, style = Tokens.Type.taskTitle, color = colors.text)
-        Spacer(Modifier.height(4.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            StatusBadge("优先级 ${priorityLabel(task.priority)}", colors.primary50, colors.primary)
-            StatusBadge(task.listName, colors.warning50, colors.warningFg)
-            Text(TimeText.dueLabel(task.dueAtIso) ?: "无截止", style = Tokens.Type.meta, color = colors.text3)
-        }
-        if (task.tagNames.isNotEmpty()) {
-            Spacer(Modifier.height(6.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                task.tagNames.forEach { Text(it, style = Tokens.Type.badge, color = colors.text3) }
-            }
-        }
-        if (task.subtasks.isNotEmpty()) {
-            Spacer(Modifier.height(6.dp))
-            Text("${task.subtasks.size} 个子任务", style = Tokens.Type.meta, color = colors.text3)
+        Text(
+            text = op.summary,
+            style = Tokens.Type.body,
+            color = colors.text,
+            modifier = Modifier.weight(1f),
+        )
+        if (op.dangerous) {
+            Spacer(Modifier.width(8.dp))
+            StatusBadge("危险", colors.danger50, colors.danger)
         }
     }
 }
