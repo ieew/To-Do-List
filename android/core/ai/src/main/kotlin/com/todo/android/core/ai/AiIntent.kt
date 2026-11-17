@@ -154,6 +154,8 @@ data class AiIntentPlan(
 object AiIntentParser {
     const val MAX_OPERATIONS = 50
     private const val MAX_CONTEXT_TASKS = 120
+    /** 额外带上的最近完成任务条数，支持「改回未完成」。 */
+    private const val MAX_DONE_CONTEXT_TASKS = 20
 
     private val json = Json {
         ignoreUnknownKeys = true
@@ -172,10 +174,16 @@ object AiIntentParser {
         }
         val tagNameById = projection.tags.associate { it.id to it.name }
         val listNameById = projection.lists.associate { it.id to it.name }
-        val tasks = projection.tasks
+        // 未完成任务全部带上；再补最近完成的若干条，否则「把 X 改回未完成」这类指令无法执行。
+        val activeTasks = projection.tasks
             .filter { !it.done }
             .sortedBy { it.dueAtMs ?: Long.MAX_VALUE }
             .take(MAX_CONTEXT_TASKS)
+        val recentDone = projection.tasks
+            .filter { it.done }
+            .sortedByDescending { it.completedAtMs ?: 0L }
+            .take(MAX_DONE_CONTEXT_TASKS)
+        val tasks = (activeTasks + recentDone)
             .joinToString(",") { task ->
                 val subtasks = task.subtasks.joinToString(",") { sub ->
                     """{"id":"${sub.id}","text":"${sub.text.escape()}","done":${sub.done}}"""
@@ -453,5 +461,6 @@ object AiIntentParser {
 5. 一次最多 $MAX_OPERATIONS 条操作，不要输出解释或 Markdown。
 6. 只要用户的说法对应快照里的任务或能新建任务，就必须给出至少一条 operation；
    确实无法处理时也返回 `{"message":"原因","operations":[]}`，不要只返回文本。
+7. 快照里 status=done 的任务是最近完成的，可以用 set_status(todo) 改回未完成。
 """.trim()
 }

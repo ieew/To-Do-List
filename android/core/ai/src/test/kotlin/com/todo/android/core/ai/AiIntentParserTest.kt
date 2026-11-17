@@ -172,4 +172,23 @@ class AiIntentParserTest {
         assertTrue(plan.operations.isEmpty())
         assertTrue(plan.warnings.isNotEmpty())
     }
+
+    @Test
+    fun promptIncludesRecentlyCompletedTasks() {
+        val withDone = projection().let { base ->
+            base.copy(
+                tasks = base.tasks + base.tasks.first().copy(
+                    id = "task-done",
+                    title = "已经做完的事",
+                    status = "done",
+                    completedAtMs = now,
+                ),
+            )
+        }
+
+        val prompt = AiIntentParser.buildPrompt(withDone, now)
+
+        assertTrue("已完成任务也应出现在上下文里", prompt.contains("task-done"))
+        assertTrue(prompt.contains("\"status\":\"done\""))
+    }
 }
