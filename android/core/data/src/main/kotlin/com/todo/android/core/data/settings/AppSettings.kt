@@ -66,6 +66,6 @@ data class AppSettings(
     val aiEnabled: Boolean = true,
     val aiImageInput: Boolean = true,
     val aiEndpoint: String = "https://api.deepseek.com/v1",
-    val aiModel: String = "deepseek-chat",
+    val aiModel: String = "deepseek-flash",
     val aiConfirmThreshold: Int = 10,
 )

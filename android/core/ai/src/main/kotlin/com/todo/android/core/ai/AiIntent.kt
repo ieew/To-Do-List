@@ -225,7 +225,9 @@ object AiIntentParser {
         }
 
         if (operations.isEmpty()) {
-            warnings += "AI 没有返回可执行的操作"
+            val hint = message?.takeIf { it.isNotBlank() }?.let { "（AI 说明：$it）" }.orEmpty()
+            val preview = raw.replace("\n", " ").take(160)
+            warnings += "AI 没有返回可执行的操作$hint；原始返回：$preview"
         }
         return AiIntentPlan(operations = operations, message = message, warnings = warnings.distinct())
     }
@@ -449,5 +451,7 @@ object AiIntentParser {
 3. 清单与标签用名称，必须是快照里已存在的名称。
 4. 时间用带时区的 RFC3339，基于快照里的 now 推算；用户没说时间就不要猜。
 5. 一次最多 $MAX_OPERATIONS 条操作，不要输出解释或 Markdown。
+6. 只要用户的说法对应快照里的任务或能新建任务，就必须给出至少一条 operation；
+   确实无法处理时也返回 `{"message":"原因","operations":[]}`，不要只返回文本。
 """.trim()
 }

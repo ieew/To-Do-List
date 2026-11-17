@@ -112,7 +112,7 @@ internal fun AiPanel(state: SettingsUiState, viewModel: SettingsViewModel) {
         EditDialog(
             title = "模型名称",
             initial = state.settings.aiModel,
-            placeholder = "deepseek-chat",
+            placeholder = "deepseek-flash",
             confirmLabel = "保存",
             onDismiss = { modelOpen = false },
             onConfirm = {

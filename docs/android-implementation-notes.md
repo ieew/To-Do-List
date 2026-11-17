@@ -213,6 +213,14 @@
 - Android 暂未把 `opIds` 做成「一次性批量撤销」按钮，撤销仍走任务历史（每条 op 可单独撤销）。
 - 图片输入沿用已有实现（≤5 张，data URL 直传），未做端上压缩。
 
+### 修复：AI 请求被业务拦截器改写（2026-11-17）
+- 现象：AI 生成总是返回「接口不存在」。
+- 根因：`AiClient` 注入的是 Hilt 共享的 `OkHttpClient`，它挂着 `BaseUrlInterceptor`——会把**任何**请求的 scheme/host/port 改写成设置里的待办服务器地址，AI 请求因此被发到 `todo.ieew.cc:8001`；同时 `AuthInterceptor` 还会把业务 token 带上。
+- 修法：`AiClient` 自己建独立 `OkHttpClient`（不经过 `BaseUrlInterceptor` / `AuthInterceptor` / `TokenAuthenticator`），超时 15s/90s/30s。
+- 默认模型改为 `deepseek-flash`（`AppSettings.aiModel` 与设置页占位符）。
+- 空结果诊断：解析出 0 条操作时，warning 里附带 `message` 与原始返回前 160 字，便于区分「模型没理解」和「解析层丢掉了」。
+- 真机闭环验证：`mark AITEST done` → 预览「把「AITEST」标记为已完成 + 危险徽章」→ 二次确认 → 执行 → 列表变为「AITEST / 已完成 · 22:23」。
+
 
 
 - `android> .\gradlew.bat test` → **BUILD SUCCESSFUL**（领域层含架构门禁、Room Robolectric、网络层含新增 `MemberApiTest` 4 项、日历 `MonthGridTest` 3 项）。

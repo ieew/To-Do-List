@@ -21,11 +21,16 @@ import okhttp3.RequestBody.Companion.toRequestBody
 /** OpenAI 兼容客户端（`POST {endpoint}/chat/completions`）；密钥只从 Keystore 解密后使用。 */
 @Singleton
 class AiClient @Inject constructor(
-    baseClient: OkHttpClient,
     private val json: Json,
     private val keyStore: AiKeyStore,
 ) {
-    private val client: OkHttpClient = baseClient.newBuilder()
+    /**
+     * 必须用独立 client：Hilt 里的共享 `OkHttpClient` 挂了 `BaseUrlInterceptor`，
+     * 会把所有请求的 host 改写成待办服务器地址，导致 AI 请求被发到业务服务端、
+     * 返回「接口不存在」。同理也不该带上业务的 Authorization。
+     */
+    private val client: OkHttpClient = OkHttpClient.Builder()
+        .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(90, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
         .build()
