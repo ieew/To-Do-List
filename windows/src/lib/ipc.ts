@@ -1,6 +1,9 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import type {
+  AiApplyResult,
+  AiIntentResponse,
+  AiOperation,
   AiPlanResponse,
   AuthRegisterInput,
   AuthResult,
@@ -90,6 +93,11 @@ export const ipc = {
 
   saveSettings: (settings: Settings) => invoke<void>('save_settings', { settings }),
 
+  setAutostart: (enabled: boolean) => invoke<void>('set_autostart', { enabled }),
+
+  snoozeReminder: (taskId: string, minutes: number) =>
+    invoke<void>('snooze_reminder', { taskId, minutes }),
+
   authRegister: (input: AuthRegisterInput) =>
     invoke<AuthResult>('auth_register', {
       serverUrl: input.serverUrl,
@@ -143,6 +151,30 @@ export const ipc = {
       workspaceId: workspaceId ?? null
     }),
 
+  aiPlan: (prompt: string, workspaceId?: string | null, images: string[] = []) =>
+    invoke<AiIntentResponse>('ai_plan', {
+      prompt,
+      workspaceId: workspaceId ?? null,
+      images
+    }),
+
+  aiBuildIntentPrompt: (prompt: string, workspaceId?: string | null) =>
+    invoke<string>('ai_build_intent_prompt', {
+      prompt,
+      workspaceId: workspaceId ?? null
+    }),
+
+  aiParseIntent: (text: string, workspaceId?: string | null) =>
+    invoke<AiIntentResponse>('ai_parse_intent', {
+      text,
+      workspaceId: workspaceId ?? null
+    }),
+
+  aiApplyPlan: (operations: AiOperation[]) =>
+    invoke<AiApplyResult>('ai_apply_plan', { operations }),
+
+  undoOps: (opIds: string[]) => invoke<number>('undo_ops', { opIds }),
+
   parseAiPlan: (text: string, workspaceId?: string | null) =>
     invoke<AiPlanResponse>('ai_parse_plan', {
       text,
@@ -181,6 +213,11 @@ export const ipc = {
   onSyncNotice: (handler: (notice: SyncNoticeDto) => void): Promise<UnlistenFn> =>
     listen<SyncNoticeDto>('sync-notice', (event) => {
       handler(event.payload);
+    }),
+
+  onTrayCommand: (handler: (command: string) => void): Promise<UnlistenFn> =>
+    listen<{ command: string }>('tray-command', (event) => {
+      handler(event.payload.command);
     })
 };
 

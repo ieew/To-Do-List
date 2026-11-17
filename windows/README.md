@@ -59,6 +59,15 @@ npm run tauri dev
 - 首次切换到新路径时，如果 `data` 里还没有数据库，会把旧版本 `%APPDATA%\com.todo.windows` 下的 `todo.sqlite3`（含 `-wal` / `-shm`）复制过来；已有数据不会被覆盖。
 - 备份或迁移时，关闭应用后整体拷贝 `data` 文件夹即可。
 
+## 托盘与提醒
+
+- 关闭主窗口默认隐藏到托盘（设置 → 提醒 → 关闭到托盘）；托盘左键恢复主窗口，右键菜单可显示主窗口 / 打开便利贴 / 立即同步 / 退出。
+- 提醒调度依赖进程常驻；完全退出后不会触发。需要开机即生效请在设置中开启「开机自启」。
+- 提前提醒取「提醒时间 − 提前量」，每条 `remind_at` 只触发一次；修改提醒时间会重置触发记录。
+- 免打扰时段支持跨天；期间提醒不丢弃，延后到时段结束合并补弹一次。
+- 稍后提醒：右键任务 → 稍后提醒 10 分钟 / 1 小时（仅对已设置提醒的任务显示）。
+- 本地态存于 `data/todo.sqlite3` 的 `task_local` / `reminder_deferred` 表，不进 `op_log`、不同步。
+
 ## 预览截图
 
 | 主界面 | 详情抽屉 |
@@ -76,6 +85,10 @@ npm run tauri dev
 - **S1 主窗口**：Windows 11 风格自绘标题栏（左侧图标、标题、同步状态；右侧业务按钮与最小化/最大化/关闭，控制按钮贴窗口右边缘，最大化后切换为还原图标）、可拖拽侧栏（150–300px，双击重置）、清单/标签/成员/AI 入口。
 - **Rust 数据层**：SQLite `op_log` 只追加；HLC 全序、字段级 LWW、标签与子任务 OR-Set、确定性投影 reducer；写操作同事务写 `op_log` + 推进 `local_hlc` + 广播 `projection-updated`。
 - **云端同步**：`src-tauri/src/sync/` 提供注册/登录/刷新/登出、push/pull 后台循环、HLC 校正与指数退避；令牌存 Windows 凭据管理器；设置页「同步与数据」内嵌账户登录，标题栏显示真实同步状态，时钟偏差/权限变更用黄色/红色提示条。首次登录到不同账户会先 `VACUUM INTO` 备份本地库再全量拉取；同账户重复登录保留本地 op。详见 [`../docs/client-sync-integration.md`](../docs/client-sync-integration.md)。
+- **提醒与托盘**：`src-tauri/src/reminder/` 每 30 秒重算计划，支持提前 N 分钟、稍后提醒（10 分钟 / 1 小时）、免打扰跨天时段结束后合并补弹、60 分钟补发窗口；关闭主窗口默认隐藏到托盘，托盘菜单可显示主窗口 / 打开便利贴 / 立即同步 / 退出。
+- **单实例与开机自启**：第二次启动聚焦已有窗口；设置页可切换开机自启（写注册表 Run 项）。
+- **IPC bindings**：命令注册统一由 `lib.rs` 的 `specta_builder()` 声明（49 个命令），`npm run gen:bindings` 生成 [`src/lib/ipc-bindings.generated.ts`](src/lib/ipc-bindings.generated.ts)，`npm run check:bindings` 校验生成结果与 Rust 端一致。时间戳都是 epoch 毫秒（远小于 2^53），所以开启 `dangerously_cast_bigints_to_number()` 让 `i64` 直出 TS `number`。
+- **增量投影**：`bootstrap` 与提醒循环按 workspace 缓存 reducer 状态，只应用 `rowid` 水位之后的 op；被拒 op 或换账户时整体失效，`TODO_DISABLE_PROJECTION_CACHE=1` 可回退全量重建。
 - **清单 / 标签管理**：侧栏分组标题 `+` 内联新建，右键菜单重命名/删除/标签侧栏显示；删除清单会把任务迁到 `*-today` 智能清单。
 - **多工作区**：侧栏工作区切换 popover，支持切换与新建；`bootstrap` 按 `workspace_id` 读取工作区、成员、清单、标签、任务与历史；`active_workspace_id` 存本地偏好。
 - **成员列表**：侧栏与设置页均来自 `membership` 投影，按当前工作区过滤，角色徽章中文化；支持角色变更与移除，已登录时走服务端 REST，未登录保留本地模拟。
@@ -84,11 +97,12 @@ npm run tauri dev
 - **任务**：分组统一按开始时间（已开始 →「今天」，未开始 →「即将到来」，另有「已完成」；截止时间不参与分组）、优先级、截止与提醒、开始时间、标签 chip、子任务进度、AI 徽章、逾期高亮、拖拽排序。侧栏清单区末尾提供「全部」虚拟清单（展示所有未完成任务）。
 - **开始时间**：`startAt` 默认取创建时刻，详情抽屉与快速新建均可修改；开始时间未到的任务不进入「今天」，任务行显示「HH:mm 开始」标记。
 - **视图联动**：今天 / 全部 / 普通清单 / 标签会同时作用于任务列表、日历、统计与进度卡；「全部」是前端虚拟清单，不写入 `lists` 或 `op_log`。规则详见 `../docs/task-time-and-scope-model.md`。
+- **日历与统计增强**：日历支持周 / 月切换与拖拽改期（只写截止时间，保留原 HH:mm，无值 09:00，不联动提醒）；统计支持本周 / 本月 / 近 30 天 / 全部。
 - **详情抽屉**：320px 固定宽、详情/历史 Tab、字段编辑、标签增删、子任务增删勾选、备注、删除确认、保存生成历史 op。
 - **历史时间线**：人工/AI/系统节点样式、全部/仅 AI/仅我筛选、diff、op_id/model/source、撤销生成反向 op（不删除原 op）。
 - **全局历史（S4）**：侧栏入口、跨任务时间线、点击任务跳转。
 - **设置覆盖层**：外观（浅色/暗色、密度、侧栏宽度）、任务、提醒、AI、同步与数据（账户登录/注册/同步状态/立即同步/退出）、成员、快捷键、关于；脏状态、保存/放弃。
-- **AI 助手**：API 直连兼容 OpenAI Chat Completions（DeepSeek / Ollama / LM Studio 等），密钥仅在 Rust 侧读取；草案预览、字段告警、批量阈值二次确认后写入（`source="ai"`），历史可撤销。网页版 DeepSeek 桥接源码保留，当前通过 `SHOW_WEB_BRIDGE = false` 在界面上隐藏，改为 `true` 即可恢复。
+- **AI 助手**：API 直连兼容 OpenAI Chat Completions（DeepSeek / Ollama / LM Studio 等），密钥仅在 Rust 侧读取；模型输出**操作列表**（创建 / 修改字段 / 标签 / 子任务 / 状态 / 删除），预览后一次事务写入（`source="ai"`），toast 可批量撤销；危险操作默认关闭，需在设置中开启并二次确认；支持图片输入（≤5 张、压缩到 ≤1568px / ≤5MB、仅内存不落盘）。网页版 DeepSeek 桥接源码保留，当前通过 `SHOW_WEB_BRIDGE = false` 在界面上隐藏，改为 `true` 即可恢复。
 - **快捷添加与右键菜单**：延期、钉为便利贴、查看历史、删除。
 - **键盘**：`Esc`、`Ctrl+N`、`Ctrl+F`、`Ctrl+Shift+T`、`Ctrl+,`、`Ctrl+Enter`、`↑/↓`、`Enter`、`Space`。
 - **视觉**：暗色令牌、焦点环、骨架屏、空态、错误提示、`prefers-reduced-motion`、图标全部替换为 `lucide-svelte`（无 emoji 图标）；应用启动使用内联 Logo 占位并淡出，不出现白色窗口。
@@ -124,6 +138,7 @@ windows/
 │   │   ├── utils.ts              时间、截止、优先级格式化
 │   │   ├── demo-data.ts          浏览器预览用的干净初始数据（Tauri 模式不加载）
 │   │   ├── ipc.ts                Tauri 命令薄封装 + 浏览器降级路由
+│   │   ├── ipc-bindings.generated.ts  tauri-specta 生成产物（勿手改）
 │   │   └── store.svelte.ts       投影缓存、工作区切换、写操作、设置
 │   ├── components/               TitleBar / Sidebar / WorkspaceSwitcher / TaskRow / DetailDrawer …
 │   ├── StickyApp.svelte          独立便利贴窗口的轻量入口
@@ -137,7 +152,8 @@ windows/
 │   ├── core_domain.rs            HLC / op / LWW / OR-Set / reducer
 │   ├── storage.rs                SQLite schema、迁移、op_log、本地偏好
 │   ├── commands.rs               bootstrap / task / workspace / history / settings / ai key
-│   ├── ai.rs                     AI 命令层：上下文、keyring、HTTP 调用、错误映射
+│   ├── ai.rs                     AI 命令层：上下文、keyring、HTTP 调用、意图写入
+│   ├── reminder/                 提醒调度（scheduler 纯逻辑 + 计时循环 + 通知）
 │   └── windows.rs                sticky 窗口创建、关闭、主窗口显示隐藏
 │   ai-core/                      纯 AI 逻辑：提示词、JSON 提取、schema 归一化、端点拼接
 ├── scripts/                      Edge/Puppeteer 视觉验收与原生窗口枚举脚本
@@ -156,7 +172,7 @@ windows/
 | S4 全局历史 | [`GlobalHistory.svelte`](src/components/GlobalHistory.svelte)、[`HistoryTimeline.svelte`](src/components/HistoryTimeline.svelte) |
 | 工作区与成员 | [`WorkspaceSwitcher.svelte`](src/components/WorkspaceSwitcher.svelte)、[`Sidebar.svelte`](src/components/Sidebar.svelte)、[`SettingsOverlay.svelte`](src/components/SettingsOverlay.svelte) |
 | 设置与快捷键 | [`SettingsOverlay.svelte`](src/components/SettingsOverlay.svelte) |
-| `docs/ai-local-integration.md` | [`AiModal.svelte`](src/components/AiModal.svelte)，写入 `source="ai"`，历史可撤销；密钥走 Rust + Credential Manager |
+| `docs/ai-local-integration.md` | [`AiIntentModal.svelte`](src/components/AiIntentModal.svelte)，意图操作预览/确认/撤销，`source="ai"`；密钥走 Rust + Credential Manager |
 
 ## 常用命令
 
@@ -164,6 +180,8 @@ windows/
 npm run dev             # 浏览器预览
 npm run build           # 前端生产构建（含 index.html + sticky.html 多入口）
 npm run check           # svelte-check
+npm run gen:bindings    # 重新生成 src/lib/ipc-bindings.generated.ts
+npm run check:bindings  # 校验 bindings 与 Rust 命令签名一致（CI 用，无 diff 时输出 BINDINGS_OK）
 npm run tauri dev       # 原生窗口开发
 npm run tauri:build     # 原生构建（no bundle）
 npm run shoot           # 用 Edge 批量截图（需先启动 dev）
@@ -194,7 +212,7 @@ stickyDom=http://127.0.0.1:1420/sticky.html#STICKY_OK:4
 
 ## 后续工作
 
-1. 用 `tauri-specta` 生成 `src/lib/ipc-bindings.generated.ts`，替换手写 DTO，CI 校验生成结果无 diff。
-2. 增量投影：目前每轮 pull 后仍全量读取 `op_log` 重建投影，op 数增长后需要按 `server_seq` 做缓存或增量应用。
-3. 通知接 `tauri-plugin-notifications`，实现 `remind_at` 调度与补发。
-4. Android 端按同一套 `op_log` reducer 与 `shared/testvectors/` 实现。
+1. `ipc.ts` 仍是手写薄封装（保留 `errorMessage` 与浏览器降级）；可逐步改为直接调用 `ipc-bindings.generated.ts` 的 `commands.*`。
+2. 增量投影已做内存缓存；剩余「持久化快照 + 冷启动直读」以及 op 数很大时的历史构建优化。
+3. 托盘通知的点击跳转与 Windows toast action 按钮实测；不支持时保持「通知 + 右键稍后提醒」的降级形态。
+4. Android 端按同一套 `op_log` reducer 与 `shared/testvectors/` 实现，并对齐提醒、日历、统计与 AI 意图契约（见 `docs/ai-intent-contract.md` 第九节）。

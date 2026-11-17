@@ -178,14 +178,29 @@ await sleep(200);
 // 4. AI 入口：网页版桥接默认隐藏，仅保留 API 直连
 await page.goto(`${BASE}?demo=ai`, { waitUntil: 'load' });
 await sleep(900);
-results.aiModalVisible = !!(await page.$('.ai-modal'));
-results.aiTabs = await page.$$eval('.ai-tab', (els) => els.map((el) => el.textContent.trim()));
+results.aiModalVisible = !!(await page.$('.modal'));
+results.aiTabs = await page.$$eval('.mode-tabs button', (els) =>
+  els.map((el) => el.textContent.trim())
+);
 results.webBridgeHidden = results.aiTabs.length === 0;
-await page.type('.ai-textarea', '规划今晚的学习');
+await page.type('.prompt-input', '规划今晚的学习');
 await sleep(150);
 results.apiGenerateEnabled = await page
-  .$eval('.ai-actions .btn-primary', (el) => !el.disabled)
+  .$eval('.modal-actions .btn-primary', (el) => !el.disabled)
   .catch(() => false);
+results.aiImageHint = await text('.image-hint');
+
+// 4.5 日历月视图与统计时间范围
+await page.goto(`${BASE}?demo=calendar`, { waitUntil: 'load' });
+await sleep(1000);
+await clickByText('.calendar-head .segmented button', '月');
+await sleep(300);
+results.monthCells = await page.$$eval('.month-cell', (els) => els.length);
+await page.goto(`${BASE}?demo=stats`, { waitUntil: 'load' });
+await sleep(1000);
+results.statsRanges = await page.$$eval('.stats-controls .segmented button', (els) =>
+  els.map((el) => el.textContent.trim())
+);
 
 // 5. 独立便利贴入口（浏览器降级渲染）
 await page.goto(`${BASE}sticky.html?mode=main`, { waitUntil: 'load' });

@@ -12,7 +12,19 @@
     {:else}
       <CheckCircle2 size="14" />
     {/if}
-    <span>{store.toast.message}</span>
+    <span class="toast-text">{store.toast.message}</span>
+    {#if store.toast.actionLabel}
+      <button
+        class="toast-action"
+        onclick={() => {
+          const action = store.toast?.onAction;
+          store.toast = null;
+          action?.();
+        }}
+      >
+        {store.toast.actionLabel}
+      </button>
+    {/if}
   </div>
 {/if}
 
@@ -46,6 +58,28 @@
 
   .toast.info {
     background: #334155;
+  }
+
+  .toast-text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .toast-action {
+    flex-shrink: 0;
+    padding: 2px 8px;
+    border: 1px solid rgba(255, 255, 255, 0.45);
+    border-radius: var(--radius-full);
+    background: transparent;
+    color: #fff;
+    font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
+    white-space: nowrap;
+  }
+
+  .toast-action:hover {
+    background: rgba(255, 255, 255, 0.16);
   }
 
   @keyframes toast-in {

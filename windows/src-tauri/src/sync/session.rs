@@ -10,7 +10,7 @@ use std::sync::{Mutex, OnceLock};
 
 const KEYRING_SERVICE: &str = "com.todo.windows.session";
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct AccountRecord {
     pub server_url: String,

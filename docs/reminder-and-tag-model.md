@@ -17,16 +17,32 @@
 - 处理 `BOOT_COMPLETED`：从本地 SQLite 读取未来 `remind_at` 并重建 Alarm。
 - 调度前检查 `canScheduleExactAlarms()`，不可用时降级为非精确提醒并提示用户。
 
-### Windows 调度
+### Windows 调度（已实现）
 
-- 应用最小化到系统托盘，Rust 侧运行轻量计时循环，到点通过 `tauri-plugin-notifications` 弹出。
-- 如用户需要「关机期间不丢提醒」，叠加 Windows App SDK 后台任务 + `TimeTrigger` 作为兜底（交付窗口 5 分钟）。
-- 不依赖服务器推送任何提醒触发。
+- 关闭主窗口默认隐藏到**系统托盘**（可在设置中关闭），Rust 进程与提醒循环常驻；托盘菜单提供「显示主窗口 / 打开便利贴 / 立即同步 / 退出」。
+- 提醒循环每 **30 秒** tick 一次，并用 `Notify` 在本地写入、设置变更、稍后提醒时立即唤醒；睡眠唤醒与修改系统时间由 tick 自然覆盖。
+- 生效时刻 = `remind_at - reminder_lead`，与 `snooze_until` 取较晚者；每条 `remind_at` 只触发一次。
+- `last_fired_at` 保存**已触发过的 `remind_at` 值**（不是触发时刻），所以修改提前量不会重复提醒。
+- 修改或删除任务时会清空该任务的本地提醒态；修改 `remind_at` 也会重置触发记录，避免旧记录压制新提醒。
+- 通知使用 `tauri-plugin-notification`；点击通知目前只用于系统提示，稍后提醒通过任务右键菜单（10 分钟 / 1 小时）完成。
+- 免打扰（`dnd_start` / `dnd_end`，支持跨天）期间不发通知，但也不丢弃：写入 `reminder_deferred`，等时段结束后合并补弹一次。
+- 通知开关关闭时只更新本地触发记录，不弹系统通知。
+- 不依赖服务器推送任何提醒触发；应用完全退出后不再触发，需要后台提醒就保持托盘常驻或开启开机自启。
+
+### 本地表
+
+```sql
+task_local(task_id PRIMARY KEY, last_fired_at INTEGER, snooze_until INTEGER)
+reminder_deferred(task_id, remind_at, deferred_at, PRIMARY KEY(task_id, remind_at))
+```
+
+两张表都不进 `op_log`、不参与同步；换设备不会带过去。
 
 ### 错过提醒补发
 
-- 客户端每次增量拉取并应用 op 后，对投影中 `remind_at <= now` 且 `last_fired_at` 为空的活跃任务，
-  生成本地补发提醒。纯客户端逻辑，服务器不介入。
+- 客户端每轮调度（启动、写入、同步后、每 30 秒）都会扫描投影：`remind_at <= now` 且未触发过的活跃任务会补发提醒。
+- 补发窗口为 **60 分钟**；超出窗口只更新本地触发记录，不再弹通知（避免开机后一次性轰炸）。
+- 纯客户端逻辑，服务器不介入。
 
 ## 二、标签落地口径
 

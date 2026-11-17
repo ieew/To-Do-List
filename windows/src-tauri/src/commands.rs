@@ -1,7 +1,7 @@
 //! Tauri 命令层：只做参数校验、op 追加与投影读取，不实现合并裁决。
 //! 合并与投影逻辑全部在 core_domain；SQLite 访问全部在 storage。
 
-use crate::core_domain::{HistoryOp, Op, Projection, Settings, Workspace};
+use crate::core_domain::{HistoryOp, Op, Projection, ProjectionCache, Settings, Workspace};
 use crate::storage;
 use crate::sync::{
     self,
@@ -21,7 +21,7 @@ use uuid::Uuid;
 const KEYRING_SERVICE: &str = "com.todo.windows.ai";
 const KEYRING_USER: &str = "default";
 
-#[derive(Serialize)]
+#[derive(Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct BootstrapResponse {
     pub projection: Projection,
@@ -31,7 +31,7 @@ pub struct BootstrapResponse {
     pub sync: sync::SyncStateDto,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct AuthResult {
     pub account: AccountRecord,
@@ -39,14 +39,14 @@ pub struct AuthResult {
     pub sync: sync::SyncStateDto,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct SyncPreflight {
     pub local_op_count: i64,
     pub backup_dir: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateTaskInput {
     pub title: String,
@@ -92,8 +92,10 @@ fn with_db_tx<T>(
     storage::with_transaction(&guard, f).map_err(|error| error.to_string())
 }
 
-fn emit_projection(app: &AppHandle, workspace_id: &str) {
+pub(crate) fn emit_projection(app: &AppHandle, workspace_id: &str) {
     wake_sync(app);
+    // 任务或提醒时间变化后立即重算提醒，不必等 30 秒 tick。
+    crate::reminder::wake(app);
     let _ = app.emit("projection-updated", json!({ "workspaceId": workspace_id }));
 }
 
@@ -124,11 +126,43 @@ fn append(
     source: &str,
     model: Option<&str>,
 ) -> AnyResult<()> {
+    append_op(
+        conn,
+        device,
+        actor,
+        workspace,
+        entity_type,
+        entity_id,
+        operation,
+        field,
+        value,
+        source,
+        model,
+    )
+    .map(|_| ())
+}
+
+/// 与 `append` 相同，但返回新生成的 `op_id`，供需要批量撤销的调用方使用。
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn append_op(
+    conn: &Connection,
+    device: &str,
+    actor: &str,
+    workspace: &str,
+    entity_type: &str,
+    entity_id: &str,
+    operation: &str,
+    field: &str,
+    value: Value,
+    source: &str,
+    model: Option<&str>,
+) -> AnyResult<String> {
     let hlc = storage::next_hlc(conn)?;
+    let op_id = Uuid::new_v4().to_string();
     storage::insert_op(
         conn,
         &Op {
-            op_id: Uuid::new_v4().to_string(),
+            op_id: op_id.clone(),
             workspace_id: workspace.to_string(),
             entity_type: entity_type.to_string(),
             entity_id: entity_id.to_string(),
@@ -144,7 +178,7 @@ fn append(
             model: model.map(|m| m.to_string()),
         },
     )?;
-    Ok(())
+    Ok(op_id)
 }
 
 pub(crate) fn active_workspace(conn: &Connection) -> String {
@@ -163,7 +197,7 @@ pub(crate) fn build_projection(conn: &Connection, workspace_id: &str) -> AnyResu
     ))
 }
 
-fn default_list_id(conn: &Connection, workspace_id: &str) -> AnyResult<String> {
+pub(crate) fn default_list_id(conn: &Connection, workspace_id: &str) -> AnyResult<String> {
     let projection = build_projection(conn, workspace_id)?;
     projection
         .lists
@@ -174,7 +208,7 @@ fn default_list_id(conn: &Connection, workspace_id: &str) -> AnyResult<String> {
         .ok_or_else(|| anyhow!("当前工作区还没有可用清单"))
 }
 
-fn next_task_order(conn: &Connection, workspace_id: &str) -> AnyResult<f64> {
+pub(crate) fn next_task_order(conn: &Connection, workspace_id: &str) -> AnyResult<f64> {
     let projection = build_projection(conn, workspace_id)?;
     let max = projection
         .tasks
@@ -184,7 +218,7 @@ fn next_task_order(conn: &Connection, workspace_id: &str) -> AnyResult<f64> {
     Ok(max + 1.0)
 }
 
-fn map_field(field: &str) -> &str {
+pub(crate) fn map_field(field: &str) -> &str {
     match field {
         "startAt" => "start_at",
         "dueAt" => "due_at",
@@ -221,34 +255,82 @@ fn ensure_workspace_owner(projection: &Projection, current_user: &str) -> AnyRes
 
 /* ------------------------------- 启动 ------------------------------- */
 
+fn projection_cache_disabled() -> bool {
+    std::env::var("TODO_DISABLE_PROJECTION_CACHE").is_ok()
+}
+
+/// 读取投影：默认按 workspace 增量应用 `op_log`，环境变量可回退全量重建。
+///
+/// 锁顺序固定为「缓存 → 数据库」，避免与其他路径交叉死锁。
+pub(crate) fn build_projection_cached(state: &AppState, cache_key: &str) -> Result<Projection, String> {
+    if projection_cache_disabled() {
+        let guard = state
+            .db
+            .lock()
+            .map_err(|_| "数据库连接锁失败，请重试".to_string())?;
+        return build_projection(&guard, cache_key).map_err(|error| error.to_string());
+    }
+
+    let mut cache = state
+        .projection_cache
+        .lock()
+        .map_err(|_| "投影缓存锁失败，请重试".to_string())?;
+    let entry = cache
+        .entry(cache_key.to_string())
+        .or_insert_with(ProjectionCache::new);
+
+    let guard = state
+        .db
+        .lock()
+        .map_err(|_| "数据库连接锁失败，请重试".to_string())?;
+    let after = entry.watermark();
+    let ops = storage::load_ops_after(&guard, after).map_err(|error| error.to_string())?;
+    entry.apply(&ops);
+    entry.set_watermark(storage::max_op_rowid(&guard).map_err(|error| error.to_string())?);
+
+    let settings = storage::load_settings(&guard);
+    Ok(entry.project(
+        Some(cache_key),
+        &storage::current_user_id(&guard),
+        settings,
+        false,
+    ))
+}
+
 #[tauri::command]
+#[specta::specta]
 pub fn bootstrap(
     state: State<'_, AppState>,
     workspace_id: Option<String>,
 ) -> Result<BootstrapResponse, String> {
-    with_db(&state, |conn| {
-        let requested = workspace_id.or_else(|| storage::active_workspace_id(conn));
-        let ops = storage::load_ops(conn)?;
-        let settings = storage::load_settings(conn);
-        let projection = Projection::build(
-            ops,
-            requested.as_deref(),
-            &storage::current_user_id(conn),
-            settings.clone(),
-            false,
-        );
-        let sync_state = sync::snapshot(conn, &state.sync);
-        Ok(BootstrapResponse {
-            projection,
-            settings,
-            ai_key_configured: ai_key_configured(),
-            device_id: storage::device_id(conn)?,
-            sync: sync_state,
-        })
+    let cache_key = with_db(&state, |conn| {
+        Ok(workspace_id
+            .clone()
+            .or_else(|| storage::active_workspace_id(conn)))
+    })?
+    .unwrap_or_else(|| "ws-me".to_string());
+
+    let projection = build_projection_cached(&state, &cache_key)?;
+
+    let (settings, device_id, sync_state) = with_db(&state, |conn| {
+        Ok((
+            storage::load_settings(conn),
+            storage::device_id(conn)?,
+            sync::snapshot(conn, &state.sync),
+        ))
+    })?;
+
+    Ok(BootstrapResponse {
+        projection,
+        settings,
+        ai_key_configured: ai_key_configured(),
+        device_id,
+        sync: sync_state,
     })
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn set_active_workspace(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -272,6 +354,7 @@ pub fn set_active_workspace(
 /* ----------------------------- 工作区 ----------------------------- */
 
 #[tauri::command]
+#[specta::specta]
 pub fn create_workspace(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -335,6 +418,7 @@ pub fn create_workspace(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn rename_workspace(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -376,6 +460,7 @@ pub fn rename_workspace(
 ///
 /// 返回删除后的当前工作区 id，方便前端立即切换作用域。
 #[tauri::command]
+#[specta::specta]
 pub fn delete_workspace(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -435,6 +520,7 @@ pub fn delete_workspace(
 /* ------------------------------- 任务 ------------------------------- */
 
 #[tauri::command]
+#[specta::specta]
 pub fn create_task(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -583,6 +669,7 @@ pub fn create_task(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn update_task_field(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -656,13 +743,19 @@ pub fn update_task_field(
             value,
             "human",
             None,
-        )
+        )?;
+        // 提醒时间变化后清空本地触发记录，避免旧记录压制新提醒。
+        if map_field(&field) == "remind_at" {
+            storage::clear_task_local(conn, &task_id)?;
+        }
+        Ok(())
     })?;
     emit_projection(&app, &workspace_id);
     Ok(())
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn delete_task(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -684,13 +777,17 @@ pub fn delete_task(
             json!(true),
             "human",
             None,
-        )
+        )?;
+        // 删除任务时一并清掉本地提醒态，避免遗留 deferred 记录。
+        storage::clear_task_local(conn, &task_id)?;
+        Ok(())
     })?;
     emit_projection(&app, &workspace_id);
     Ok(())
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn reorder_task(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -744,6 +841,7 @@ pub fn reorder_task(
 /* ------------------------------- 子任务 ------------------------------- */
 
 #[tauri::command]
+#[specta::specta]
 pub fn add_subtask(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -824,6 +922,7 @@ pub fn add_subtask(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn toggle_subtask(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -864,6 +963,7 @@ pub fn toggle_subtask(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn remove_subtask(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -895,6 +995,7 @@ pub fn remove_subtask(
 /* ------------------------------- 历史 ------------------------------- */
 
 #[tauri::command]
+#[specta::specta]
 pub fn get_history(
     state: State<'_, AppState>,
     workspace_id: Option<String>,
@@ -914,7 +1015,103 @@ pub fn get_history(
     })
 }
 
+/// 生成一条反向 op 并标记 `__undo_of`。`ops` 是调用前加载的完整 op 列表。
+fn reverse_op(
+    conn: &Connection,
+    device: &str,
+    actor: &str,
+    workspace_id: &str,
+    ops: &[Op],
+    target: &Op,
+) -> AnyResult<()> {
+    if target.operation == "add" {
+        append(
+            conn,
+            device,
+            actor,
+            workspace_id,
+            &target.entity_type,
+            &target.entity_id,
+            "remove",
+            &target.field,
+            target.value.clone(),
+            "human",
+            None,
+        )?;
+    } else if target.operation == "remove" {
+        append(
+            conn,
+            device,
+            actor,
+            workspace_id,
+            &target.entity_type,
+            &target.entity_id,
+            "add",
+            &target.field,
+            target.value.clone(),
+            "human",
+            None,
+        )?;
+    } else if target.field == "__created" {
+        append(
+            conn,
+            device,
+            actor,
+            workspace_id,
+            &target.entity_type,
+            &target.entity_id,
+            "set",
+            "__deleted",
+            json!(true),
+            "human",
+            None,
+        )?;
+    } else {
+        let previous = ops
+            .iter()
+            .filter(|op| {
+                op.entity_type == target.entity_type
+                    && op.entity_id == target.entity_id
+                    && op.field == target.field
+                    && op.operation == "set"
+                    && op.hlc() < target.hlc()
+            })
+            .max_by(|a, b| a.hlc().cmp(&b.hlc()))
+            .map(|op| op.value.clone())
+            .unwrap_or(Value::Null);
+        append(
+            conn,
+            device,
+            actor,
+            workspace_id,
+            &target.entity_type,
+            &target.entity_id,
+            "set",
+            &target.field,
+            previous,
+            "human",
+            None,
+        )?;
+    }
+
+    append(
+        conn,
+        device,
+        actor,
+        workspace_id,
+        &target.entity_type,
+        &target.entity_id,
+        "set",
+        "__undo_of",
+        json!(target.op_id),
+        "human",
+        None,
+    )?;
+    Ok(())
+}
+
 #[tauri::command]
+#[specta::specta]
 pub fn undo_op(app: AppHandle, state: State<'_, AppState>, op_id: String) -> Result<(), String> {
     let workspace_id = with_db(&state, |conn| Ok(active_workspace(conn)))?;
     with_db(&state, |conn| {
@@ -926,94 +1123,39 @@ pub fn undo_op(app: AppHandle, state: State<'_, AppState>, op_id: String) -> Res
             .ok_or_else(|| anyhow!("op 不存在"))?;
         let device = storage::device_id(conn)?;
         let actor = storage::current_user_id(conn);
-
-        if target.operation == "add" {
-            append(
-                conn,
-                &device,
-                &actor,
-                &workspace_id,
-                &target.entity_type,
-                &target.entity_id,
-                "remove",
-                &target.field,
-                target.value.clone(),
-                "human",
-                None,
-            )?;
-        } else if target.operation == "remove" {
-            append(
-                conn,
-                &device,
-                &actor,
-                &workspace_id,
-                &target.entity_type,
-                &target.entity_id,
-                "add",
-                &target.field,
-                target.value.clone(),
-                "human",
-                None,
-            )?;
-        } else if target.field == "__created" {
-            append(
-                conn,
-                &device,
-                &actor,
-                &workspace_id,
-                &target.entity_type,
-                &target.entity_id,
-                "set",
-                "__deleted",
-                json!(true),
-                "human",
-                None,
-            )?;
-        } else {
-            let previous = ops
-                .iter()
-                .filter(|op| {
-                    op.entity_type == target.entity_type
-                        && op.entity_id == target.entity_id
-                        && op.field == target.field
-                        && op.operation == "set"
-                        && op.hlc() < target.hlc()
-                })
-                .max_by(|a, b| a.hlc().cmp(&b.hlc()))
-                .map(|op| op.value.clone())
-                .unwrap_or(Value::Null);
-            append(
-                conn,
-                &device,
-                &actor,
-                &workspace_id,
-                &target.entity_type,
-                &target.entity_id,
-                "set",
-                &target.field,
-                previous,
-                "human",
-                None,
-            )?;
-        }
-
-        append(
-            conn,
-            &device,
-            &actor,
-            &workspace_id,
-            &target.entity_type,
-            &target.entity_id,
-            "set",
-            "__undo_of",
-            json!(target.op_id),
-            "human",
-            None,
-        )?;
-        Ok(())
+        reverse_op(conn, &device, &actor, &workspace_id, &ops, &target)
     })?;
     emit_projection(&app, &workspace_id);
     Ok(())
+}
+
+/// 批量撤销：AI 一次写入的多个 op 可整体回滚，返回成功撤销的数量。
+#[tauri::command]
+#[specta::specta]
+pub fn undo_ops(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    op_ids: Vec<String>,
+) -> Result<usize, String> {
+    if op_ids.is_empty() {
+        return Ok(0);
+    }
+    let workspace_id = with_db(&state, |conn| Ok(active_workspace(conn)))?;
+    let count = with_db(&state, |conn| {
+        let ops = storage::load_ops(conn)?;
+        let device = storage::device_id(conn)?;
+        let actor = storage::current_user_id(conn);
+        let mut count = 0usize;
+        for op_id in &op_ids {
+            if let Some(target) = ops.iter().find(|op| &op.op_id == op_id).cloned() {
+                reverse_op(conn, &device, &actor, &workspace_id, &ops, &target)?;
+                count += 1;
+            }
+        }
+        Ok(count)
+    })?;
+    emit_projection(&app, &workspace_id);
+    Ok(count)
 }
 
 /* ------------------------------- 成员 ------------------------------- */
@@ -1027,6 +1169,7 @@ async fn refresh_after_remote(app: &AppHandle, state: &AppState) {
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn update_member_role(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -1071,6 +1214,7 @@ pub async fn update_member_role(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn remove_member(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -1114,6 +1258,7 @@ pub async fn remove_member(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn invite_member(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -1252,6 +1397,9 @@ fn prepare_account(
         storage::reset_for_account(conn, &backup_dir(state)).map_err(|error| error.to_string())?
     };
 
+    // 换账户会清空 op_log，缓存必须整体失效。
+    state.clear_projection_cache();
+
     storage::pref_set(conn, "current_user_id", &account.user_id)
         .map_err(|error| error.to_string())?;
     if !same_account {
@@ -1301,6 +1449,7 @@ fn normalize_optional(value: Option<String>) -> Option<String> {
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn auth_register(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -1349,6 +1498,7 @@ pub async fn auth_register(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn auth_login(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -1388,6 +1538,7 @@ pub async fn auth_login(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn auth_logout(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     let session = {
         let conn = lock_db(&state)?;
@@ -1406,6 +1557,7 @@ pub async fn auth_logout(app: AppHandle, state: State<'_, AppState>) -> Result<(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn sync_now(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -1418,6 +1570,7 @@ pub async fn sync_now(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn sync_preflight(state: State<'_, AppState>) -> Result<SyncPreflight, String> {
     let count = with_db(&state, |conn| Ok(storage::load_all_ops(conn)?.len() as i64))?;
     Ok(SyncPreflight {
@@ -1473,6 +1626,7 @@ fn validate_order(value: &Value) -> AnyResult<Value> {
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn create_list(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -1564,6 +1718,7 @@ pub fn create_list(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn update_list_field(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -1617,6 +1772,7 @@ pub fn update_list_field(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn delete_list(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -1682,6 +1838,7 @@ pub fn delete_list(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn create_tag(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -1790,6 +1947,7 @@ pub fn create_tag(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn update_tag_field(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -1858,6 +2016,7 @@ pub fn update_tag_field(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn delete_tag(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -1896,6 +2055,7 @@ pub fn delete_tag(
 /* ------------------------------- 设置 ------------------------------- */
 
 #[tauri::command]
+#[specta::specta]
 pub fn save_settings(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -1904,7 +2064,43 @@ pub fn save_settings(
     with_db(&state, |conn| storage::save_settings(conn, &settings))?;
     // 主窗口与便利贴是独立 WebviewWindow，用事件把外观设置推给所有窗口。
     let _ = app.emit("settings-updated", &settings);
+    // 提前提醒、免打扰、通知开关都会影响调度结果。
+    crate::reminder::wake(&app);
     Ok(())
+}
+
+/// 稍后提醒：清掉「已触发」标记，让同一条 remind_at 在目标时刻再次触发。
+#[tauri::command]
+#[specta::specta]
+pub fn snooze_reminder(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    task_id: String,
+    minutes: i64,
+) -> Result<(), String> {
+    if !(1..=24 * 60).contains(&minutes) {
+        return Err("稍后提醒需在 1 分钟到 24 小时之间".to_string());
+    }
+    let until = storage::now_ms() + minutes * 60_000;
+    with_db(&state, |conn| {
+        storage::set_reminder_snooze(conn, &task_id, until)
+    })?;
+    crate::reminder::wake(&app);
+    Ok(())
+}
+
+/// 开机自启：写/删注册表 Run 项，由设置页保存时调用。
+#[tauri::command]
+#[specta::specta]
+pub fn set_autostart(app: AppHandle, enabled: bool) -> Result<(), String> {
+    use tauri_plugin_autostart::ManagerExt;
+    let manager = app.autolaunch();
+    let result = if enabled {
+        manager.enable()
+    } else {
+        manager.disable()
+    };
+    result.map_err(|error| format!("设置开机自启失败: {error}"))
 }
 
 /* ----------------------------- AI 密钥 ----------------------------- */
@@ -1922,11 +2118,13 @@ fn ai_key_configured() -> bool {
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn ai_key_status() -> bool {
     ai_key_configured()
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn set_ai_key(state: State<'_, AppState>, api_key: String) -> Result<bool, String> {
     let clean = api_key.trim();
     if clean.is_empty() {
@@ -1941,6 +2139,7 @@ pub fn set_ai_key(state: State<'_, AppState>, api_key: String) -> Result<bool, S
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn clear_ai_key(state: State<'_, AppState>) -> Result<bool, String> {
     let entry = keyring_entry()?;
     if let Err(error) = entry.delete_credential() {

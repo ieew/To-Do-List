@@ -12,6 +12,8 @@ export type SyncStatus =
   | 'auth_required';
 export type Theme = 'light' | 'dark';
 export type Density = 'comfortable' | 'compact';
+/** 统计视图的时间范围：本周 / 本月 / 近 30 天 / 全部。 */
+export type StatsRange = 'week' | 'month' | '30d' | 'all';
 
 export type TaskField =
   | 'title'
@@ -127,6 +129,8 @@ export interface ToastMessage {
   id: number;
   message: string;
   tone: 'ok' | 'error' | 'info';
+  actionLabel?: string;
+  onAction?: () => void;
 }
 
 export interface ContextMenuState {
@@ -143,6 +147,14 @@ export interface Settings {
   notifications: boolean;
   reminderLead: number;
   dndEnabled: boolean;
+  /** 免打扰开始时间，`HH:mm`。 */
+  dndStart: string;
+  /** 免打扰结束时间，`HH:mm`。 */
+  dndEnd: string;
+  /** 关闭主窗口时隐藏到托盘。 */
+  closeToTray: boolean;
+  /** 开机自启。 */
+  autoStart: boolean;
   defaultPriority: Priority;
   confirmDelete: boolean;
   autoArchive: boolean;
@@ -152,6 +164,10 @@ export interface Settings {
   aiEndpoint: string;
   aiModel: string;
   aiConfirmThreshold: number;
+  /** 允许 AI 修改完成状态与删除任务。 */
+  aiAllowDestructive: boolean;
+  /** 允许在 AI 助手中附加图片。 */
+  aiImageInput: boolean;
 }
 
 export interface AiPlanItem {
@@ -167,6 +183,43 @@ export interface AiPlanItem {
 export interface AiPlanResponse {
   tasks: AiPlanItem[];
   warnings: string[];
+}
+
+/** AI 意图操作：创建、修改字段、子任务、标签、状态、删除。 */
+export type AiOperation =
+  | {
+      op: 'create_task';
+      tempId: string;
+      title: string;
+      notes: string;
+      priority: Priority;
+      listId: string;
+      dueAt: string | null;
+      tagIds: string[];
+      subtasks: string[];
+    }
+  | {
+      op: 'update_fields';
+      taskId: string;
+      patch: Record<string, unknown>;
+      clearFields: string[];
+    }
+  | { op: 'add_subtasks'; taskId: string; subtasks: string[] }
+  | { op: 'set_subtask_done'; taskId: string; subtaskId: string; done: boolean }
+  | { op: 'add_tags' | 'remove_tags'; taskId: string; tagIds: string[] }
+  | { op: 'set_status'; taskId: string; status: TaskStatus }
+  | { op: 'delete_task'; taskId: string };
+
+export interface AiIntentResponse {
+  intentVersion: number;
+  reply: string;
+  operations: AiOperation[];
+  warnings: string[];
+}
+
+export interface AiApplyResult {
+  opIds: string[];
+  affectedTaskIds: string[];
 }
 
 export interface Projection {

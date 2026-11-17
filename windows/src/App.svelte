@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import AiModal from './components/AiModal.svelte';
+  import AiIntentModal from './components/AiIntentModal.svelte';
   import ContextMenu from './components/ContextMenu.svelte';
   import DetailDrawer from './components/DetailDrawer.svelte';
   import QuickAddModal from './components/QuickAddModal.svelte';
@@ -11,6 +11,7 @@
   import TitleBar from './components/TitleBar.svelte';
   import Toast from './components/Toast.svelte';
   import Toolbar from './components/Toolbar.svelte';
+  import { ipc } from './lib/ipc';
   import { store } from './lib/store.svelte';
 
   const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -29,25 +30,40 @@
   const loadFloatingSticky = lazy(() => import('./components/FloatingSticky.svelte'));
 
   onMount(() => {
+    let unlistenTray: (() => void) | null = null;
+    if (isTauri) {
+      // 托盘菜单「打开便利贴」：主窗口可能已隐藏，事件仍能送达 WebView。
+      void ipc
+        .onTrayCommand((command) => {
+          if (command === 'sticky') void store.openStickyMainWindow();
+        })
+        .then((fn) => {
+          unlistenTray = fn;
+        });
+    }
+
     const demo = new URLSearchParams(window.location.search).get('demo');
-    if (!demo) return;
-    setTimeout(() => {
-      if (demo === 'detail' || demo === 'history') {
-        const firstTask = store.tasks[0];
-        if (firstTask) store.openTask(firstTask.id, demo === 'history' ? 'history' : 'detail');
-      }
-      if (demo === 'settings') store.settingsOpen = true;
-      if (demo === 'ai') store.aiOpen = true;
-      if (demo === 'sticky') store.toggleStickyMode();
-      if (demo === 'floating') {
-        store.addFloatingSticky();
-        store.addFloatingSticky();
-      }
-      if (demo === 'dark') store.settings.theme = 'dark';
-      if (demo === 'calendar') store.view = 'calendar';
-      if (demo === 'stats') store.view = 'stats';
-      if (demo === 'global') store.showGlobalHistory();
-    }, 520);
+    if (demo) {
+      setTimeout(() => {
+        if (demo === 'detail' || demo === 'history') {
+          const firstTask = store.tasks[0];
+          if (firstTask) store.openTask(firstTask.id, demo === 'history' ? 'history' : 'detail');
+        }
+        if (demo === 'settings') store.settingsOpen = true;
+        if (demo === 'ai') store.aiOpen = true;
+        if (demo === 'sticky') store.toggleStickyMode();
+        if (demo === 'floating') {
+          store.addFloatingSticky();
+          store.addFloatingSticky();
+        }
+        if (demo === 'dark') store.settings.theme = 'dark';
+        if (demo === 'calendar') store.view = 'calendar';
+        if (demo === 'stats') store.view = 'stats';
+        if (demo === 'global') store.showGlobalHistory();
+      }, 520);
+    }
+
+    return () => unlistenTray?.();
   });
 
   $effect(() => {
@@ -227,7 +243,7 @@
   {/if}
 
   <QuickAddModal />
-  <AiModal />
+  <AiIntentModal />
   <ContextMenu />
   <Toast />
 </div>

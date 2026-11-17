@@ -1,3 +1,4 @@
+<!-- 已废弃：主窗口已改用 AiIntentModal.svelte；此文件仅保留旧版 API 直连流程作参考。 -->
 <script lang="ts">
   import {
     AlertTriangle,

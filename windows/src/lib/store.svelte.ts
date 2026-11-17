@@ -11,6 +11,7 @@ import {
 } from './demo-data';
 import { errorMessage, ipc, isTauri } from './ipc';
 import type {
+  AiOperation,
   AiPlanItem,
   AuthRegisterInput,
   BootstrapResponse,
@@ -25,6 +26,7 @@ import type {
   Role,
   Settings,
   Source,
+  StatsRange,
   Subtask,
   SyncNoticeDto,
   SyncStateDto,
@@ -151,6 +153,8 @@ class TodoStore {
   activeTagId = $state<string | null>(null);
   view = $state<MainView>('today');
   search = $state('');
+  /** 统计视图的时间范围。只影响统计，不影响任务列表与日历。 */
+  statsRange = $state<StatsRange>('month');
   // Tauri 模式首帧就是加载态，避免先渲染种子数据再被真实投影覆盖。
   loading = $state(isTauri);
   loadError = $state<string | null>(null);
@@ -417,6 +421,44 @@ class TodoStore {
       return base.filter((task) => hasStarted(task, baseTime));
     }
     return base;
+  }
+
+  /**
+   * 统计视图的时间范围过滤：按截止时间落在窗口内。
+   * 没有截止时间的任务只在「全部」范围出现；过期任务看 dueAt 是否在窗口内。
+   */
+  get rangeTasks(): Task[] {
+    const scope = this.viewTasks;
+    if (this.statsRange === 'all') return scope;
+
+    const base = this.currentTime;
+    const start = new Date(base);
+    let end: Date;
+
+    if (this.statsRange === 'week') {
+      const offset = (start.getDay() + 6) % 7;
+      start.setDate(start.getDate() - offset);
+      start.setHours(0, 0, 0, 0);
+      end = new Date(start);
+      end.setDate(end.getDate() + 7);
+    } else if (this.statsRange === 'month') {
+      start.setDate(1);
+      start.setHours(0, 0, 0, 0);
+      end = new Date(start.getFullYear(), start.getMonth() + 1, 1);
+    } else {
+      start.setHours(0, 0, 0, 0);
+      start.setDate(start.getDate() - 29);
+      end = new Date(start);
+      end.setDate(end.getDate() + 30);
+    }
+
+    const from = start.getTime();
+    const to = end.getTime();
+    return scope.filter((task) => {
+      if (!task.dueAt) return false;
+      const due = new Date(task.dueAt).getTime();
+      return !Number.isNaN(due) && due >= from && due < to;
+    });
   }
 
   get searchResults(): Task[] | null {
@@ -1037,6 +1079,57 @@ class TodoStore {
     this.showToast('已延期到明天');
   }
 
+  /**
+   * 日历拖拽改期：只写 `due_at`，保留原 HH:mm；没有截止时间时落到 09:00。
+   * 不联动 `remind_at`，提醒语义保持独立。
+   */
+  async rescheduleTask(taskId: string, dayIso: string): Promise<void> {
+    const task = this.taskById(taskId);
+    if (!task) return;
+    const target = new Date(dayIso);
+    if (Number.isNaN(target.getTime())) return;
+    if (task.dueAt) {
+      const old = new Date(task.dueAt);
+      if (!Number.isNaN(old.getTime())) {
+        target.setHours(old.getHours(), old.getMinutes(), 0, 0);
+      }
+    } else {
+      target.setHours(9, 0, 0, 0);
+    }
+    const nextIso = target.toISOString();
+    if (task.dueAt && new Date(task.dueAt).getTime() === target.getTime()) return;
+    const label = `${target.getMonth() + 1}月${target.getDate()}日`;
+
+    if (isTauri) {
+      try {
+        await ipc.updateTaskField(taskId, 'dueAt', nextIso);
+        await this.refresh();
+        this.showToast(`已改期到${label}`);
+      } catch (error) {
+        this.showToast(errorMessage(error), 'error');
+      }
+      return;
+    }
+
+    const oldValue = task.dueAt;
+    task.dueAt = nextIso;
+    this.pushOp({
+      task,
+      action: '修改了截止时间',
+      field: 'dueAt',
+      oldValue,
+      newValue: nextIso,
+      diff: {
+        kind: oldValue ? 'change' : 'set',
+        field: 'dueAt',
+        text: 'due_at: ',
+        oldText: oldValue ? formatDueLong(oldValue) : undefined,
+        newText: formatDueLong(nextIso)
+      }
+    });
+    this.showToast(`已改期到${label}`);
+  }
+
   async toggleSubtask(taskId: string, subtaskId: string): Promise<void> {
     const task = this.taskById(taskId);
     const subtask = task?.subtasks.find((item) => item.id === subtaskId);
@@ -1332,6 +1425,82 @@ class TodoStore {
     this.showToast(`AI 已写入 ${plan.length} 条任务，可撤销`, 'ok');
   }
 
+  /**
+   * 执行 AI 意图操作。Tauri 模式下一次事务写入并返回 op_id，
+   * 便于用 toast 的「撤销」批量反向；浏览器预览只演示纯前端能表达的部分。
+   */
+  async applyAiOperations(operations: AiOperation[]): Promise<boolean> {
+    if (!operations.length) return false;
+
+    if (!isTauri) {
+      let applied = 0;
+      for (const op of operations) {
+        if (op.op === 'create_task') {
+          await this.createTask({
+            title: op.title,
+            notes: op.notes,
+            priority: op.priority,
+            listId: op.listId,
+            dueAt: op.dueAt,
+            tagIds: op.tagIds,
+            subtasks: op.subtasks,
+            source: 'ai'
+          });
+          applied += 1;
+        } else if (op.op === 'update_fields') {
+          const task = this.taskById(op.taskId);
+          if (!task) continue;
+          for (const [key, value] of Object.entries(op.patch)) {
+            const field = (
+              {
+                start_at: 'startAt',
+                due_at: 'dueAt',
+                remind_at: 'remindAt',
+                list_id: 'listId'
+              } as Record<string, string>
+            )[key] ?? key;
+            if (
+              ['title', 'notes', 'startAt', 'dueAt', 'remindAt', 'priority', 'listId'].includes(
+                field
+              )
+            ) {
+              assignField(task, field as TaskField, value);
+            }
+          }
+          applied += 1;
+        }
+      }
+      this.showToast(`预览模式：已应用 ${applied} 项（不写入 op_log）`, 'info');
+      return applied > 0;
+    }
+
+    try {
+      const result = await ipc.aiApplyPlan(operations);
+      await this.refresh();
+      this.showToast(`AI 已执行 ${result.affectedTaskIds.length} 项操作`, 'ok', {
+        label: '撤销',
+        run: () => {
+          void this.undoAiOperations(result.opIds);
+        }
+      });
+      return true;
+    } catch (error) {
+      this.showToast(errorMessage(error), 'error');
+      return false;
+    }
+  }
+
+  async undoAiOperations(opIds: string[]): Promise<void> {
+    if (!isTauri || !opIds.length) return;
+    try {
+      const count = await ipc.undoOps(opIds);
+      await this.refresh();
+      this.showToast(`已撤销 ${count} 条 AI 操作`);
+    } catch (error) {
+      this.showToast(errorMessage(error), 'error');
+    }
+  }
+
   async setAiKey(apiKey: string): Promise<boolean> {
     if (!isTauri) {
       this.aiKeyConfigured = apiKey.trim().length > 0;
@@ -1540,17 +1709,36 @@ class TodoStore {
   }
 
   async saveSettings(next: Settings): Promise<void> {
+    const previous = this.settings;
     this.settings = { ...next };
     this.themePreview = null;
     if (isTauri) {
       try {
         await ipc.saveSettings(next);
+        // 自启是设备级副作用，只在开关变化时写注册表。
+        if (next.autoStart !== previous.autoStart) {
+          await ipc.setAutostart(next.autoStart);
+        }
       } catch (error) {
         this.showToast(errorMessage(error), 'error');
         return;
       }
     }
     this.showToast('设置已保存');
+  }
+
+  /** 稍后提醒：由 Rust 侧清掉触发标记并在目标时刻重新提醒。 */
+  async snoozeReminder(taskId: string, minutes: number): Promise<void> {
+    if (!isTauri) {
+      this.showToast('浏览器预览不支持系统提醒', 'info');
+      return;
+    }
+    try {
+      await ipc.snoozeReminder(taskId, minutes);
+      this.showToast(minutes >= 60 ? '已稍后提醒 1 小时' : `已稍后提醒 ${minutes} 分钟`);
+    } catch (error) {
+      this.showToast(errorMessage(error), 'error');
+    }
   }
 
   /* ------------------------------- 同步与提示 ------------------------------- */
@@ -1632,12 +1820,22 @@ class TodoStore {
     }
   }
 
-  showToast(message: string, tone: ToastMessage['tone'] = 'ok'): void {
+  showToast(
+    message: string,
+    tone: ToastMessage['tone'] = 'ok',
+    action?: { label: string; run: () => void }
+  ): void {
     if (this.toastTimer) clearTimeout(this.toastTimer);
-    this.toast = { id: Date.now(), message, tone };
+    this.toast = {
+      id: Date.now(),
+      message,
+      tone,
+      actionLabel: action?.label,
+      onAction: action?.run
+    };
     this.toastTimer = setTimeout(() => {
       this.toast = null;
-    }, 2600);
+    }, action ? 6000 : 2600);
   }
 
   openContextMenu(x: number, y: number, taskId: string): void {

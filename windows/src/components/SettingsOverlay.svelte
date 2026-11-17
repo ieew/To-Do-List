@@ -430,7 +430,7 @@
             <div class="setting-row">
               <div class="setting-label">
                 <div class="setting-title">桌面通知</div>
-                <div class="setting-desc">使用 tauri-plugin-notifications 发送系统通知。</div>
+                <div class="setting-desc">使用系统通知发送；关闭后只更新本地触发记录。</div>
               </div>
               <div class="setting-control">
                 <label class="toggle">
@@ -442,7 +442,7 @@
             <div class="setting-row">
               <div class="setting-label">
                 <div class="setting-title">提前提醒</div>
-                <div class="setting-desc">在截止时间前多久触发第一条通知。</div>
+                <div class="setting-desc">在提醒时间前多久触发第一条通知。</div>
               </div>
               <div class="setting-control">
                 <select class="field-select compact-select" bind:value={draft.reminderLead}>
@@ -457,11 +457,62 @@
             <div class="setting-row">
               <div class="setting-label">
                 <div class="setting-title">免打扰</div>
-                <div class="setting-desc">开启后 22:00–08:00 只写入托盘角标，不弹通知。</div>
+                <div class="setting-desc">开启后时段内不弹系统通知；时段结束后合并补弹一次。</div>
               </div>
               <div class="setting-control">
                 <label class="toggle">
                   <input type="checkbox" bind:checked={draft.dndEnabled} />
+                  <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                </label>
+              </div>
+            </div>
+            {#if draft.dndEnabled}
+              <div class="setting-row">
+                <div class="setting-label">
+                  <div class="setting-title">免打扰时段</div>
+                  <div class="setting-desc">支持跨天，例如 22:00 至 08:00。</div>
+                </div>
+                <div class="setting-control">
+                  <input
+                    class="field-input time-input"
+                    type="time"
+                    bind:value={draft.dndStart}
+                    aria-label="免打扰开始时间"
+                  />
+                  <span class="unit">至</span>
+                  <input
+                    class="field-input time-input"
+                    type="time"
+                    bind:value={draft.dndEnd}
+                    aria-label="免打扰结束时间"
+                  />
+                </div>
+              </div>
+            {/if}
+          </div>
+
+          <div class="setting-group">
+            <div class="setting-group-title">窗口与启动</div>
+            <div class="setting-row">
+              <div class="setting-label">
+                <div class="setting-title">关闭到托盘</div>
+                <div class="setting-desc">关闭主窗口时保留后台进程，提醒与同步继续运行；托盘菜单可退出。</div>
+              </div>
+              <div class="setting-control">
+                <label class="toggle">
+                  <input type="checkbox" bind:checked={draft.closeToTray} />
+                  <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                </label>
+              </div>
+            </div>
+            <div class="setting-row">
+              <div class="setting-label">
+                <div class="setting-title">开机自启</div>
+                <div class="setting-desc">登录 Windows 后自动启动并驻留托盘。</div>
+              </div>
+              <div class="setting-control">
+                <label class="toggle">
+                  <input type="checkbox" bind:checked={draft.autoStart} />
                   <span class="toggle-track"><span class="toggle-thumb"></span></span>
                 </label>
               </div>
@@ -510,6 +561,30 @@
               <div class="setting-control">
                 <input class="field-input narrow-input" type="number" min="1" max="100" bind:value={draft.aiConfirmThreshold} />
                 <span class="unit">条</span>
+              </div>
+            </div>
+            <div class="setting-row">
+              <div class="setting-label">
+                <div class="setting-title">允许 AI 修改完成状态 / 删除任务</div>
+                <div class="setting-desc">关闭时 AI 只能创建任务与编辑字段；开启后危险操作仍需二次确认。</div>
+              </div>
+              <div class="setting-control">
+                <label class="toggle">
+                  <input type="checkbox" bind:checked={draft.aiAllowDestructive} />
+                  <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                </label>
+              </div>
+            </div>
+            <div class="setting-row">
+              <div class="setting-label">
+                <div class="setting-title">允许图片输入</div>
+                <div class="setting-desc">图片只发送给你配置的模型端点，不写入 op_log、不落盘。</div>
+              </div>
+              <div class="setting-control">
+                <label class="toggle">
+                  <input type="checkbox" bind:checked={draft.aiImageInput} />
+                  <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                </label>
               </div>
             </div>
           </div>
@@ -1084,6 +1159,11 @@
 
   .compact-input {
     width: 150px;
+  }
+
+  .time-input {
+    width: 108px;
+    text-align: center;
   }
 
   .narrow-input {

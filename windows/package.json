@@ -9,6 +9,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.json",
+    "gen:bindings": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ipc-bindings.ps1",
+    "check:bindings": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ipc-bindings.ps1 -Check",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build --no-bundle",

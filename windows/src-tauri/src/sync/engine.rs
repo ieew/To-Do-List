@@ -272,7 +272,12 @@ fn apply_push_results(
         }
         Ok(())
     })
-    .map_err(local)
+    .map_err(local)?;
+    if !rejected.is_empty() {
+        // 被拒 op 已进入投影缓存，必须整体失效才能重新过滤。
+        state.clear_projection_cache();
+    }
+    Ok(())
 }
 
 fn mark_rejected_all(state: &AppState, ops: &[Op], reason: &str) -> Result<(), ApiError> {
@@ -283,7 +288,9 @@ fn mark_rejected_all(state: &AppState, ops: &[Op], reason: &str) -> Result<(), A
         }
         Ok(())
     })
-    .map_err(local)
+    .map_err(local)?;
+    state.clear_projection_cache();
+    Ok(())
 }
 
 async fn pull_all(

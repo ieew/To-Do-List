@@ -29,6 +29,7 @@ fn close_window(app: &AppHandle, label: &str) {
 /// 必须为 async：同步命令在主线程执行，而 WebviewWindowBuilder::build()
 /// 需要主线程消息循环，会形成自锁并冻结所有窗口。
 #[tauri::command]
+#[specta::specta]
 pub async fn open_sticky_window(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -137,6 +138,7 @@ pub async fn open_sticky_window(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn close_sticky_window(app: AppHandle, label: String) -> Result<(), String> {
     close_window(&app, &label);
     if label == "sticky-main" {
@@ -146,6 +148,7 @@ pub async fn close_sticky_window(app: AppHandle, label: String) -> Result<(), St
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn show_main_window(app: AppHandle) -> Result<(), String> {
     close_window(&app, "sticky-main");
     show_main(&app);
@@ -154,6 +157,7 @@ pub async fn show_main_window(app: AppHandle) -> Result<(), String> {
 
 /// 便利贴显示后再由前端调用，保证换手过程中始终有窗口可见。
 #[tauri::command]
+#[specta::specta]
 pub async fn hide_main_window(app: AppHandle) -> Result<(), String> {
     if let Some(main) = app.get_webview_window("main") {
         let _ = main.hide();
@@ -162,6 +166,7 @@ pub async fn hide_main_window(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn get_sticky_context(
     state: State<'_, AppState>,
     label: String,
@@ -174,6 +179,7 @@ pub fn get_sticky_context(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn list_sticky_windows(app: AppHandle) -> Vec<String> {
     let mut labels: Vec<String> = app
         .webview_windows()

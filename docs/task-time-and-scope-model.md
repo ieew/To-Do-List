@@ -41,6 +41,8 @@
 | 分组 | `store.svelte.ts` → `groups` |
 | 计数 | `store.svelte.ts` → `countForList` |
 | 便利贴集合 | `store.svelte.ts` → `stickyTasks` |
+| 日历改期 | `store.svelte.ts` → `rescheduleTask` |
+| 统计时间范围 | `store.svelte.ts` → `statsRange` / `rangeTasks` |
 | 虚拟清单 id | `store.svelte.ts` → `ALL_LIST_ID = 'all'`、`get allListId()` |
 | 工作区刷新放行 | `store.svelte.ts` → `applyProjection`（`activeListId === 'all'` 时不清回「今天」） |
 
@@ -99,6 +101,8 @@ hasStarted(task, new Date(store.nowMs))
 
 - 切换侧栏清单 / 标签会同时影响以上所有视图；`setActiveList` 会把视图切回「今天（任务列表）」。
 - 日历仍以截止时间排布，但**只展示当前范围内的任务**；开始时间只决定任务是否进入「今天」范围。
+- **日历拖拽改期只写 `due_at`**：保留原 HH:mm，无截止时间时落 09:00；不联动 `remind_at`；允许 `due_at < start_at`，详情页仅软提示，不做拒绝。
+- **统计时间范围**（本周 / 本月 / 近 30 天 / 全部）按 `due_at` 归属；没有截止时间的任务只在「全部」范围出现。完成率仍按 `已完成 / 范围内任务` 四舍五入。
 
 ## 六、交互与文案
 
@@ -139,6 +143,8 @@ hasStarted(task, new Date(store.nowMs))
   - `TaskList.svelte`（空态文案）
   - `ProgressCard.svelte`（标题）
   - `TaskRow.svelte`（未开始标记）
+  - `CalendarView.svelte`（周/月视图、拖拽改期落点）
+  - `StatsView.svelte`（时间范围选择）
   - `DetailDrawer.svelte` / `QuickAddModal.svelte`（开始时间输入）
   - `CalendarView.svelte` / `StatsView.svelte`（统一用 `viewTasks`）
   - `StickyMode.svelte` / `FloatingSticky.svelte`（范围、标题、新建回落）

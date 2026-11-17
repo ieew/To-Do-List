@@ -16,7 +16,7 @@ use std::sync::Mutex;
 #[cfg(feature = "desktop")]
 use tauri::{AppHandle, Emitter};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "snake_case")]
 pub enum SyncStatus {
     SignedOut,
@@ -27,7 +27,7 @@ pub enum SyncStatus {
     AuthRequired,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct SyncStateDto {
     pub status: SyncStatus,
@@ -39,7 +39,7 @@ pub struct SyncStateDto {
     pub cursor: i64,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct SyncNoticeDto {
     /// `clock_skew` / `permission` / `auth` / `error`

@@ -45,6 +45,9 @@
 
 ## 三、输出 schema
 
+> **新版契约**：模型输出 `operations` 列表（创建 / 修改 / 子任务 / 标签 / 状态 / 删除），权威定义见 [`ai-intent-contract.md`](./ai-intent-contract.md) 与 [`shared/protocol/ai_intent.schema.json`](../shared/protocol/ai_intent.schema.json)。
+> 解析器同时兼容下面的旧版 `tasks[]` 形态，并自动转换为 `create_task` 操作。
+
 ```json
 {
   "tasks": [
@@ -90,7 +93,8 @@
 
 - 所有 AI 草案先进入预览页，列出标题、清单、优先级、截止时间、子任务数与标签。
 - 达到 `ai_confirm_threshold`（默认 10 条）时，预览后增加二次确认摘要，最多展示 5 条摘要与「还有 N 条」。
-- 确认后走正常 op 管道，`source="ai"`；不先写后撤。
+- **危险操作强制确认**：含 `set_status` / `delete_task` 时必须二次确认，且需要 `Settings.ai_allow_destructive=true`，否则 Rust 拒绝（`ai_destructive_disabled`）。
+- 确认后走正常 op 管道，`source="ai"`；不先写后撤。一次写入返回 `opIds`，toast 提供「撤销」批量回滚。
 
 ## 七、错误码与提示
 
@@ -122,6 +126,7 @@
 ## 十、图片输入（多模态扩展）
 
 - 支持粘贴截图和选择文件，一次最多 5 张，单张超过 10 MB 时客户端压缩或拒绝并提示。
+- **Windows 已实现**：最多 5 张；单张压缩到最长边 ≤1568px、JPEG 质量 0.85；压缩后 >5MB 或类型非图片时拒绝并提示；关闭弹窗即丢弃。
 - 图片仅发送给用户配置的模型端点，不经过服务端，不写入 `op_log`，不持久化为任务附件，不参与同步。
 - UI 必须提示「图片将发送给你配置的 AI 服务商进行解析」。
 - 模型输出必须为结构化意图，支持 `create_task_with_subtasks` 等批量结构；不符合 schema 的输出拒绝执行并记录本地日志。
@@ -144,6 +149,8 @@
 ## 十二、实现与测试落点
 
 - Rust 纯逻辑 crate：[`windows/src-tauri/ai-core/src/lib.rs`](../windows/src-tauri/ai-core/src/lib.rs)（提示词、JSON 提取、schema 归一化、端点拼接，无 Tauri 依赖）。
-- Tauri 命令层：[`windows/src-tauri/src/ai.rs`](../windows/src-tauri/src/ai.rs)（读取设置与 keyring、HTTP 调用、错误映射）。
-- 前端：[`windows/src/components/AiModal.svelte`](../windows/src/components/AiModal.svelte)（双 Tab、复制/打开/粘贴/解析/预览/确认）。
-- 单元测试：在 `windows/src-tauri/ai-core` 执行 `cargo test`，覆盖端点拼接、代码围栏/夹带文字 JSON 提取、字段归一化、未知清单回退与非法输出拒绝。
+- 意图契约与解析：[`windows/src-tauri/ai-core/src/intent.rs`](../windows/src-tauri/ai-core/src/intent.rs)（operations 解析、target 校验、危险操作识别）。
+- Tauri 命令层：[`windows/src-tauri/src/ai.rs`](../windows/src-tauri/src/ai.rs)（上下文、keyring、HTTP、`ai_plan` / `ai_parse_intent` / `ai_apply_plan`）。
+- 批量撤销：[`windows/src-tauri/src/commands.rs`](../windows/src-tauri/src/commands.rs) 的 `undo_ops`。
+- 前端：[`windows/src/components/AiIntentModal.svelte`](../windows/src/components/AiIntentModal.svelte)（输入/图片/预览/确认/撤销）。
+- 单元测试：在 `windows/src-tauri/ai-core` 执行 `cargo test`，覆盖端点拼接、JSON 提取、字段归一化、意图解析、非法 target、旧格式兼容。

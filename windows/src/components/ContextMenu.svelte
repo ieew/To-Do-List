@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { CalendarClock, History, Pin, Trash2 } from 'lucide-svelte';
+  import { BellPlus, CalendarClock, History, Pin, Trash2 } from 'lucide-svelte';
   import { store } from '../lib/store.svelte';
 
   function close(): void {
@@ -11,16 +11,17 @@
     close();
   }
 
+  const task = $derived(store.contextMenu ? store.taskById(store.contextMenu.taskId) : undefined);
+
   const position = $derived.by(() => {
     const menu = store.contextMenu;
     if (!menu || typeof window === 'undefined') return { left: 0, top: 0 };
+    const height = task?.remindAt ? 268 : 190;
     return {
       left: Math.min(menu.x, window.innerWidth - 200),
-      top: Math.min(menu.y, window.innerHeight - 190)
+      top: Math.min(menu.y, window.innerHeight - height)
     };
   });
-
-  const task = $derived(store.contextMenu ? store.taskById(store.contextMenu.taskId) : undefined);
 </script>
 
 <svelte:window onclick={close} onkeydown={(event) => event.key === 'Escape' && close()} />
@@ -39,6 +40,24 @@
       <CalendarClock size="14" />
       延期到明天
     </button>
+    {#if task.remindAt}
+      <button
+        class="menu-item"
+        role="menuitem"
+        onclick={() => run(() => store.snoozeReminder(task.id, 10))}
+      >
+        <BellPlus size="14" />
+        稍后提醒 10 分钟
+      </button>
+      <button
+        class="menu-item"
+        role="menuitem"
+        onclick={() => run(() => store.snoozeReminder(task.id, 60))}
+      >
+        <BellPlus size="14" />
+        稍后提醒 1 小时
+      </button>
+    {/if}
     <button class="menu-item" role="menuitem" onclick={() => run(() => store.openFloatingStickyWindow(task.id))}>
       <Pin size="14" />
       钉为便利贴

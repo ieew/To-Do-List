@@ -1,25 +1,34 @@
 <script lang="ts">
   import { Activity, CheckCircle2, Clock3, Sparkles } from 'lucide-svelte';
   import { store } from '../lib/store.svelte';
+  import type { StatsRange } from '../lib/types';
   import { isOverdue } from '../lib/utils';
 
-  const total = $derived(store.viewTasks.length);
-  const done = $derived(store.viewTasks.filter((t) => t.status === 'done').length);
+  const ranges: { value: StatsRange; label: string }[] = [
+    { value: 'week', label: '本周' },
+    { value: 'month', label: '本月' },
+    { value: '30d', label: '近 30 天' },
+    { value: 'all', label: '全部' }
+  ];
+
+  const rangeLabel = $derived(ranges.find((item) => item.value === store.statsRange)?.label ?? '全部');
+  const total = $derived(store.rangeTasks.length);
+  const done = $derived(store.rangeTasks.filter((t) => t.status === 'done').length);
   const pct = $derived(total === 0 ? 0 : Math.round((done / total) * 100));
-  const overdue = $derived(store.viewTasks.filter((t) => isOverdue(t)).length);
-  const aiCount = $derived(store.viewTasks.filter((t) => t.source === 'ai').length);
+  const overdue = $derived(store.rangeTasks.filter((t) => isOverdue(t)).length);
+  const aiCount = $derived(store.rangeTasks.filter((t) => t.source === 'ai').length);
 
   const priorityCounts = $derived({
-    high: store.viewTasks.filter((t) => t.priority === 'high').length,
-    mid: store.viewTasks.filter((t) => t.priority === 'mid').length,
-    low: store.viewTasks.filter((t) => t.priority === 'low').length
+    high: store.rangeTasks.filter((t) => t.priority === 'high').length,
+    mid: store.rangeTasks.filter((t) => t.priority === 'mid').length,
+    low: store.rangeTasks.filter((t) => t.priority === 'low').length
   });
 
   const listStats = $derived(
     store.lists
       .filter((list) => !list.smart)
       .map((list) => {
-        const tasks = store.viewTasks.filter((t) => t.listId === list.id);
+        const tasks = store.rangeTasks.filter((t) => t.listId === list.id);
         return {
           ...list,
           total: tasks.length,
@@ -36,9 +45,23 @@
   <div class="stats-head">
     <div>
       <h2>统计视图</h2>
-      <p>数据来自投影结果，并跟随侧栏当前选择范围（今天 / 全部 / 清单 / 标签）；完成率按「已完成 / 范围任务」实时计算。</p>
+      <p>数据来自投影结果，并跟随侧栏当前选择范围（今天 / 全部 / 清单 / 标签）；完成率按「已完成 / 范围内任务」实时计算。</p>
     </div>
-    <span class="fresh-chip"><Activity size="12" />实时</span>
+    <div class="stats-controls">
+      <div class="segmented" role="tablist" aria-label="统计时间范围">
+        {#each ranges as item (item.value)}
+          <button
+            class:is-active={store.statsRange === item.value}
+            role="tab"
+            aria-selected={store.statsRange === item.value}
+            onclick={() => (store.statsRange = item.value)}
+          >
+            {item.label}
+          </button>
+        {/each}
+      </div>
+      <span class="fresh-chip"><Activity size="12" />{rangeLabel}</span>
+    </div>
   </div>
 
   <div class="stat-cards">
@@ -166,6 +189,13 @@
     color: var(--color-text-2);
     font-size: var(--text-base);
     line-height: 1.65;
+  }
+
+  .stats-controls {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex-shrink: 0;
   }
 
   .fresh-chip {

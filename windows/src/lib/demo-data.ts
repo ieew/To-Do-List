@@ -63,6 +63,10 @@ export const defaultSettings: Settings = {
   notifications: true,
   reminderLead: 10,
   dndEnabled: false,
+  dndStart: '22:00',
+  dndEnd: '08:00',
+  closeToTray: true,
+  autoStart: false,
   defaultPriority: 'mid',
   confirmDelete: true,
   autoArchive: false,
@@ -71,5 +75,7 @@ export const defaultSettings: Settings = {
   aiEnabled: true,
   aiEndpoint: 'http://127.0.0.1:11434/v1',
   aiModel: 'qwen2.5-7b',
-  aiConfirmThreshold: 10
+  aiConfirmThreshold: 10,
+  aiAllowDestructive: false,
+  aiImageInput: true
 };

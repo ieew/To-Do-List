@@ -51,7 +51,7 @@ impl Op {
 
 /* ----------------------------- 投影输出 DTO ----------------------------- */
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct Subtask {
     pub id: String,
@@ -60,7 +60,7 @@ pub struct Subtask {
     pub order: f64,
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct Task {
     pub id: String,
@@ -81,7 +81,7 @@ pub struct Task {
     pub model: Option<String>,
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct TodoList {
     pub id: String,
@@ -91,7 +91,7 @@ pub struct TodoList {
     pub smart: Option<bool>,
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct Tag {
     pub id: String,
@@ -102,14 +102,14 @@ pub struct Tag {
     pub show_in_sidebar: Option<bool>,
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct Workspace {
     pub id: String,
     pub name: String,
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct Member {
     pub id: String,
@@ -120,7 +120,7 @@ pub struct Member {
     pub email: String,
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct HistoryDiff {
     pub kind: String,
@@ -130,7 +130,7 @@ pub struct HistoryDiff {
     pub text: Option<String>,
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct HistoryOp {
     pub id: String,
@@ -151,7 +151,7 @@ pub struct HistoryOp {
     pub system: bool,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 // 兼容旧版 preferences：新增字段缺失时回落到 Default，避免整份设置被重置。
 #[serde(default)]
@@ -163,6 +163,14 @@ pub struct Settings {
     pub notifications: bool,
     pub reminder_lead: i64,
     pub dnd_enabled: bool,
+    /// 免打扰开始时间，`HH:mm`（本地时区）。跨天表示跨越午夜，例如 22:00–08:00。
+    pub dnd_start: String,
+    /// 免打扰结束时间，`HH:mm`。
+    pub dnd_end: String,
+    /// 关闭主窗口时隐藏到托盘而不退出进程。
+    pub close_to_tray: bool,
+    /// 开机自启（写注册表 Run 项）。
+    pub auto_start: bool,
     pub default_priority: String,
     pub confirm_delete: bool,
     pub auto_archive: bool,
@@ -172,6 +180,10 @@ pub struct Settings {
     pub ai_endpoint: String,
     pub ai_model: String,
     pub ai_confirm_threshold: i64,
+    /// 允许 AI 修改任务完成状态与删除任务（危险操作仍需二次确认）。
+    pub ai_allow_destructive: bool,
+    /// 允许在 AI 助手中附加图片（仅发送给用户自配端点，不落盘）。
+    pub ai_image_input: bool,
 }
 
 impl Default for Settings {
@@ -183,6 +195,10 @@ impl Default for Settings {
             notifications: true,
             reminder_lead: 10,
             dnd_enabled: false,
+            dnd_start: "22:00".into(),
+            dnd_end: "08:00".into(),
+            close_to_tray: true,
+            auto_start: false,
             default_priority: "mid".into(),
             confirm_delete: true,
             auto_archive: false,
@@ -192,11 +208,13 @@ impl Default for Settings {
             ai_endpoint: "http://127.0.0.1:11434/v1".into(),
             ai_model: "qwen2.5-7b".into(),
             ai_confirm_threshold: 10,
+            ai_allow_destructive: false,
+            ai_image_input: true,
         }
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct Projection {
     pub active_workspace_id: String,
@@ -378,6 +396,62 @@ impl State {
     fn meta(&self, entity_type: &str, entity_id: &str) -> Option<&EntityMeta> {
         self.meta
             .get(&(entity_type.to_string(), entity_id.to_string()))
+    }
+}
+
+/// 增量投影缓存：按 workspace 保存 reducer 状态，只应用水位之后的 op。
+///
+/// 缓存只影响读取性能，不改变裁决；被拒 op 或清库时由调用方整体清空。
+pub struct ProjectionCache {
+    state: State,
+    watermark: i64,
+}
+
+impl ProjectionCache {
+    pub fn new() -> Self {
+        Self {
+            state: State::default(),
+            watermark: 0,
+        }
+    }
+
+    /// 已应用的 `op_log.rowid` 水位。
+    pub fn watermark(&self) -> i64 {
+        self.watermark
+    }
+
+    pub fn apply(&mut self, ops: &[Op]) {
+        for op in ops {
+            self.state.apply(op);
+        }
+    }
+
+    pub fn set_watermark(&mut self, value: i64) {
+        if value > self.watermark {
+            self.watermark = value;
+        }
+    }
+
+    pub fn project(
+        &self,
+        requested_workspace: Option<&str>,
+        current_user: &str,
+        settings: Settings,
+        ai_key_configured: bool,
+    ) -> Projection {
+        Projection::from_state(
+            &self.state,
+            requested_workspace,
+            current_user,
+            settings,
+            ai_key_configured,
+        )
+    }
+}
+
+impl Default for ProjectionCache {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -607,7 +681,8 @@ fn build_history(
 
         let undoable = op.operation == "set"
             && op.field != "__created"
-            && op.field != "__deleted"
+            // AI 删除走 `__deleted` 墓碑；允许从历史里整体回滚 AI 批次。
+            && (op.field != "__deleted" || op.source == "ai")
             && op.source != "system"
             && op.field != "__undo_of";
 
@@ -656,6 +731,22 @@ impl Projection {
             state.apply(op);
         }
 
+        Self::from_state(
+            &state,
+            requested_workspace,
+            current_user,
+            settings,
+            ai_key_configured,
+        )
+    }
+
+    fn from_state(
+        state: &State,
+        requested_workspace: Option<&str>,
+        current_user: &str,
+        settings: Settings,
+        ai_key_configured: bool,
+    ) -> Self {
         // 工作区：当前用户拥有有效 membership 的 workspace。
         let mut workspaces: Vec<Workspace> = state
             .meta

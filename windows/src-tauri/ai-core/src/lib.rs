@@ -6,6 +6,9 @@ use chrono::{DateTime, Datelike, Local, Weekday};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+mod intent;
+pub use intent::*;
+
 pub const MAX_TASKS: usize = 50;
 pub const MAX_TITLE_CHARS: usize = 120;
 pub const MAX_SUBTASKS: usize = 20;
@@ -26,7 +29,7 @@ pub const PROMPT_RULES: &str = r#"你是一个待办任务规划助手。请根�
 10. 不要输出无法被 JSON 解析的内容。"#;
 
 /// 归一化后的 AI 任务草案。字段名与前端 `AiPlanItem` 保持一致。
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct AiPlanItem {
     pub title: String,
@@ -38,7 +41,7 @@ pub struct AiPlanItem {
     pub tag_ids: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct AiPlanResponse {
     pub tasks: Vec<AiPlanItem>,
@@ -58,10 +61,32 @@ pub struct TagRef {
     pub name: String,
 }
 
+/// 已有子任务快照，供对话式修改校验 subtask_id。
+#[derive(Debug, Clone)]
+pub struct SubtaskRef {
+    pub id: String,
+    pub text: String,
+    pub done: bool,
+}
+
+/// 已有任务快照。AI 只能引用这里出现过的 task_id，禁止模型凭空猜测。
+#[derive(Debug, Clone)]
+pub struct TaskRef {
+    pub id: String,
+    pub title: String,
+    pub status: String,
+    pub priority: String,
+    pub list_id: String,
+    pub due_at: Option<String>,
+    pub tag_ids: Vec<String>,
+    pub subtasks: Vec<SubtaskRef>,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct PlanContext {
     pub lists: Vec<ListRef>,
     pub tags: Vec<TagRef>,
+    pub tasks: Vec<TaskRef>,
     pub default_priority: String,
 }
 
@@ -604,6 +629,7 @@ mod tests {
                 id: "me-tag-work".into(),
                 name: "工作".into(),
             }],
+            tasks: vec![],
             default_priority: "mid".into(),
         }
     }

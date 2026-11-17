@@ -7,6 +7,7 @@ use anyhow::{Context, Result};
 use chrono::Local;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
@@ -162,6 +163,22 @@ fn migrate(conn: &Connection) -> Result<()> {
             key   TEXT PRIMARY KEY,
             value TEXT NOT NULL
         );
+
+        -- 提醒是设备本地态：last_fired_at 记录「已触发过的 remind_at 值」，
+        -- snooze_until 记录稍后提醒的目标时刻。两者都不进 op_log、不同步。
+        CREATE TABLE IF NOT EXISTS task_local (
+            task_id       TEXT PRIMARY KEY,
+            last_fired_at INTEGER,
+            snooze_until  INTEGER
+        );
+
+        -- 免打扰期间被压下的提醒，等免打扰结束后合并补弹一次。
+        CREATE TABLE IF NOT EXISTS reminder_deferred (
+            task_id     TEXT NOT NULL,
+            remind_at   INTEGER NOT NULL,
+            deferred_at INTEGER NOT NULL,
+            PRIMARY KEY (task_id, remind_at)
+        );
         "#,
     )?;
 
@@ -225,6 +242,23 @@ pub fn load_ops(conn: &Connection) -> Result<Vec<Op>> {
 /// 导出/排障用：包含被拒 op。
 pub fn load_all_ops(conn: &Connection) -> Result<Vec<Op>> {
     load_ops_where(conn, "")
+}
+
+/// 增量投影：只加载 `rowid` 水位之后的 op（跳过被拒 op），按写入顺序返回。
+pub fn load_ops_after(conn: &Connection, after_rowid: i64) -> Result<Vec<Op>> {
+    load_ops_where(
+        conn,
+        &format!("WHERE sync_state <> 'rejected' AND rowid > {after_rowid} ORDER BY rowid"),
+    )
+}
+
+/// 当前 `op_log` 的最大 rowid，用作增量投影水位。
+pub fn max_op_rowid(conn: &Connection) -> Result<i64> {
+    Ok(conn.query_row(
+        "SELECT COALESCE(MAX(rowid), 0) FROM op_log",
+        [],
+        |row| row.get(0),
+    )?)
 }
 
 fn load_ops_where(conn: &Connection, filter: &str) -> Result<Vec<Op>> {
@@ -571,6 +605,118 @@ pub fn load_settings(conn: &Connection) -> Settings {
 
 pub fn save_settings(conn: &Connection, settings: &Settings) -> Result<()> {
     pref_set(conn, "settings", &serde_json::to_string(settings)?)
+}
+
+/* --------------------------- 提醒本地态 --------------------------- */
+
+/// 单条任务的提醒本地态。
+#[derive(Clone, Copy, Debug, Default)]
+pub struct TaskLocal {
+    /// 已触发过的 `remind_at` 值（毫秒），用于幂等；不是触发时刻。
+    pub last_fired_at: Option<i64>,
+    /// 稍后提醒的目标时刻（毫秒）。
+    pub snooze_until: Option<i64>,
+}
+
+pub fn task_local_get(conn: &Connection, task_id: &str) -> Result<TaskLocal> {
+    let row = conn
+        .query_row(
+            "SELECT last_fired_at, snooze_until FROM task_local WHERE task_id = ?1",
+            params![task_id],
+            |row| {
+                Ok(TaskLocal {
+                    last_fired_at: row.get(0)?,
+                    snooze_until: row.get(1)?,
+                })
+            },
+        )
+        .optional()?;
+    Ok(row.unwrap_or_default())
+}
+
+pub fn task_local_all(conn: &Connection) -> Result<HashMap<String, TaskLocal>> {
+    let mut stmt = conn.prepare("SELECT task_id, last_fired_at, snooze_until FROM task_local")?;
+    let rows = stmt.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            TaskLocal {
+                last_fired_at: row.get(1)?,
+                snooze_until: row.get(2)?,
+            },
+        ))
+    })?;
+    let mut map = HashMap::new();
+    for row in rows {
+        let (task_id, local) = row?;
+        map.insert(task_id, local);
+    }
+    Ok(map)
+}
+
+/// 标记某条 `remind_at` 已触发，并清空稍后提醒。
+pub fn mark_reminder_fired(conn: &Connection, task_id: &str, remind_at_ms: i64) -> Result<()> {
+    conn.execute(
+        "INSERT INTO task_local (task_id, last_fired_at, snooze_until)
+         VALUES (?1, ?2, NULL)
+         ON CONFLICT(task_id) DO UPDATE SET
+             last_fired_at = MAX(COALESCE(last_fired_at, 0), excluded.last_fired_at),
+             snooze_until = NULL",
+        params![task_id, remind_at_ms],
+    )?;
+    Ok(())
+}
+
+/// 稍后提醒：清掉已触发标记，让同一条 `remind_at` 在目标时刻再次触发。
+pub fn set_reminder_snooze(conn: &Connection, task_id: &str, until_ms: i64) -> Result<()> {
+    conn.execute(
+        "INSERT INTO task_local (task_id, last_fired_at, snooze_until)
+         VALUES (?1, NULL, ?2)
+         ON CONFLICT(task_id) DO UPDATE SET
+             last_fired_at = NULL,
+             snooze_until = ?2",
+        params![task_id, until_ms],
+    )?;
+    Ok(())
+}
+
+pub fn clear_task_local(conn: &Connection, task_id: &str) -> Result<()> {
+    conn.execute("DELETE FROM task_local WHERE task_id = ?1", params![task_id])?;
+    conn.execute(
+        "DELETE FROM reminder_deferred WHERE task_id = ?1",
+        params![task_id],
+    )?;
+    Ok(())
+}
+
+pub fn add_deferred_reminder(
+    conn: &Connection,
+    task_id: &str,
+    remind_at_ms: i64,
+    now_ms: i64,
+) -> Result<()> {
+    conn.execute(
+        "INSERT OR IGNORE INTO reminder_deferred (task_id, remind_at, deferred_at)
+         VALUES (?1, ?2, ?3)",
+        params![task_id, remind_at_ms, now_ms],
+    )?;
+    Ok(())
+}
+
+pub fn deferred_reminders(conn: &Connection) -> Result<Vec<(String, i64)>> {
+    let mut stmt = conn.prepare(
+        "SELECT task_id, remind_at FROM reminder_deferred ORDER BY remind_at, task_id",
+    )?;
+    let rows = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+    let mut items = Vec::new();
+    for row in rows {
+        items.push(row?);
+    }
+    Ok(items)
+}
+
+pub fn clear_deferred_reminders(conn: &Connection) -> Result<()> {
+    conn.execute("DELETE FROM reminder_deferred", [])?;
+    Ok(())
 }
 
 /// 同步引擎与测试用的投影入口：不需要 Tauri 的 AI 密钥状态。
@@ -1033,7 +1179,7 @@ fn seed_tag(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core_domain::Projection;
+    use crate::core_domain::{Projection, ProjectionCache};
 
     fn build_for(conn: &Connection, workspace: &str) -> Projection {
         Projection::build(
@@ -1127,6 +1273,70 @@ mod tests {
         assert_eq!(rejected_count(&conn).expect("统计失败"), 1);
         let projection = build_for(&conn, &workspace);
         assert_eq!(projection.workspaces.len(), 1);
+    }
+
+    #[test]
+    fn projection_cache_matches_full_build() {
+        let conn = Connection::open_in_memory().expect("打开内存库失败");
+        migrate(&conn).expect("建表失败");
+        let workspace = seed_test_workspace(&conn);
+
+        let full = build_for(&conn, &workspace);
+        let mut cache = ProjectionCache::new();
+        let first = load_ops_after(&conn, 0).expect("读取 op 失败");
+        cache.apply(&first);
+        cache.set_watermark(max_op_rowid(&conn).expect("水位失败"));
+        let cached = cache.project(Some(&workspace), "u-me", Settings::default(), false);
+
+        assert_eq!(cached.workspaces.len(), full.workspaces.len());
+        assert_eq!(cached.lists.len(), full.lists.len());
+        assert_eq!(cached.tags.len(), full.tags.len());
+        assert_eq!(cached.tasks.len(), full.tasks.len());
+        assert_eq!(
+            cached
+                .lists
+                .iter()
+                .map(|list| list.name.clone())
+                .collect::<Vec<_>>(),
+            full.lists
+                .iter()
+                .map(|list| list.name.clone())
+                .collect::<Vec<_>>()
+        );
+
+        // 追加一条 op 后，增量路径应得到与全量重建相同的结果。
+        let device = device_id(&conn).expect("设备 id 失败");
+        seed_set(
+            &conn,
+            &device,
+            "u-me",
+            &workspace,
+            "workspace",
+            &workspace,
+            "name",
+            json!("测试空间改名"),
+            "human",
+            None,
+        )
+        .expect("追加 op 失败");
+
+        let after = cache.watermark();
+        cache.apply(&load_ops_after(&conn, after).expect("增量读取失败"));
+        cache.set_watermark(max_op_rowid(&conn).expect("水位失败"));
+        let incremental = cache.project(Some(&workspace), "u-me", Settings::default(), false);
+        let rebuilt = build_for(&conn, &workspace);
+        assert_eq!(
+            incremental
+                .workspaces
+                .iter()
+                .map(|item| item.name.clone())
+                .collect::<Vec<_>>(),
+            rebuilt
+                .workspaces
+                .iter()
+                .map(|item| item.name.clone())
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]

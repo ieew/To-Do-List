@@ -1,0 +1,140 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://todo.local/protocol/ai_intent.schema.json",
+  "title": "AI 意图操作（intent v1）",
+  "description": "模型输出与本机写入通道共用的操作契约。客户端只接受 operations 列表，禁止模型直接给出最终任务快照。字段命名以 camelCase 为规范，解析器兼容 snake_case 别名。",
+  "type": "object",
+  "required": ["intent_version", "operations"],
+  "additionalProperties": false,
+  "properties": {
+    "intent_version": { "const": 1 },
+    "reply": { "type": "string", "maxLength": 500 },
+    "operations": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 50,
+      "items": { "$ref": "#/$defs/operation" }
+    }
+  },
+  "$defs": {
+    "operation": {
+      "oneOf": [
+        { "$ref": "#/$defs/create_task" },
+        { "$ref": "#/$defs/update_fields" },
+        { "$ref": "#/$defs/add_subtasks" },
+        { "$ref": "#/$defs/set_subtask_done" },
+        { "$ref": "#/$defs/add_tags" },
+        { "$ref": "#/$defs/remove_tags" },
+        { "$ref": "#/$defs/set_status" },
+        { "$ref": "#/$defs/delete_task" }
+      ]
+    },
+    "priority": { "enum": ["high", "mid", "low"] },
+    "task_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "subtask_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "tag_id": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "create_task": {
+      "type": "object",
+      "required": ["op", "title"],
+      "additionalProperties": false,
+      "properties": {
+        "op": { "const": "create_task" },
+        "tempId": { "type": "string", "maxLength": 32 },
+        "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "notes": { "type": "string", "maxLength": 2000 },
+        "priority": { "$ref": "#/$defs/priority" },
+        "listId": { "type": "string", "maxLength": 64 },
+        "dueAt": { "type": ["string", "null"], "maxLength": 64 },
+        "tags": { "type": "array", "maxItems": 20, "items": { "type": "string" } },
+        "subtasks": { "type": "array", "maxItems": 20, "items": { "type": "string", "maxLength": 500 } }
+      }
+    },
+    "update_fields": {
+      "type": "object",
+      "required": ["op", "taskId"],
+      "additionalProperties": false,
+      "properties": {
+        "op": { "const": "update_fields" },
+        "taskId": { "$ref": "#/$defs/task_id" },
+        "patch": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "title": { "type": "string", "minLength": 1, "maxLength": 500 },
+            "notes": { "type": ["string", "null"], "maxLength": 20000 },
+            "startAt": { "type": ["string", "null"], "maxLength": 64 },
+            "dueAt": { "type": ["string", "null"], "maxLength": 64 },
+            "remindAt": { "type": ["string", "null"], "maxLength": 64 },
+            "priority": { "$ref": "#/$defs/priority" },
+            "listId": { "type": "string", "maxLength": 64 }
+          }
+        },
+        "clearFields": {
+          "type": "array",
+          "items": { "enum": ["notes", "startAt", "dueAt", "remindAt"] },
+          "uniqueItems": true
+        }
+      }
+    },
+    "add_subtasks": {
+      "type": "object",
+      "required": ["op", "taskId", "subtasks"],
+      "additionalProperties": false,
+      "properties": {
+        "op": { "const": "add_subtasks" },
+        "taskId": { "$ref": "#/$defs/task_id" },
+        "subtasks": { "type": "array", "minItems": 1, "maxItems": 20, "items": { "type": "string", "maxLength": 500 } }
+      }
+    },
+    "set_subtask_done": {
+      "type": "object",
+      "required": ["op", "taskId", "subtaskId", "done"],
+      "additionalProperties": false,
+      "properties": {
+        "op": { "const": "set_subtask_done" },
+        "taskId": { "$ref": "#/$defs/task_id" },
+        "subtaskId": { "$ref": "#/$defs/subtask_id" },
+        "done": { "type": "boolean" }
+      }
+    },
+    "add_tags": {
+      "type": "object",
+      "required": ["op", "taskId", "tagIds"],
+      "additionalProperties": false,
+      "properties": {
+        "op": { "const": "add_tags" },
+        "taskId": { "$ref": "#/$defs/task_id" },
+        "tagIds": { "type": "array", "minItems": 1, "maxItems": 20, "items": { "$ref": "#/$defs/tag_id" } }
+      }
+    },
+    "remove_tags": {
+      "type": "object",
+      "required": ["op", "taskId", "tagIds"],
+      "additionalProperties": false,
+      "properties": {
+        "op": { "const": "remove_tags" },
+        "taskId": { "$ref": "#/$defs/task_id" },
+        "tagIds": { "type": "array", "minItems": 1, "maxItems": 20, "items": { "$ref": "#/$defs/tag_id" } }
+      }
+    },
+    "set_status": {
+      "type": "object",
+      "required": ["op", "taskId", "status"],
+      "additionalProperties": false,
+      "properties": {
+        "op": { "const": "set_status" },
+        "taskId": { "$ref": "#/$defs/task_id" },
+        "status": { "enum": ["todo", "done"] }
+      }
+    },
+    "delete_task": {
+      "type": "object",
+      "required": ["op", "taskId"],
+      "additionalProperties": false,
+      "properties": {
+        "op": { "const": "delete_task" },
+        "taskId": { "$ref": "#/$defs/task_id" }
+      }
+    }
+  }
+}
