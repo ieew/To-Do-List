@@ -48,6 +48,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.todo.android.core.designsystem.AiBadge
 import com.todo.android.core.designsystem.DateTimePickerDialog
 import com.todo.android.core.designsystem.EditDialog
+import com.todo.android.core.designsystem.InlineWarning
 import com.todo.android.core.designsystem.TagChip
 import com.todo.android.core.designsystem.TodoCheckbox
 import com.todo.android.core.designsystem.TodoTheme
@@ -87,7 +88,9 @@ fun TaskDetailScreen(
     var listOpen by remember { mutableStateOf(false) }
     var tagsOpen by remember { mutableStateOf(false) }
     var subtaskOpen by remember { mutableStateOf(false) }
-    var deleteOpen by remember { mutableStateOf(false) }
+    var confirmDelete by remember { mutableStateOf(false) }
+    // 切到另一条任务时重置两步确认状态
+    LaunchedEffect(taskId) { confirmDelete = false }
 
     Box(modifier = modifier.fillMaxSize().background(colors.bg).imePadding()) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -171,29 +174,42 @@ fun TaskDetailScreen(
                 item { Spacer(Modifier.height(96.dp)) }
             }
 
-            Row(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(colors.card)
                     .padding(horizontal = 16.dp, vertical = 10.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                DetailButton(
-                    text = if (state.isNew) "取消" else "删除",
-                    primary = false,
-                    danger = !state.isNew,
-                    modifier = Modifier.weight(1f),
-                    onClick = {
-                        if (state.isNew) viewModel.cancel() else deleteOpen = true
-                    },
-                )
-                DetailButton(
-                    text = if (state.isNew) "创建" else "保存",
-                    primary = true,
-                    danger = false,
-                    modifier = Modifier.weight(1f),
-                    onClick = viewModel::save,
-                )
+                if (confirmDelete) {
+                    InlineWarning("再次点击「确认删除」将从当前工作区移除该任务，可在历史里撤销。")
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    DetailButton(
+                        text = when {
+                            state.isNew -> "取消"
+                            confirmDelete -> "确认删除"
+                            else -> "删除"
+                        },
+                        primary = false,
+                        danger = !state.isNew,
+                        modifier = Modifier.weight(1f),
+                        onClick = {
+                            when {
+                                state.isNew -> viewModel.cancel()
+                                !confirmDelete -> confirmDelete = true
+                                else -> viewModel.delete()
+                            }
+                        },
+                    )
+                    DetailButton(
+                        text = if (state.isNew) "创建" else "保存",
+                        primary = true,
+                        danger = false,
+                        modifier = Modifier.weight(1f),
+                        onClick = viewModel::save,
+                    )
+                }
             }
         }
 
@@ -275,24 +291,6 @@ fun TaskDetailScreen(
                 viewModel.addSubtask(text)
                 subtaskOpen = false
                 true
-            },
-        )
-    }
-
-    if (deleteOpen) {
-        AlertDialog(
-            onDismissRequest = { deleteOpen = false },
-            containerColor = colors.card,
-            title = { Text("删除任务", style = Tokens.Type.pageTitle) },
-            text = { Text("删除后可在历史中用更高 HLC 的反向 op 撤销。", style = Tokens.Type.body) },
-            confirmButton = {
-                TextButton(onClick = {
-                    deleteOpen = false
-                    viewModel.delete()
-                }) { Text("删除", color = colors.danger) }
-            },
-            dismissButton = {
-                TextButton(onClick = { deleteOpen = false }) { Text("取消", color = colors.text2) }
             },
         )
     }

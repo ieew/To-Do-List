@@ -156,12 +156,13 @@ class AiViewModel @Inject constructor(
     fun requestWrite() {
         val intent = local.value.intent ?: return
         val threshold = settingsThreshold()
-        // 危险操作（删除 / 标记完成）无论多少条都弹确认，其余按阈值。
-        if (intent.hasDangerous || intent.operations.size >= threshold) {
+        // 危险操作（删除 / 标记完成）无论多少条都需两步确认，其余按阈值。
+        val needConfirm = intent.hasDangerous || intent.operations.size >= threshold
+        if (needConfirm && !local.value.confirmPending) {
             local.value = local.value.copy(confirmPending = true)
-        } else {
-            writeNow()
+            return
         }
+        writeNow()
     }
 
     fun confirmWrite() {
@@ -174,7 +175,7 @@ class AiViewModel @Inject constructor(
     }
 
     fun cancelPlan() {
-        local.value = local.value.copy(intent = null, error = null)
+        local.value = local.value.copy(intent = null, error = null, confirmPending = false)
     }
 
     fun showToast(message: String?) {
@@ -204,7 +205,7 @@ class AiViewModel @Inject constructor(
                 }
                 append("；可在任务历史里逐条撤销")
             }
-            local.value = local.value.copy(intent = null, toast = message)
+            local.value = local.value.copy(intent = null, toast = message, confirmPending = false)
         }
     }
 

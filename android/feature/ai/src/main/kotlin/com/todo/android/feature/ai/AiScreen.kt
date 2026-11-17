@@ -25,10 +25,8 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Image
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -43,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.todo.android.core.ai.AiOperation
+import com.todo.android.core.designsystem.InlineWarning
 import com.todo.android.core.designsystem.SegmentedControl
 import com.todo.android.core.designsystem.StatusBadge
 import com.todo.android.core.designsystem.TagChip
@@ -290,19 +289,24 @@ fun AiScreen(
             }
 
             if (state.intent != null) {
-                Row(
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(colors.card)
                         .padding(horizontal = 16.dp, vertical = 10.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    FooterButton("取消", false, Modifier.weight(1f)) { viewModel.cancelPlan() }
-                    FooterButton(
-                        "执行 ${state.intent?.operations?.size ?: 0} 条操作",
-                        true,
-                        Modifier.weight(1f),
-                    ) { viewModel.requestWrite() }
+                    if (state.confirmPending) {
+                        InlineWarning("其中包含删除或完成标记，再次点击「确认执行」生效。")
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        FooterButton("取消", false, Modifier.weight(1f)) { viewModel.cancelPlan() }
+                        FooterButton(
+                            if (state.confirmPending) "确认执行" else "执行 ${state.intent?.operations?.size ?: 0} 条操作",
+                            true,
+                            Modifier.weight(1f),
+                        ) { viewModel.requestWrite() }
+                    }
                 }
             }
         }
@@ -318,34 +322,6 @@ fun AiScreen(
             delay(2200)
             showImagesHint = false
         }
-    }
-
-    if (state.confirmPending) {
-        val intent = state.intent
-        AlertDialog(
-            onDismissRequest = viewModel::dismissConfirm,
-            containerColor = colors.card,
-            title = { Text("AI 想执行 ${intent?.operations?.size ?: 0} 条操作", style = Tokens.Type.pageTitle) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    intent?.operations?.take(6)?.forEach {
-                        Text("· ${it.summary}", style = Tokens.Type.body, color = colors.text)
-                    }
-                    if ((intent?.operations?.size ?: 0) > 6) {
-                        Text("…还有 ${(intent?.operations?.size ?: 0) - 6} 条", style = Tokens.Type.meta, color = colors.text3)
-                    }
-                    if (intent?.hasDangerous == true) {
-                        Text("其中包含删除或完成标记，请确认", style = Tokens.Type.meta, color = colors.danger)
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = viewModel::confirmWrite) { Text("确认执行", color = colors.primary) }
-            },
-            dismissButton = {
-                TextButton(onClick = viewModel::dismissConfirm) { Text("取消", color = colors.text2) }
-            },
-        )
     }
 }
 

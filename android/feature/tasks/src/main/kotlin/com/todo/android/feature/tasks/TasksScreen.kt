@@ -27,7 +27,6 @@ import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -59,6 +58,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.todo.android.core.designsystem.EditDialog
 import com.todo.android.core.designsystem.EmptyState
 import com.todo.android.core.designsystem.GradientProgress
+import com.todo.android.core.designsystem.InlineWarning
 import com.todo.android.core.designsystem.QuickAddRow
 import com.todo.android.core.designsystem.SectionTitle
 import com.todo.android.core.designsystem.SkeletonScreen
@@ -616,6 +616,20 @@ private fun WorkspaceSheet(
                     }
                 }
             }
+            if (deleteTarget?.id == workspace.id) {
+                Column(modifier = Modifier.padding(bottom = 8.dp)) {
+                    InlineWarning("删除「${workspace.name}」后，服务端会将其标记为已删除；本地数据不会立刻消失。")
+                    TextButton(
+                        onClick = {
+                            onDelete(workspace.id)
+                            deleteTarget = null
+                        },
+                        modifier = Modifier.align(Alignment.End),
+                    ) {
+                        Text("确认删除", style = Tokens.Type.chip, color = colors.danger)
+                    }
+                }
+            }
         }
 
         if (workspaces.size <= 1) {
@@ -682,26 +696,6 @@ private fun WorkspaceSheet(
                     false
                 }
             },
-        )
-    }
-
-    deleteTarget?.let { target ->
-        AlertDialog(
-            onDismissRequest = { deleteTarget = null },
-            title = { Text("删除工作区", style = Tokens.Type.pageTitle) },
-            text = { Text("删除「${target.name}」后，本地数据不会立即消失，但服务端会将其标记为已删除。", style = Tokens.Type.body) },
-            confirmButton = {
-                TextButton(onClick = {
-                    onDelete(target.id)
-                    deleteTarget = null
-                }) {
-                    Text("删除", color = colors.danger)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { deleteTarget = null }) { Text("取消", color = colors.text2) }
-            },
-            containerColor = colors.card,
         )
     }
 }
