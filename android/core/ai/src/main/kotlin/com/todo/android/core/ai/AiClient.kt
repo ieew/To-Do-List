@@ -35,75 +35,8 @@ class AiClient @Inject constructor(
         .writeTimeout(30, TimeUnit.SECONDS)
         .build()
 
-    suspend fun generate(
-        endpoint: String,
-        model: String,
-        prompt: String,
-        imageDataUrls: List<String> = emptyList(),
-    ): AiDraftResult = withContext(Dispatchers.IO) {
-        val key = keyStore.read()
-            ?: return@withContext AiDraftResult.Failure("ai_key_missing", "请先在设置中配置 API 密钥")
-        val url = endpoint.trim().trimEnd('/') + "/chat/completions"
-
-        val userContent = buildJsonArray {
-            add(buildJsonObject { put("type", "text"); put("text", prompt) })
-            imageDataUrls.take(5).forEach { dataUrl ->
-                add(
-                    buildJsonObject {
-                        put("type", "image_url")
-                        put("image_url", buildJsonObject { put("url", dataUrl) })
-                    },
-                )
-            }
-        }
-        val payload = buildJsonObject {
-            put("model", model)
-            put("temperature", 0.2)
-            put("stream", false)
-            put("response_format", buildJsonObject { put("type", "json_object") })
-            put(
-                "messages",
-                buildJsonArray {
-                    add(buildJsonObject { put("role", "system"); put("content", SYSTEM_PROMPT) })
-                    add(buildJsonObject { put("role", "user"); put("content", userContent) })
-                },
-            )
-        }
-        val request = Request.Builder()
-            .url(url)
-            .addHeader("Authorization", "Bearer $key")
-            .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
-            .build()
-
-        runCatching { client.newCall(request).execute() }.fold(
-            onSuccess = { response ->
-                response.use {
-                    val body = it.body.string()
-                    if (!it.isSuccessful) {
-                        return@withContext AiDraftResult.Failure(
-                            code = "ai_http_${it.code}",
-                            message = parseErrorMessage(body) ?: "AI 请求失败（${it.code}）",
-                        )
-                    }
-                    val content = extractContent(body)
-                        ?: return@withContext AiDraftResult.Failure("ai_schema_error", "AI 返回格式不正确，已忽略")
-                    val tasks = runCatching {
-                        json.decodeFromString(AiDraftResponse.serializer(), content).tasks
-                    }.getOrNull()
-                        ?: return@withContext AiDraftResult.Failure("ai_schema_error", "AI 返回格式不正确，已忽略")
-                    if (tasks.isEmpty()) {
-                        return@withContext AiDraftResult.Failure("ai_empty", "AI 没有返回可写入的任务")
-                    }
-                    AiDraftResult.Success(tasks = tasks, raw = content)
-                }
-            },
-            onFailure = { AiDraftResult.Failure("network_error", "网络连接失败，请稍后重试") },
-        )
-    }
-
     /**
      * 意图通道：system 提示词带工作区快照，返回原始 JSON 文本。
-     * 与 [generate] 只有 system prompt 与返回值不同，HTTP 细节一致。
      */
     suspend fun generateIntent(
         endpoint: String,

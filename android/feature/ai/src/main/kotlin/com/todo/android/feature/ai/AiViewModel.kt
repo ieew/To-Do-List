@@ -165,15 +165,6 @@ class AiViewModel @Inject constructor(
         writeNow()
     }
 
-    fun confirmWrite() {
-        local.value = local.value.copy(confirmPending = false)
-        writeNow()
-    }
-
-    fun dismissConfirm() {
-        local.value = local.value.copy(confirmPending = false)
-    }
-
     fun cancelPlan() {
         local.value = local.value.copy(intent = null, error = null, confirmPending = false)
     }
