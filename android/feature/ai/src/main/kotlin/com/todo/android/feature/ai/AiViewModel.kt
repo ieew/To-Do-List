@@ -2,7 +2,6 @@ package com.todo.android.feature.ai
 
 import android.content.Context
 import android.net.Uri
-import android.util.Base64
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.todo.android.core.ai.AiClient
@@ -94,13 +93,13 @@ class AiViewModel @Inject constructor(
 
     fun addImage(uri: Uri) {
         viewModelScope.launch {
-            if (local.value.imageDataUrls.size >= 5) {
-                local.value = local.value.copy(toast = "最多添加 5 张图片")
+            if (local.value.imageDataUrls.size >= ImageCompressor.MAX_IMAGES) {
+                local.value = local.value.copy(toast = "最多添加 ${ImageCompressor.MAX_IMAGES} 张图片")
                 return@launch
             }
-            val dataUrl = withContext(Dispatchers.IO) { encode(uri) }
+            val dataUrl = withContext(Dispatchers.IO) { ImageCompressor.encode(context, uri) }
             if (dataUrl == null) {
-                local.value = local.value.copy(toast = "图片读取失败")
+                local.value = local.value.copy(toast = "图片读取失败或压缩后仍超过 5MB")
             } else {
                 local.value = local.value.copy(imageDataUrls = local.value.imageDataUrls + dataUrl)
             }
@@ -203,10 +202,4 @@ class AiViewModel @Inject constructor(
     private fun settingsThreshold(): Int = currentSettings().aiConfirmThreshold.takeIf { it >= 1 } ?: 10
 
     private fun currentSettings(): AppSettings = settingsStore.currentSync()
-
-    private fun encode(uri: Uri): String? = runCatching {
-        val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return null
-        val mime = context.contentResolver.getType(uri) ?: "image/jpeg"
-        "data:$mime;base64," + Base64.encodeToString(bytes, Base64.NO_WRAP)
-    }.getOrNull()
 }
