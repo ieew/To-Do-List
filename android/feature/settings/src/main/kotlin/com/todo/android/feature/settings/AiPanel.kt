@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import com.todo.android.core.designsystem.EditDialog
 import com.todo.android.core.designsystem.SettingDivider
 import com.todo.android.core.designsystem.SettingRow
+import com.todo.android.core.designsystem.SegmentedControl
 import com.todo.android.core.designsystem.SettingsGroup
 import com.todo.android.core.designsystem.TodoSwitch
 import com.todo.android.core.designsystem.TodoTheme
@@ -76,6 +77,21 @@ internal fun AiPanel(state: SettingsUiState, viewModel: SettingsViewModel) {
             title = "批量确认阈值",
             description = "一次写入 ≥ ${state.settings.aiConfirmThreshold} 条时先弹确认摘要",
             onClick = { thresholdOpen = true },
+        )
+    }
+
+    SettingsGroup(title = "任务召回") {
+        SettingRow(
+            title = "召回条数",
+            description = "按时间接近度排序后，最多带 ${state.settings.aiRecallLimit} 条相关任务进上下文" +
+                "（任务很多时可适当调大，但会增加 token）",
+            trailing = {
+                SegmentedControl(
+                    options = RECALL_OPTIONS.map { it.toString() },
+                    selectedIndex = RECALL_OPTIONS.indexOf(state.settings.aiRecallLimit).coerceAtLeast(0),
+                    onSelected = { viewModel.setAiRecallLimit(RECALL_OPTIONS[it]) },
+                )
+            },
         )
     }
 
@@ -225,3 +241,6 @@ private fun KeyDialog(
         },
     )
 }
+
+/** 召回条数可选项（默认 20，与 `TaskRetriever.DEFAULT_LIMIT` 一致）。 */
+private val RECALL_OPTIONS = listOf(20, 50, 100, 200)

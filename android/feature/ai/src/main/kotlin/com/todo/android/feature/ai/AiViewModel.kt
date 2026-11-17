@@ -9,6 +9,7 @@ import com.todo.android.core.ai.AiIntentApplier
 import com.todo.android.core.ai.AiIntentParser
 import com.todo.android.core.ai.AiIntentPlan
 import com.todo.android.core.ai.AiKeyStore
+import com.todo.android.core.ai.AiPromptBuilder
 import com.todo.android.core.ai.AiRawResult
 import com.todo.android.core.data.ProjectionHolder
 import com.todo.android.core.data.settings.AppSettings
@@ -130,12 +131,18 @@ class AiViewModel @Inject constructor(
             local.value = local.value.copy(generating = true, error = null)
             val projection = projectionHolder.projection.value
             val now = System.currentTimeMillis()
-            val systemPrompt = AiIntentParser.buildPrompt(projection, now)
+            val built = AiPromptBuilder.build(
+                projection = projection,
+                nowMs = now,
+                query = input,
+                maxOperations = AiIntentParser.MAX_OPERATIONS,
+                recallLimit = settings.aiRecallLimit,
+            )
             when (
                 val result = client.generateIntent(
                     endpoint = settings.aiEndpoint,
                     model = settings.aiModel,
-                    systemPrompt = systemPrompt,
+                    systemPrompt = built.prompt,
                     userPrompt = input,
                     imageDataUrls = local.value.imageDataUrls,
                 )

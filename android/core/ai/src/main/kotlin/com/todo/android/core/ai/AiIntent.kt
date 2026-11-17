@@ -165,43 +165,6 @@ object AiIntentParser {
     private val EDITABLE_FIELDS = linkedSetOf("title", "notes", "start_at", "due_at", "remind_at", "priority", "list_id")
     private val PRIORITIES = setOf("high", "mid", "low")
 
-    fun buildPrompt(projection: WorkspaceProjection, nowMs: Long): String {
-        val lists = projection.lists.joinToString(",") { list ->
-            """{"id":"${list.id}","name":"${list.name.escape()}"}"""
-        }
-        val tags = projection.tags.joinToString(",") { tag ->
-            """{"id":"${tag.id}","name":"${tag.name.escape()}"}"""
-        }
-        val tagNameById = projection.tags.associate { it.id to it.name }
-        val listNameById = projection.lists.associate { it.id to it.name }
-        // 未完成任务全部带上；再补最近完成的若干条，否则「把 X 改回未完成」这类指令无法执行。
-        val activeTasks = projection.tasks
-            .filter { !it.done }
-            .sortedBy { it.dueAtMs ?: Long.MAX_VALUE }
-            .take(MAX_CONTEXT_TASKS)
-        val recentDone = projection.tasks
-            .filter { it.done }
-            .sortedByDescending { it.completedAtMs ?: 0L }
-            .take(MAX_DONE_CONTEXT_TASKS)
-        val tasks = (activeTasks + recentDone)
-            .joinToString(",") { task ->
-                val subtasks = task.subtasks.joinToString(",") { sub ->
-                    """{"id":"${sub.id}","text":"${sub.text.escape()}","done":${sub.done}}"""
-                }
-                val tagNames = task.tagIds.mapNotNull { tagNameById[it] }.joinToString(",") { "\"${it.escape()}\"" }
-                """{"id":"${task.id}","title":"${task.title.escape()}","status":"${if (task.done) "done" else "todo"}",""" +
-                    """"due_at":"${task.dueAt ?: ""}","list":"${listNameById[task.listId].orEmpty().escape()}",""" +
-                    """"tags":[$tagNames],"subtasks":[$subtasks]}"""
-            }
-
-        return buildString {
-            append("{\"now\":\"").append(IsoTime.nowIso(nowMs)).append("\",")
-            append("\"lists\":[").append(lists).append("],")
-            append("\"tags\":[").append(tags).append("],")
-            append("\"tasks\":[").append(tasks).append("]}")
-        } + "\n\n" + INTENT_RULES
-    }
-
     fun parse(text: String, projection: WorkspaceProjection, nowMs: Long): AiIntentPlan {
         val raw = extractJson(text)
         val root = runCatching { json.parseToJsonElement(raw).jsonObject }.getOrNull()
@@ -437,30 +400,4 @@ object AiIntentParser {
         val end = trimmed.lastIndexOf('}')
         return if (start >= 0 && end > start) trimmed.substring(start, end + 1) else trimmed
     }
-
-    private fun String.escape(): String = replace("\\", "\\\\").replace("\"", "\\\"")
-
-    private val INTENT_RULES = """
-你会收到一份工作区快照（JSON）和用户的说法。请输出**操作列表**，不要输出最终任务文本。
-只输出 JSON：{"message":"一句话说明","operations":[ ... ]}
-
-可用操作（op 字段）：
-- create_task: temp_id, title(必填), notes, priority(high|mid|low), list(清单名), due_at(RFC3339), tags([标签名]), subtasks([文本])
-- update_fields: task_id, patch{字段:值}, clear_fields[字段]
-- add_subtasks: task_id, subtasks([文本])
-- set_subtask_done: task_id, subtask_id, done(true|false)
-- add_tags / remove_tags: task_id, tags([标签名])
-- set_status: task_id, status(todo|done)
-- delete_task: task_id
-
-规则：
-1. task_id / subtask_id 只能取快照里出现过的值，不要编造。
-2. update_fields 的 patch 只允许 title / notes / start_at / due_at / remind_at / priority / list_id。
-3. 清单与标签用名称，必须是快照里已存在的名称。
-4. 时间用带时区的 RFC3339，基于快照里的 now 推算；用户没说时间就不要猜。
-5. 一次最多 $MAX_OPERATIONS 条操作，不要输出解释或 Markdown。
-6. 只要用户的说法对应快照里的任务或能新建任务，就必须给出至少一条 operation；
-   确实无法处理时也返回 `{"message":"原因","operations":[]}`，不要只返回文本。
-7. 快照里 status=done 的任务是最近完成的，可以用 set_status(todo) 改回未完成。
-""".trim()
 }

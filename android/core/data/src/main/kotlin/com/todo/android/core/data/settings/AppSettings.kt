@@ -68,4 +68,6 @@ data class AppSettings(
     val aiEndpoint: String = "https://api.deepseek.com/v1",
     val aiModel: String = "deepseek-flash",
     val aiConfirmThreshold: Int = 10,
+    /** AI 召回条数：相关任务按时间排序后最多带多少条进上下文。 */
+    val aiRecallLimit: Int = 20,
 )

@@ -186,7 +186,8 @@ class AiIntentParserTest {
             )
         }
 
-        val prompt = AiIntentParser.buildPrompt(withDone, now)
+        // 召回按用户说法匹配：命中的已完成任务也要出现在上下文里
+        val prompt = AiPromptBuilder.build(withDone, now, "把已经做完的事改回未完成", 50).prompt
 
         assertTrue("已完成任务也应出现在上下文里", prompt.contains("task-done"))
         assertTrue(prompt.contains("\"status\":\"done\""))

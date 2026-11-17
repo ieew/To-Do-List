@@ -308,6 +308,13 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    /** AI 召回条数：相关任务按时间排序后最多带多少条进上下文。 */
+    fun setAiRecallLimit(limit: Int) {
+        viewModelScope.launch {
+            settingsStore.update { it.copy(aiRecallLimit = limit.coerceIn(5, 200)) }
+        }
+    }
+
     fun saveAiKey(apiKey: String) {
         viewModelScope.launch {
             aiKeyStore.save(apiKey.trim())
