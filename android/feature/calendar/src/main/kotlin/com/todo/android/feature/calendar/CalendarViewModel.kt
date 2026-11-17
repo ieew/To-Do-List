@@ -3,6 +3,7 @@ package com.todo.android.feature.calendar
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.todo.android.core.data.ProjectionHolder
+import com.todo.android.core.data.repository.TaskCommands
 import com.todo.android.core.designsystem.TimeText
 import com.todo.android.core.domain.TaskItem
 import com.todo.android.core.domain.TaskScope
@@ -10,8 +11,10 @@ import com.todo.android.core.domain.TaskScoping
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalTime
 import java.time.YearMonth
 import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.time.temporal.TemporalAdjusters
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -19,6 +22,8 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonPrimitive
 
 data class CalendarUiState(
     val weekStart: LocalDate = LocalDate.now(),
@@ -43,6 +48,7 @@ data class CalendarDay(
 @HiltViewModel
 class CalendarViewModel @Inject constructor(
     private val projectionHolder: ProjectionHolder,
+    private val commands: TaskCommands,
 ) : ViewModel() {
     private val zone: ZoneId get() = ZoneId.systemDefault()
     private val today: LocalDate = Instant.ofEpochMilli(TimeText.now()).atZone(zone).toLocalDate()
@@ -115,6 +121,26 @@ class CalendarViewModel @Inject constructor(
 
     fun selectScope(allSelected: Boolean) {
         all.value = allSelected
+    }
+
+    /**
+     * 改期：只写 `due_at`，保留原 HH:mm（无截止时间时落 09:00），与 Windows 端一致。
+     */
+    fun reschedule(taskId: String, date: LocalDate) {
+        val projection = projectionHolder.projection.value
+        val task = projection.tasks.firstOrNull { it.id == taskId } ?: return
+        val oldDue = task.dueAtMs
+        val time = oldDue?.let { Instant.ofEpochMilli(it).atZone(zone).toLocalTime() }
+            ?: LocalTime.of(9, 0)
+        val iso = date.atTime(time.hour, time.minute)
+            .atZone(zone)
+            .toOffsetDateTime()
+            .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+        viewModelScope.launch {
+            runCatching {
+                commands.updateField(taskId, projection.activeWorkspaceId, "due_at", JsonPrimitive(iso))
+            }
+        }
     }
 
     fun toggleExpanded() {

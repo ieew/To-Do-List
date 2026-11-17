@@ -4,6 +4,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import androidx.core.app.NotificationCompat
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
@@ -43,9 +44,26 @@ class ReminderNotifier @Inject constructor(
             .setAutoCancel(true)
             .setContentIntent(contentIntent)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .addAction(0, "稍后 10 分钟", snoozeIntent(taskId, 10))
+            .addAction(0, "稍后 1 小时", snoozeIntent(taskId, 60))
             .build()
         context.getSystemService(NotificationManager::class.java)
             ?.notify(taskId.hashCode(), notification)
+    }
+
+    /** 通知上的「稍后提醒」：只推迟本地响铃，不改任务的 remind_at。 */
+    private fun snoozeIntent(taskId: String, minutes: Int): PendingIntent {
+        val intent = Intent(context, ReminderSnoozeReceiver::class.java).apply {
+            data = Uri.parse("todo://reminder/snooze/$taskId/$minutes")
+            putExtra(ReminderSnoozeReceiver.EXTRA_TASK_ID, taskId)
+            putExtra(ReminderSnoozeReceiver.EXTRA_MINUTES, minutes)
+        }
+        return PendingIntent.getBroadcast(
+            context,
+            "$taskId#$minutes".hashCode(),
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
     }
 
     /** 把毫秒差格式化成「已逾期 X 分钟 / X 小时」。 */

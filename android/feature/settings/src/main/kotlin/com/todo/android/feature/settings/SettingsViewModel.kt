@@ -343,6 +343,14 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { settingsStore.update { it.copy(dndEnabled = enabled) } }
     }
 
+    /** 提前提醒：0 表示准点，最大 24 小时。 */
+    fun setReminderLead(minutes: Int) {
+        viewModelScope.launch {
+            settingsStore.update { it.copy(reminderLead = minutes.coerceIn(0, 1440)) }
+            reminderScheduler.rescheduleAll()
+        }
+    }
+
     fun setDndWindow(start: String, end: String): Boolean {
         val pattern = Regex("^([01]\\d|2[0-3]):[0-5]\\d$")
         if (!pattern.matches(start.trim()) || !pattern.matches(end.trim())) return false

@@ -61,9 +61,17 @@ class TaskCommands @Inject constructor(
             .asSequence()
             .filter { it.workspaceId == workspaceId && it.entityType == EntityType.TASK && it.field == Fields.ORDER }
             .mapNotNull { (it.value as? JsonPrimitive)?.content?.toDoubleOrNull() }
+            // 历史脏数据（早期版本把 epoch 毫秒 ≈1.7e12 当 order）超出服务端上限，
+            // 不能作为基准，否则新任务的 order 会继续在超限区间递增。
+            .filter { it in -ORDER_LIMIT..ORDER_LIMIT }
             .maxOrNull()
             ?: -1.0
         return max + 1.0
+    }
+
+    private companion object {
+        /** 与服务端 `|order| <= 1e9` 一致。 */
+        const val ORDER_LIMIT = 1_000_000_000.0
     }
 
     suspend fun updateField(

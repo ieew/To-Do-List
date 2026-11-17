@@ -11,6 +11,10 @@
             android:exported="false" />
 
         <receiver
+            android:name="com.todo.android.core.reminder.ReminderSnoozeReceiver"
+            android:exported="false" />
+
+        <receiver
             android:name="com.todo.android.core.reminder.HeartbeatReceiver"
             android:exported="false" />
 

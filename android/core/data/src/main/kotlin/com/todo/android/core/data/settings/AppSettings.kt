@@ -57,6 +57,8 @@ data class AppSettings(
     val serverUrl: String = "http://127.0.0.1:8000",
     val notifications: Boolean = true,
     val exactAlarm: Boolean = true,
+    /** 提前多少分钟提醒；0 表示准点。与 Windows 端 `reminderLead` 一致。 */
+    val reminderLead: Int = 0,
     val keepAliveMode: String = KeepAliveModes.HEARTBEAT,
     val dndEnabled: Boolean = false,
     val dndStart: String = DndDefaults.START,

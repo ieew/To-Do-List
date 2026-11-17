@@ -13,9 +13,12 @@ import com.todo.android.core.domain.TodoList
 import com.todo.android.core.domain.WorkspaceProjection
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -38,7 +41,6 @@ data class TaskDetailUiState(
     val tags: List<TagItem> = emptyList(),
     val projection: WorkspaceProjection = WorkspaceProjection.EMPTY,
     val toast: String? = null,
-    val closed: Boolean = false,
 ) {
     val listName: String? get() = lists.firstOrNull { it.id == listId }?.name
     val selectedTags: List<TagItem> get() = tags.filter { tagIds.contains(it.id) }
@@ -69,6 +71,27 @@ class TaskDetailViewModel @Inject constructor(
 
     private val local = MutableStateFlow(Local())
     private var original: TaskItem? = null
+    private var requestedTaskId: String? = null
+    private var waitingForProjection = false
+
+    /**
+     * 关闭请求是一次性事件，不能放在 UiState 里：
+     * 这个 ViewModel 的作用域是 Activity，一但 `closed=true` 残留下来，
+     * 下次进详情页会在首帧就把页面弹回列表（表现为「点进来立刻闪回」）。
+     * SharedFlow(replay=0) 在没有订阅者时丢弃事件，天然不会残留。
+     */
+    private val _closeRequests = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val closeRequests: SharedFlow<Unit> = _closeRequests.asSharedFlow()
+
+    init {
+        // 投影是异步算出来的：冷启动直接点任务时它可能还是空快照，
+        // 这里等它到位后补一次绑定，避免误判「任务不存在」。
+        viewModelScope.launch {
+            projectionHolder.projection.collect { projection ->
+                if (waitingForProjection && projection.tasks.isNotEmpty()) applyBind(requestedTaskId)
+            }
+        }
+    }
 
     val state: StateFlow<TaskDetailUiState> = combine(
         projectionHolder.projection,
@@ -91,16 +114,26 @@ class TaskDetailViewModel @Inject constructor(
             tags = projection.tags,
             projection = projection,
             toast = localState.toast,
-            closed = localState.closed,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TaskDetailUiState())
 
     /** 进入页面时绑定：taskId 为 null 表示新建模式。 */
     fun bind(taskId: String?) {
-        if (local.value.bound) return
+        val current = local.value
+        // 同一个任务重复 bind（重组/配置变更）时保留用户正在编辑的内容；
+        // 但上一轮已经 close()（保存/删除后返回）时必须重新绑定并把 closed 清掉，
+        // 否则这个 Activity 作用域的 ViewModel 会带着 closed=true 再次进入页面，
+        // 表现为「点进详情立刻闪回列表」。
+        if (current.bound && current.taskId == taskId && !current.closed) return
+        requestedTaskId = taskId
+        applyBind(taskId)
+    }
+
+    private fun applyBind(taskId: String?) {
         val projection = projectionHolder.projection.value
         val now = TimeText.now()
         if (taskId == null) {
+            waitingForProjection = false
             val listId = projection.lists.firstOrNull { it.smart }?.id ?: projection.lists.firstOrNull()?.id
             local.value = Local(
                 isNew = true,
@@ -115,27 +148,41 @@ class TaskDetailViewModel @Inject constructor(
                 tagIds = emptyList(),
                 bound = true,
             )
-        } else {
-            val task = projection.tasks.firstOrNull { it.id == taskId }
-            if (task == null) {
-                local.value = local.value.copy(bound = true, toast = "任务不存在", closed = true)
+            return
+        }
+        val task = projection.tasks.firstOrNull { it.id == taskId }
+        if (task == null) {
+            if (projection.tasks.isEmpty()) {
+                // 冷启动时投影可能还没算完，先不判定「任务不存在」，
+                // 等 projection 到位后由 init 里的订阅重试。
+                waitingForProjection = true
+                local.value = local.value.copy(
+                    isNew = false,
+                    taskId = taskId,
+                    bound = false,
+                    closed = false,
+                )
                 return
             }
-            original = task
-            local.value = Local(
-                isNew = false,
-                taskId = task.id,
-                title = task.title,
-                notes = task.notes,
-                priority = task.priority,
-                startAt = task.startAt,
-                dueAt = task.dueAt,
-                remindAt = task.remindAt,
-                listId = task.listId,
-                tagIds = task.tagIds,
-                bound = true,
-            )
+            waitingForProjection = false
+            local.value = local.value.copy(bound = true, toast = "任务不存在", closed = true)
+            return
         }
+        waitingForProjection = false
+        original = task
+        local.value = Local(
+            isNew = false,
+            taskId = task.id,
+            title = task.title,
+            notes = task.notes,
+            priority = task.priority,
+            startAt = task.startAt,
+            dueAt = task.dueAt,
+            remindAt = task.remindAt,
+            listId = task.listId,
+            tagIds = task.tagIds,
+            bound = true,
+        )
     }
 
     fun onTitleChange(value: String) {
@@ -282,6 +329,7 @@ class TaskDetailViewModel @Inject constructor(
 
     private fun close() {
         local.value = local.value.copy(closed = true)
+        _closeRequests.tryEmit(Unit)
     }
 
     private fun Local.subtasksOrder(): Double {

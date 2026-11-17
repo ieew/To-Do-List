@@ -43,18 +43,31 @@ class ReminderScheduler @Inject constructor(
         val local = taskLocalDao.all().associateBy { it.taskId }
         val canNotify = canPostNotifications()
         val inDnd = settings.dndEnabled && isInDnd(nowMs, settings.dndStart, settings.dndEnd)
+        // 提前 N 分钟：真实响铃时刻 = remind_at - lead，幂等键仍是 remind_at。
+        val leadMs = settings.reminderLead.coerceIn(0, 1440) * 60_000L
         var scheduled = 0
         projection.tasks.forEach { task ->
             if (task.done) return@forEach
             val remindAt = task.remindAtMs ?: return@forEach
-            val fired = local[task.id]?.lastFiredAt
-            if (fired != null && fired >= remindAt) return@forEach
-            if (remindAt > nowMs) {
-                schedule(task.id, task.title, remindAt, settings.exactAlarm)
+            val row = local[task.id]
+            val fired = row?.lastFiredAt
+
+            // 稍后提醒：优先按 snooze_until 重新排队，不受 last_fired_at 影响。
+            val snoozeUntil = row?.snoozeUntil
+            if (snoozeUntil != null && snoozeUntil > nowMs) {
+                schedule(task.id, task.title, snoozeUntil, remindAt, settings.exactAlarm)
                 scheduled++
                 return@forEach
             }
-            val lateBy = nowMs - remindAt
+
+            if (fired != null && fired >= remindAt) return@forEach
+            val fireAt = remindAt - leadMs
+            if (fireAt > nowMs) {
+                schedule(task.id, task.title, fireAt, remindAt, settings.exactAlarm)
+                scheduled++
+                return@forEach
+            }
+            val lateBy = nowMs - fireAt
             if (lateBy <= CATCH_UP_WINDOW_MS && canNotify && !inDnd) {
                 // 部分 ROM 会直接抛 SecurityException，不影响记账。
                 runCatching {
@@ -71,24 +84,49 @@ class ReminderScheduler @Inject constructor(
         return scheduled
     }
 
+    /**
+     * 稍后提醒：清掉「已触发」标记并把下次响铃推到 `now + minutes`，
+     * 不修改任务的 `remind_at`，与 Windows 端 snooze 语义一致。
+     */
+    suspend fun snooze(taskId: String, minutes: Int, nowMs: Long = System.currentTimeMillis()) {
+        val current = taskLocalDao.get(taskId) ?: TaskLocalEntity(taskId)
+        taskLocalDao.put(
+            current.copy(
+                lastFiredAt = null,
+                snoozeUntil = nowMs + minutes.coerceIn(1, 1440) * 60_000L,
+            ),
+        )
+        rescheduleAll(nowMs)
+    }
+
     /** 幂等键：同一 remindAt 只处理一次。 */
     private suspend fun markFired(taskId: String, remindAt: Long) {
         val current = taskLocalDao.get(taskId) ?: TaskLocalEntity(taskId)
-        taskLocalDao.put(current.copy(lastFiredAt = remindAt))
+        taskLocalDao.put(current.copy(lastFiredAt = remindAt, snoozeUntil = null))
     }
 
-    fun schedule(taskId: String, title: String, remindAtMs: Long, preferExact: Boolean) {
+    /**
+     * @param fireAtMs 闹钟真正响铃的时刻（已经减去提前量 / 已含稍后提醒）
+     * @param remindAtMs 幂等键，也是 PendingIntent 的唯一标识，用于取消
+     */
+    fun schedule(
+        taskId: String,
+        title: String,
+        fireAtMs: Long,
+        remindAtMs: Long,
+        preferExact: Boolean,
+    ) {
         val manager = context.getSystemService(AlarmManager::class.java) ?: return
         val pending = pendingIntent(taskId, remindAtMs)
         val canExact = Build.VERSION.SDK_INT < Build.VERSION_CODES.S || manager.canScheduleExactAlarms()
         try {
             when {
-                preferExact && canExact -> manager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, remindAtMs, pending)
-                !canExact -> manager.setWindow(AlarmManager.RTC_WAKEUP, remindAtMs, 15 * 60_000L, pending)
-                else -> manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, remindAtMs, pending)
+                preferExact && canExact -> manager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, fireAtMs, pending)
+                !canExact -> manager.setWindow(AlarmManager.RTC_WAKEUP, fireAtMs, 15 * 60_000L, pending)
+                else -> manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, fireAtMs, pending)
             }
         } catch (_: SecurityException) {
-            manager.setWindow(AlarmManager.RTC_WAKEUP, remindAtMs, 15 * 60_000L, pending)
+            manager.setWindow(AlarmManager.RTC_WAKEUP, fireAtMs, 15 * 60_000L, pending)
         }
     }
 

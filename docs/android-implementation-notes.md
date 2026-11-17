@@ -130,6 +130,61 @@
 ## 五、验证记录
 
 - `android> .\gradlew.bat :app:assembleDebug` → **BUILD SUCCESSFUL**，产物 `app/build/outputs/apk/debug/app-debug.apk`。
+
+## 六、2026-11-15 追加：任务时间自由到分钟
+
+### 问题
+详情页的开始/截止/提醒原先共用 `DateOptionDialog`，只有「今天 18:00 / 明天 09:00 / 3 天后 / 7 天后 / 清除」5 个固定项，
+无法设置「明天 14:35」这类真实场景需要的时间；且非近三天日期在字段行只显示「M月d日」，看不到分钟。
+
+### 改动
+- 新增 `core/designsystem/DateTimePicker.kt` → `DateTimePickerDialog`：
+  - 快捷日期 chip（今天 / 明天 / 3 天后 / 下周）只改日期，时间保持当前值；
+  - 「日期」行打开 Material3 `DatePickerDialog`（任意日期），「时间」行打开 `TimePicker`（24 小时，可切键盘输入，任意分钟）；
+  - 确认时用 `TimeText.isoAt(date, hour, minute)` 合成带时区偏移的 ISO（秒/纳秒归零），「清除」回传 `null`。
+- `TimeText` 新增 `localDateTime(raw)`、`isoAt(date, hour, minute)`、`clock(hour, minute)`、`fullLabel(raw)`；
+  删除只服务旧选项的 `isoTodayAt` / `isoTomorrowAt`。
+- 详情页 `FieldCard` 三个时间行改用 `fullLabel`，远期日期也显示 `HH:mm`；`DateOptionDialog` 已移除。
+- 新增 `core/designsystem/src/test/.../TimeTextTest.kt`（任意日期分钟往返、秒/纳秒归零、空值容错、补齐两位、远期日期带分钟）。
+- `core/designsystem/build.gradle.kts` 增加 `testImplementation(libs.junit)`。
+
+### 验证
+- `:core:designsystem:testDebugUnitTest` → BUILD SUCCESSFUL（6 项）。
+- `:feature:detail:compileDebugKotlin`、`:app:assembleDebug` → BUILD SUCCESSFUL。
+- `feature/detail/build/generated/ksp/debug/java` 存在（Hilt 产物齐全，避免运行时实例化失败）。
+
+## 七、2026-11-17 Phase E 第一批（统计 / 日历 / 提醒）
+
+### 统计时间范围
+- `StatsRange`：今天 / 本周 / 本月 / 近 30 天 / 全部，**按 `due_at` 归属**，与 Windows `statsRange` 一致；没有截止时间的任务只在「全部」出现。
+- 本周以**周一**为起点；本月取 1 号到月末；近 30 天为「今天往前 29 天 ~ 今天」。
+- 原先的「今天 / 全部」二元 scope 移除；最近 7 天趋势与日均仍固定按近 7 天完成数计算。
+- 代码：`feature/stats/StatsViewModel.kt`（`StatsRange` / `tasksInRange`）、`StatsScreen.kt`（横向滚动 pill）。
+
+### 日历改期
+- 移动端没有桌面拖拽，改为**长按任务卡 → 日期选择器 → 改期**（`TaskRow` 新增可选 `onLongClick`）。
+- 只写 `due_at`：保留原 HH:mm，无截止时间落 09:00，不联动 `remind_at`，与 Windows `rescheduleTask` 语义一致。
+- 代码：`feature/calendar/CalendarViewModel.kt`（`reschedule`）、`CalendarScreen.kt`（`RescheduleDialog`）。
+
+### 提前提醒
+- `AppSettings.reminderLead`（分钟，默认 0），设置页「提醒 → 提前提醒」可选 准点 / 5 分 / 15 分 / 30 分。
+- `ReminderScheduler.rescheduleAll`：`fireAt = remind_at - lead`，**幂等键仍是 `remind_at`**，因此 `PendingIntent` data URI 与 `cancelAll` 不受影响。
+- 补发窗口（60 分钟）按 `fireAt` 计算逾期。
+
+### 稍后提醒
+- 通知新增两个 action：「稍后 10 分钟」「稍后 1 小时」→ `ReminderSnoozeReceiver` → `ReminderScheduler.snooze`。
+- 只写本地 `task_local.snooze_until = now + minutes` 并清空 `last_fired_at`，**不写 op、不改 `remind_at`**；重排时 `snooze_until` 优先于其它判断，响铃后一并清空。
+- Manifest 注册 `ReminderSnoozeReceiver`（`exported=false`）。
+
+### 验证
+- `:core:reminder:compileDebugKotlin`、`:feature:stats:compileDebugKotlin`、`:feature:calendar:compileDebugKotlin`、`:feature:settings:compileDebugKotlin`、`:app:assembleDebug` → BUILD SUCCESSFUL。
+- 真机（小米 23127PN0CC）：统计「本周 4 项 → 全部 5 项」切换正确；日历长按 11月21日任务改期到 11月24日，列表 2 项 → 1 项，详情显示 `11月24日 11:23`（**时间保留**）；设置页「提前提醒」切换后描述即时更新。
+- 未实测：真实到点后的通知按钮（需等闹钟触发），仅代码审查 + 编译验证。
+
+### 未做（下一批）
+- AI 意图契约对齐：Android 仍是「一次性生成草案（create only）」，缺 `update_fields / add_subtasks / set_subtask_done / add_tags / remove_tags / set_status / delete_task` 与批量撤销、图片输入。
+
+
 - `android> .\gradlew.bat test` → **BUILD SUCCESSFUL**（领域层含架构门禁、Room Robolectric、网络层含新增 `MemberApiTest` 4 项、日历 `MonthGridTest` 3 项）。
 - 测试向量：`shared/testvectors` 下 5 个 JSON 由 Gradle `Copy` 同步并做 SHA-256 一致性校验（禁止手抄）。
 - 按用户要求，保活与手势均在真机手动验证，本轮**不启用模拟器**、不做截图对比。

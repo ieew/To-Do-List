@@ -2,6 +2,7 @@ package com.todo.android.core.designsystem
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,6 +29,7 @@ import com.todo.android.core.domain.TagItem
 import com.todo.android.core.domain.TaskItem
 
 /** 任务卡：S5 列表、日历、详情共用同一视觉。 */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun TaskRow(
     task: TaskItem,
@@ -37,13 +39,19 @@ fun TaskRow(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     titleStyle: TextStyle = Tokens.Type.taskTitle,
+    onLongClick: (() -> Unit)? = null,
 ) {
     val colors = TodoTheme.colors
+    val clickModifier = if (onLongClick != null) {
+        Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick)
+    } else {
+        Modifier.clickable(onClick = onClick)
+    }
     CardContainer(
         modifier = modifier
             .fillMaxWidth()
             .padding(bottom = 6.dp)
-            .clickable(onClick = onClick),
+            .then(clickModifier),
     ) {
         Row(
             modifier = Modifier

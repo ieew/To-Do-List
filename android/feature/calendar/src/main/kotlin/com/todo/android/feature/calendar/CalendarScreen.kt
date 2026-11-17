@@ -30,12 +30,19 @@ import androidx.compose.material.icons.rounded.ChevronLeft
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -57,7 +64,9 @@ import com.todo.android.core.designsystem.TaskRow
 import com.todo.android.core.designsystem.TimeText
 import com.todo.android.core.designsystem.TodoTheme
 import com.todo.android.core.designsystem.Tokens
+import java.time.Instant
 import java.time.LocalDate
+import java.time.ZoneOffset
 
 @Composable
 fun CalendarScreen(
@@ -69,6 +78,8 @@ fun CalendarScreen(
     val colors = TodoTheme.colors
     val nowMs = TimeText.now()
     val listState = rememberLazyListState()
+    // 长按任务 → 改期（移动端用日期选择器代替桌面端拖拽）
+    var rescheduleTarget by remember { mutableStateOf<com.todo.android.core.domain.TaskItem?>(null) }
 
     Column(
         modifier = modifier
@@ -201,9 +212,50 @@ fun CalendarScreen(
                     nowMs = nowMs,
                     onToggle = { },
                     onClick = { onOpenDetail(task.id) },
+                    onLongClick = { rescheduleTarget = task },
                 )
             }
         }
+    }
+
+    rescheduleTarget?.let { task ->
+        RescheduleDialog(
+            task = task,
+            onDismiss = { rescheduleTarget = null },
+            onConfirm = { date -> viewModel.reschedule(task.id, date) },
+        )
+    }
+}
+
+/** 改期弹窗：只选日期，时间由 `reschedule` 保留原 HH:mm。 */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RescheduleDialog(
+    task: com.todo.android.core.domain.TaskItem,
+    onDismiss: () -> Unit,
+    onConfirm: (LocalDate) -> Unit,
+) {
+    val colors = TodoTheme.colors
+    val pickerState = rememberDatePickerState(
+        initialSelectedDateMillis = task.dueAtMs ?: TimeText.now(),
+    )
+    DatePickerDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    pickerState.selectedDateMillis?.let { millis ->
+                        onConfirm(Instant.ofEpochMilli(millis).atZone(ZoneOffset.UTC).toLocalDate())
+                    }
+                    onDismiss()
+                },
+            ) { Text("改期", color = colors.primary) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消", color = colors.text2) }
+        },
+    ) {
+        DatePicker(state = pickerState)
     }
 }
 

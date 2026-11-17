@@ -51,6 +51,21 @@ internal fun ReminderPanel(state: SettingsUiState, viewModel: SettingsViewModel)
             },
             trailing = { TodoSwitch(state.settings.exactAlarm, viewModel::setExactAlarm) },
         )
+        SettingDivider()
+        SettingRow(
+            title = "提前提醒",
+            description = when (val lead = state.settings.reminderLead) {
+                0 -> "到提醒时间才响"
+                else -> "提前 $lead 分钟响铃（通知上仍可稍后提醒）"
+            },
+            trailing = {
+                SegmentedControl(
+                    options = listOf("准点", "5 分", "15 分", "30 分"),
+                    selectedIndex = LEAD_OPTIONS.indexOf(state.settings.reminderLead).coerceAtLeast(0),
+                    onSelected = { viewModel.setReminderLead(LEAD_OPTIONS[it]) },
+                )
+            },
+        )
     }
 
     SettingsGroup(title = "免打扰") {
@@ -153,3 +168,6 @@ internal fun ReminderPanel(state: SettingsUiState, viewModel: SettingsViewModel)
         )
     }
 }
+
+/** 提前提醒可选分钟数（0 = 准点）。 */
+private val LEAD_OPTIONS = listOf(0, 5, 15, 30)

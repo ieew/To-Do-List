@@ -2,6 +2,7 @@ package com.todo.android.core.designsystem
 
 import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalDateTime
 import java.time.OffsetDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -28,24 +29,20 @@ object TimeText {
         OffsetDateTime.ofInstant(Instant.ofEpochMilli(nowMs), zone).plusDays(days)
             .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
 
-    fun isoTodayAt(hour: Int, minute: Int, nowMs: Long = now()): String =
-        OffsetDateTime.ofInstant(Instant.ofEpochMilli(nowMs), zone)
-            .withHour(hour)
-            .withMinute(minute)
-            .withSecond(0)
-            .withNano(0)
-            .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
-
-    fun isoTomorrowAt(hour: Int, minute: Int, nowMs: Long = now()): String =
-        OffsetDateTime.ofInstant(Instant.ofEpochMilli(nowMs), zone)
-            .plusDays(1)
-            .withHour(hour)
-            .withMinute(minute)
-            .withSecond(0)
-            .withNano(0)
-            .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
-
     fun localDate(raw: String?): LocalDate? = parse(raw)?.atZone(zone)?.toLocalDate()
+
+    /** 解析成设备时区的本地日期时间，用于时间选择器回填。 */
+    fun localDateTime(raw: String?): LocalDateTime? = parse(raw)?.atZone(zone)?.toLocalDateTime()
+
+    /** 把任意「日期 + 时 + 分」合成为带时区偏移的 ISO 字符串（秒/纳秒归零）。 */
+    fun isoAt(date: LocalDate, hour: Int, minute: Int): String =
+        date.atTime(hour, minute)
+            .atZone(zone)
+            .toOffsetDateTime()
+            .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+
+    fun clock(hour: Int, minute: Int): String =
+        String.format(Locale.getDefault(), "%02d:%02d", hour, minute)
 
     fun dateTimeLabel(raw: String?): String? {
         val instant = parse(raw) ?: return null
@@ -62,6 +59,23 @@ object TimeText {
             today.plusDays(1) -> "明天 $time"
             today.minusDays(1) -> "昨天 $time"
             else -> target.format(DateTimeFormatter.ofPattern("M月d日", Locale.getDefault()))
+        }
+    }
+
+    /**
+     * 详情页字段完整文案：与 [dueLabel] 一致，但非近三天的日期也带上 `HH:mm`，
+     * 让「精确到分钟」的设置结果可见。
+     */
+    fun fullLabel(raw: String?, nowMs: Long = now()): String? {
+        val instant = parse(raw) ?: return null
+        val target = instant.atZone(zone)
+        val today = Instant.ofEpochMilli(nowMs).atZone(zone).toLocalDate()
+        val time = target.format(hourMinute)
+        return when (target.toLocalDate()) {
+            today -> "今天 $time"
+            today.plusDays(1) -> "明天 $time"
+            today.minusDays(1) -> "昨天 $time"
+            else -> target.format(DateTimeFormatter.ofPattern("M月d日 HH:mm", Locale.getDefault()))
         }
     }
 

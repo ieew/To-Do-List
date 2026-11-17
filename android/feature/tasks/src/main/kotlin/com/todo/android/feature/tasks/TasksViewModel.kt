@@ -21,6 +21,7 @@ import com.todo.android.core.sync.SyncState
 import com.todo.android.core.sync.SyncStatus
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -77,7 +78,9 @@ class TasksViewModel @Inject constructor(
     private val nowMs = MutableStateFlow(TimeText.now())
 
     val state: StateFlow<TasksUiState> = combine(
-        projectionHolder.projection,
+        // 直接订阅仓库投影（Room Flow），不经 ProjectionHolder 的中间 StateFlow，
+        // 避免写操作后列表停在旧快照上。
+        repository.observeProjection(),
         local,
         settingsStore.observe(),
         syncEngine.state,
@@ -102,14 +105,19 @@ class TasksViewModel @Inject constructor(
             sync = sync,
             toast = localState.toast,
             undoTaskId = localState.undoTaskId,
-            loading = localState.loading,
+            // 投影已就绪就不再显示骨架屏；不要再依赖额外订阅去翻转 loading。
+            loading = false,
             refreshing = localState.refreshing,
         )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TasksUiState())
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, TasksUiState())
 
     init {
+        // 定时推进当前时间，让「即将到来」的任务到点自动出现在「今天」。
         viewModelScope.launch {
-            repository.observeProjection().collect { local.value = local.value.copy(loading = false) }
+            while (true) {
+                delay(30_000)
+                nowMs.value = TimeText.now()
+            }
         }
     }
 

@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -43,7 +44,9 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+
 import com.todo.android.core.designsystem.AiBadge
+import com.todo.android.core.designsystem.DateTimePickerDialog
 import com.todo.android.core.designsystem.EditDialog
 import com.todo.android.core.designsystem.TagChip
 import com.todo.android.core.designsystem.TodoCheckbox
@@ -62,13 +65,16 @@ fun TaskDetailScreen(
     onBack: () -> Unit,
     onOpenHistory: (String) -> Unit,
     modifier: Modifier = Modifier,
-    viewModel: TaskDetailViewModel = viewModel(),
 ) {
+    // 每个任务一个 ViewModel 实例：ViewModel 的作用域是 Activity，
+    // 共用一个实例会把上一条任务的本地编辑状态（含已关闭标记）带进下一页。
+    val viewModel: TaskDetailViewModel = viewModel(key = "task-detail-${taskId ?: "new"}")
     val state by viewModel.state.collectAsStateWithLifecycle()
     val colors = TodoTheme.colors
 
     LaunchedEffect(taskId) { viewModel.bind(taskId) }
-    LaunchedEffect(state.closed) { if (state.closed) onBack() }
+    // 关闭用一次性事件：没有订阅者时丢弃，不会像布尔状态那样残留到下次进入。
+    LaunchedEffect(Unit) { viewModel.closeRequests.collect { onBack() } }
     LaunchedEffect(state.toast) {
         if (state.toast != null) {
             delay(2200)
@@ -83,7 +89,7 @@ fun TaskDetailScreen(
     var subtaskOpen by remember { mutableStateOf(false) }
     var deleteOpen by remember { mutableStateOf(false) }
 
-    Box(modifier = modifier.fillMaxSize().background(colors.bg)) {
+    Box(modifier = modifier.fillMaxSize().background(colors.bg).imePadding()) {
         Column(modifier = Modifier.fillMaxSize()) {
             Row(
                 modifier = Modifier
@@ -213,14 +219,20 @@ fun TaskDetailScreen(
     }
 
     dateField?.let { field ->
-        DateOptionDialog(
+        val initial = when (field) {
+            "start_at" -> state.startAt
+            "due_at" -> state.dueAt
+            else -> state.remindAt
+        }
+        DateTimePickerDialog(
             title = when (field) {
                 "start_at" -> "开始时间"
                 "due_at" -> "截止时间"
                 else -> "提醒时间"
             },
+            initialIso = initial,
             onDismiss = { dateField = null },
-            onSelect = { iso ->
+            onConfirm = { iso ->
                 when (field) {
                     "start_at" -> viewModel.setStart(iso)
                     "due_at" -> viewModel.setDue(iso)
@@ -365,9 +377,9 @@ private fun FieldCard(
     val colors = TodoTheme.colors
     val rows = listOf(
         Triple("优先级", priorityLabel(state.priority), onPriority),
-        Triple("开始", TimeText.dueLabel(state.startAt) ?: "未设置", onStart),
-        Triple("截止", TimeText.dueLabel(state.dueAt) ?: "未设置", onDue),
-        Triple("提醒", TimeText.dueLabel(state.remindAt) ?: "未设置", onRemind),
+        Triple("开始", TimeText.fullLabel(state.startAt) ?: "未设置", onStart),
+        Triple("截止", TimeText.fullLabel(state.dueAt) ?: "未设置", onDue),
+        Triple("提醒", TimeText.fullLabel(state.remindAt) ?: "未设置", onRemind),
         Triple("清单", state.listName ?: "未选择", onList),
         Triple("标签", if (state.selectedTags.isEmpty()) "未添加标签" else state.selectedTags.joinToString("、") { it.name }, onTags),
     )
@@ -564,52 +576,6 @@ private fun ChoiceDialog(
         },
         confirmButton = {
             TextButton(onClick = onDismiss) { Text("关闭", color = colors.text2) }
-        },
-    )
-}
-
-@Composable
-private fun DateOptionDialog(
-    title: String,
-    onDismiss: () -> Unit,
-    onSelect: (String?) -> Unit,
-) {
-    val now = TimeText.now()
-    val options = listOf(
-        "今天 18:00" to TimeText.isoTodayAt(18, 0, now),
-        "明天 09:00" to TimeText.isoTomorrowAt(9, 0, now),
-        "3 天后" to TimeText.isoAfterDays(3, now),
-        "7 天后" to TimeText.isoAfterDays(7, now),
-    )
-    val colors = TodoTheme.colors
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = colors.card,
-        title = { Text(title, style = Tokens.Type.pageTitle, color = colors.text) },
-        text = {
-            Column {
-                options.forEach { (label, iso) ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onSelect(iso) }
-                            .padding(vertical = 10.dp, horizontal = 4.dp),
-                    ) {
-                        Text(label, style = Tokens.Type.body, color = colors.text)
-                    }
-                }
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onSelect(null) }
-                        .padding(vertical = 10.dp, horizontal = 4.dp),
-                ) {
-                    Text("清除", style = Tokens.Type.body, color = colors.danger)
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) { Text("取消", color = colors.text2) }
         },
     )
 }

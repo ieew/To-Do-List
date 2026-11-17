@@ -46,7 +46,10 @@ class ReminderReceiver : BroadcastReceiver() {
                     notifier.notifyReminder(taskId, task.title)
                 }
                 // 免打扰时段内静默，但仍记录 last_fired_at，避免重复补发。
-                taskLocalDao.put((taskLocalDao.get(taskId) ?: TaskLocalEntity(taskId)).copy(lastFiredAt = remindAt))
+                taskLocalDao.put(
+                    (taskLocalDao.get(taskId) ?: TaskLocalEntity(taskId))
+                        .copy(lastFiredAt = remindAt, snoozeUntil = null),
+                )
                 scheduler.rescheduleAll()
             } finally {
                 pending.finish()

@@ -2,6 +2,7 @@ package com.todo.android.feature.stats
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -51,26 +52,30 @@ fun StatsScreen(
     ) {
         Spacer(Modifier.height(12.dp))
         Text(
-            if (state.allSelected) "全部统计" else "今日统计",
+            "${state.range.label}统计",
             style = Tokens.Type.pageTitle,
             color = colors.text,
         )
         Text(
-            if (state.allSelected) "全部任务 · ${TimeText.dateLine(now)}" else "今天 · ${TimeText.dateLine(now)}",
+            "${state.scopedTotal} 个任务 · ${TimeText.dateLine(now)}",
             style = Tokens.Type.meta,
             color = colors.text3,
         )
         Spacer(Modifier.height(10.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            listOf("今天" to !state.allSelected, "全部" to state.allSelected).forEach { (label, active) ->
+        Row(
+            modifier = Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            StatsRange.entries.forEach { range ->
+                val active = state.range == range
                 Text(
-                    label,
+                    range.label,
                     style = Tokens.Type.chip,
                     color = if (active) colors.onPrimary else colors.text2,
                     modifier = Modifier
                         .clip(RoundedCornerShape(Tokens.Radius.full))
                         .background(if (active) colors.primary else colors.card)
-                        .clickable { viewModel.selectScope(label == "全部") }
+                        .clickable { viewModel.selectRange(range) }
                         .padding(horizontal = 12.dp, vertical = 5.dp),
                 )
             }
