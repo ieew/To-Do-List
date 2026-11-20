@@ -62,6 +62,7 @@ export const commands = {
 	 *  需要主线程消息循环，会形成自锁并冻结所有窗口。
 	 */
 	openStickyWindow: (mode: string, taskId: string | null, options?: InvokeOptions) => __TAURI_INVOKE<string>("open_sticky_window", { mode, taskId }, options),
+	openQuickAddWindow: (options?: InvokeOptions) => __TAURI_INVOKE<null>("open_quick_add_window", undefined, options),
 	closeStickyWindow: (label: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("close_sticky_window", { label }, options),
 	showMainWindow: (options?: InvokeOptions) => __TAURI_INVOKE<null>("show_main_window", undefined, options),
 	/**  便利贴显示后再由前端调用，保证换手过程中始终有窗口可见。 */

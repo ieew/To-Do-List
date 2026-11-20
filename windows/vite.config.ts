@@ -20,7 +20,8 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: 'index.html',
-        sticky: 'sticky.html'
+        sticky: 'sticky.html',
+        'quick-add': 'quick-add.html'
       }
     }
   }

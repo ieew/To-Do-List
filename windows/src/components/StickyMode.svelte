@@ -3,13 +3,11 @@
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { store } from '../lib/store.svelte';
   import { stickyWindowDrag } from '../lib/sticky-drag';
-  import { defaultDueAt, formatDueShort, isOverdue, isUrgent } from '../lib/utils';
+  import { formatDueShort, isOverdue, isUrgent } from '../lib/utils';
 
   const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
   let { standalone = false }: { standalone?: boolean } = $props();
   let pinned = $state(true);
-  let newTask = $state('');
-  let addInput: HTMLInputElement | null = null;
 
   const tasks = $derived(store.stickyTasks);
   const done = $derived(tasks.filter((task) => task.status === 'done').length);
@@ -37,21 +35,6 @@
     void store.showMainWindow();
   }
 
-  function addTask(): void {
-    if (!newTask.trim()) return;
-    const fallback =
-      store.lists.find((list) => !list.smart)?.id ?? store.lists[0]?.id ?? store.todayListId;
-    const listId = isTodayScope || isAllScope ? fallback : store.activeListId;
-    store.createTask({
-      title: newTask,
-      listId,
-      dueAt: defaultDueAt(),
-      source: 'human'
-    });
-    newTask = '';
-    store.showToast(`已添加到${store.listName(listId)}`);
-    addInput?.focus();
-  }
 </script>
 
 <div class="sticky-stage" class:standalone>
@@ -92,21 +75,10 @@
       </div>
     </div>
 
-    <div class="sticky-add">
+    <button class="sticky-add" onclick={() => store.openQuickAddWindow()}>
       <Plus size="13" />
-      <input
-        class="sticky-add-input"
-        placeholder="添加待办…"
-        bind:value={newTask}
-        bind:this={addInput}
-        onkeydown={(event) => {
-          if (event.key === 'Enter') {
-            event.preventDefault();
-            addTask();
-          }
-        }}
-      />
-    </div>
+      <span>新建任务…</span>
+    </button>
 
     <div class="sticky-tasks">
       {#if tasks.length === 0}
@@ -233,8 +205,9 @@
     display: flex;
     flex-direction: column;
     border-radius: var(--radius-sticky);
+    border: 1px solid var(--color-border);
     background: rgb(255 255 255 / var(--sticky-alpha, 0.94));
-    box-shadow: var(--shadow-xl), var(--sticky-inset);
+    box-shadow: var(--shadow-xl);
     backdrop-filter: blur(calc(24px * var(--sticky-alpha, 0.94))) saturate(180%);
     color: var(--color-text);
     overflow: hidden;
@@ -327,29 +300,24 @@
   }
 
   .sticky-add {
+    width: calc(100% - 28px);
     flex-shrink: 0;
     display: flex;
     align-items: center;
     gap: 6px;
     margin: 4px 14px 8px;
     padding: 7px 11px;
+    border: 0;
     border-radius: var(--radius-sm);
     background: rgba(241, 245, 249, 0.86);
     color: var(--color-text-3);
-  }
-
-  .sticky-add-input {
-    flex: 1;
-    min-width: 0;
-    border: none;
-    outline: none;
-    background: transparent;
-    color: var(--color-text);
     font-size: var(--text-base);
+    text-align: left;
   }
 
-  .sticky-add-input::placeholder {
-    color: var(--color-text-3);
+  .sticky-add:hover {
+    background: var(--color-primary-50);
+    color: var(--color-primary);
   }
 
   .sticky-tasks {
@@ -513,7 +481,7 @@
 
   :global(html[data-theme='dark']) .sticky-note {
     background: rgb(30 41 59 / var(--sticky-alpha, 0.94));
-    box-shadow: var(--shadow-xl), 0 0 0 1px rgba(255, 255, 255, 0.08) inset;
+    box-shadow: var(--shadow-xl);
   }
 
   :global(html[data-theme='dark']) .sticky-header,
@@ -527,6 +495,10 @@
 
   :global(html[data-theme='dark']) .sticky-add {
     background: rgba(15, 23, 42, 0.5);
+  }
+
+  :global(html[data-theme='dark']) .sticky-add:hover {
+    background: rgba(59, 130, 246, 0.18);
   }
 
   :global(html[data-theme='dark']) .sticky-task:hover {

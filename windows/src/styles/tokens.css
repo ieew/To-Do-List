@@ -80,8 +80,8 @@
   --radius-lg: 16px;
   --radius-xl: 20px;
   --radius-full: 999px;
-  /* 便利贴外层卡片：直角（视觉规格要求去掉圆角） */
-  --radius-sticky: 0px;
+  /* 便利贴与新建任务窗口统一卡片圆角 */
+  --radius-sticky: var(--radius-md);
 
   /* 便利贴底色透明度：由 settings.stickyOpacity 覆盖，这里仅作加载态兜底 */
   --sticky-alpha: 0.94;

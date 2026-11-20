@@ -1342,6 +1342,18 @@ class TodoStore {
 
   /* ------------------------------- 便利贴 ------------------------------- */
 
+  async openQuickAddWindow(): Promise<void> {
+    if (!isTauri) {
+      this.quickAddOpen = true;
+      return;
+    }
+    try {
+      await ipc.openQuickAddWindow();
+    } catch (error) {
+      this.showToast(errorMessage(error), 'error');
+    }
+  }
+
   async openStickyMainWindow(): Promise<void> {
     if (!isTauri) {
       this.toggleStickyMode();

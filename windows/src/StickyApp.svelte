@@ -3,6 +3,7 @@
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import FloatingSticky from './components/FloatingSticky.svelte';
   import StickyMode from './components/StickyMode.svelte';
+  import Toast from './components/Toast.svelte';
   import { ipc, isTauri } from './lib/ipc';
   import { store } from './lib/store.svelte';
 
@@ -71,6 +72,7 @@
     standalone
   />
 {/if}
+<Toast />
 
 <style>
   .sticky-loading {
@@ -81,8 +83,10 @@
     gap: 6px;
     width: 100%;
     height: 100%;
+    border: 1px solid var(--color-border);
     border-radius: var(--radius-sticky);
     background: var(--color-card);
+    box-shadow: var(--shadow-xl);
     color: var(--color-text-3);
     font-size: var(--text-sm);
   }

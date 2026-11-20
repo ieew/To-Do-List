@@ -127,6 +127,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         ai::ai_parse_intent,
         ai::ai_apply_plan,
         windows::open_sticky_window,
+        windows::open_quick_add_window,
         windows::close_sticky_window,
         windows::show_main_window,
         windows::hide_main_window,
@@ -140,9 +141,10 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
 fn setup_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
     let show = MenuItem::with_id(app, "show", "显示主窗口", true, None::<&str>)?;
     let sticky = MenuItem::with_id(app, "sticky", "打开便利贴", true, None::<&str>)?;
+    let quick_add = MenuItem::with_id(app, "quick-add", "添加任务", true, None::<&str>)?;
     let sync = MenuItem::with_id(app, "sync", "立即同步", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&show, &sticky, &sync, &quit])?;
+    let menu = Menu::with_items(app, &[&show, &sticky, &quick_add, &sync, &quit])?;
 
     let mut builder = TrayIconBuilder::with_id("main-tray")
         .tooltip("待办清单")
@@ -157,11 +159,13 @@ fn setup_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
                 }
             }
             "sticky" => {
-                if let Some(main) = app.get_webview_window("main") {
-                    let _ = main.show();
-                    let _ = main.set_focus();
-                }
                 let _ = app.emit("tray-command", serde_json::json!({ "command": "sticky" }));
+            }
+            "quick-add" => {
+                let _ = app.emit(
+                    "tray-command",
+                    serde_json::json!({ "command": "quick-add" }),
+                );
             }
             "sync" => {
                 if let Some(state) = app.try_state::<AppState>() {

@@ -16,7 +16,7 @@
     {/if}
   </label>
 
-  <button class="btn btn-primary" title="新建任务 (Ctrl+N)" onclick={() => (store.quickAddOpen = true)}>
+  <button class="btn btn-primary" title="新建任务 (Ctrl+N)" onclick={() => store.openQuickAddWindow()}>
     <Plus size="15" />
     <span>新建</span>
   </button>

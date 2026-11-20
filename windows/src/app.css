@@ -8,7 +8,8 @@
 
 html,
 body,
-#app {
+#app,
+#quick-add-root {
   height: 100%;
   margin: 0;
 }
@@ -23,6 +24,14 @@ body {
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   overflow: hidden;
+}
+
+body.quick-add-window {
+  background: transparent;
+}
+
+body.main-window {
+  background: transparent;
 }
 
 button,
@@ -54,7 +63,8 @@ button {
 }
 
 .stage.is-tauri {
-  padding: 0;
+  padding: var(--space-2);
+  overflow: hidden;
 }
 
 .app-window {
@@ -78,13 +88,13 @@ button {
 }
 
 .stage.is-tauri .app-window {
-  width: 100vw;
-  height: 100vh;
+  width: 100%;
+  height: 100%;
   min-width: 0;
   min-height: 0;
-  border: none;
-  border-radius: 0;
-  box-shadow: none;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-xl);
 }
 
 .app-window.is-collapsed {

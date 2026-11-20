@@ -83,6 +83,7 @@ pub async fn open_sticky_window(
         .min_inner_size(280.0, 320.0)
         .decorations(false)
         .transparent(true)
+        .shadow(false)
         .always_on_top(true)
         .skip_taskbar(true)
         // 隐藏创建，等前端投影就绪后再显示，避免创建瞬间的空白/白底闪一下。
@@ -135,6 +136,35 @@ pub async fn open_sticky_window(
     });
 
     Ok(label)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn open_quick_add_window(app: AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("quick-add") {
+        window
+            .show()
+            .map_err(|error| format!("显示新建任务窗口失败: {error}"))?;
+        let _ = window.unminimize();
+        window
+            .set_focus()
+            .map_err(|error| format!("聚焦新建任务窗口失败: {error}"))?;
+        return Ok(());
+    }
+
+    WebviewWindowBuilder::new(&app, "quick-add", WebviewUrl::App("quick-add.html".into()))
+        .title("新建任务")
+        .inner_size(440.0, 414.0)
+        .center()
+        .decorations(false)
+        .transparent(true)
+        .shadow(false)
+        .resizable(false)
+        .visible(false)
+        .build()
+        .map_err(|error| format!("创建新建任务窗口失败: {error}"))?;
+
+    Ok(())
 }
 
 #[tauri::command]

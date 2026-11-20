@@ -32,10 +32,12 @@
   onMount(() => {
     let unlistenTray: (() => void) | null = null;
     if (isTauri) {
+      document.body.classList.add('main-window');
       // 托盘菜单「打开便利贴」：主窗口可能已隐藏，事件仍能送达 WebView。
       void ipc
         .onTrayCommand((command) => {
           if (command === 'sticky') void store.openStickyMainWindow();
+          if (command === 'quick-add') void store.openQuickAddWindow();
         })
         .then((fn) => {
           unlistenTray = fn;
@@ -63,7 +65,10 @@
       }, 520);
     }
 
-    return () => unlistenTray?.();
+    return () => {
+      document.body.classList.remove('main-window');
+      unlistenTray?.();
+    };
   });
 
   $effect(() => {
@@ -146,7 +151,7 @@
 
     if (mod && event.key.toLowerCase() === 'n') {
       event.preventDefault();
-      store.quickAddOpen = true;
+      void store.openQuickAddWindow();
       return;
     }
 

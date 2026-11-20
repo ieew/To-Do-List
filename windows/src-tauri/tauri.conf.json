@@ -21,9 +21,9 @@
         "resizable": true,
         "center": true,
         "visible": false,
-        "backgroundColor": "#F8FAFC",
         "decorations": false,
-        "transparent": false,
+        "transparent": true,
+        "shadow": false,
         "dragDropEnabled": false
       }
     ],

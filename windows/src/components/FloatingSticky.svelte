@@ -1,11 +1,11 @@
 <script lang="ts">
-  import { onMount, tick } from 'svelte';
+  import { onMount } from 'svelte';
   import { Maximize2, Pin, Plus, X } from 'lucide-svelte';
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { store } from '../lib/store.svelte';
   import { stickyWindowDrag } from '../lib/sticky-drag';
   import type { FloatingStickyState } from '../lib/types';
-  import { defaultDueAt, formatDueShort } from '../lib/utils';
+  import { formatDueShort } from '../lib/utils';
 
   interface Props {
     sticky: FloatingStickyState;
@@ -28,9 +28,6 @@
   let startY = 0;
   let originX = 0;
   let originY = 0;
-  let adding = $state(false);
-  let newTask = $state('');
-  let addInput = $state<HTMLInputElement | null>(null);
 
   onMount(() => {
     x = Math.max(12, window.innerWidth - CARD_W - 24 - index * 24);
@@ -102,29 +99,6 @@
     store.closeFloatingSticky(sticky.id);
   }
 
-  async function toggleAdd(): Promise<void> {
-    adding = !adding;
-    if (!adding) {
-      newTask = '';
-      return;
-    }
-    await tick();
-    addInput?.focus();
-  }
-
-  function submitAdd(): void {
-    const title = newTask.trim();
-    if (!title) return;
-    const fallback =
-      store.lists.find((list) => !list.smart)?.id ?? store.lists[0]?.id ?? store.todayListId;
-    const isSmartScope =
-      store.activeListId === store.todayListId || store.activeListId === store.allListId;
-    const listId = isSmartScope ? fallback : store.activeListId;
-    void store.createTask({ title, listId, dueAt: defaultDueAt(), source: 'human' });
-    newTask = '';
-    store.showToast('已添加到' + store.listName(listId));
-    addInput?.focus();
-  }
 </script>
 
 <div
@@ -183,30 +157,6 @@
     {/if}
   </div>
 
-  {#if adding}
-    <div class="floating-add">
-      <Plus size="12" />
-      <input
-        class="floating-add-input"
-        placeholder="添加待办，回车保存"
-        aria-label="新任务标题"
-        bind:value={newTask}
-        bind:this={addInput}
-        onkeydown={(event) => {
-          if (event.key === 'Enter') {
-            event.preventDefault();
-            submitAdd();
-          } else if (event.key === 'Escape') {
-            event.preventDefault();
-            adding = false;
-            newTask = '';
-          }
-        }}
-      />
-      <button class="floating-add-submit" disabled={!newTask.trim()} onclick={submitAdd}>添加</button>
-    </div>
-  {/if}
-
   <div class="floating-footer">
     <label class="floating-list">
       <select
@@ -223,11 +173,9 @@
     <div class="footer-actions">
       <button
         class="footer-icon"
-        class:is-active={adding}
         aria-label="添加任务"
-        aria-expanded={adding}
         title="添加任务"
-        onclick={toggleAdd}
+        onclick={() => store.openQuickAddWindow()}
       >
         <Plus size="12" />
       </button>
@@ -247,8 +195,9 @@
     display: flex;
     flex-direction: column;
     border-radius: var(--radius-sticky);
+    border: 1px solid var(--color-border);
     background: rgb(255 255 255 / var(--sticky-alpha, 0.94));
-    box-shadow: var(--shadow-xl), var(--sticky-inset);
+    box-shadow: var(--shadow-xl);
     backdrop-filter: blur(calc(22px * var(--sticky-alpha, 0.94))) saturate(170%);
     overflow: hidden;
     color: var(--color-text);
@@ -402,46 +351,6 @@
     text-align: center;
   }
 
-  .floating-add {
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    margin: 0 8px 6px;
-    padding: 6px 9px;
-    border-radius: 6px;
-    background: rgb(241 245 249 / calc(var(--sticky-alpha, 0.94) * 0.9));
-    color: var(--color-text-3);
-  }
-
-  .floating-add-input {
-    flex: 1;
-    min-width: 0;
-    border: none;
-    outline: none;
-    background: transparent;
-    color: var(--color-text);
-    font-size: 11.5px;
-  }
-
-  .floating-add-input::placeholder {
-    color: var(--color-text-3);
-  }
-
-  .floating-add-submit {
-    flex-shrink: 0;
-    border: none;
-    background: transparent;
-    color: var(--color-primary);
-    font-size: 11px;
-    font-weight: var(--weight-semibold);
-  }
-
-  .floating-add-submit:disabled {
-    color: var(--color-text-3);
-    opacity: 0.6;
-  }
-
   .floating-footer {
     flex-shrink: 0;
     display: flex;
@@ -495,14 +404,9 @@
     color: var(--color-text-2);
   }
 
-  .footer-icon:hover,
-  .footer-icon.is-active {
+  .footer-icon:hover {
     border-color: #bfdbfe;
     color: var(--color-primary);
-  }
-
-  .footer-icon.is-active {
-    background: var(--color-primary-50);
   }
 
   .footer-expand {
@@ -533,16 +437,12 @@
 
   :global(html[data-theme='dark']) .floating-sticky {
     background: rgb(30 41 59 / var(--sticky-alpha, 0.94));
-    box-shadow: var(--shadow-xl), 0 0 0 1px rgba(255, 255, 255, 0.08) inset;
+    box-shadow: var(--shadow-xl);
   }
 
   :global(html[data-theme='dark']) .floating-header,
   :global(html[data-theme='dark']) .floating-footer {
     border-color: rgba(51, 65, 85, 0.8);
-  }
-
-  :global(html[data-theme='dark']) .floating-add {
-    background: rgb(15 23 42 / calc(var(--sticky-alpha, 0.94) * 0.5));
   }
 
   :global(html[data-theme='dark']) .floating-footer {

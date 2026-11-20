@@ -184,6 +184,8 @@ export const ipc = {
   openStickyWindow: (mode: 'main' | 'floating', taskId?: string | null) =>
     invoke<string>('open_sticky_window', { mode, taskId: taskId ?? null }),
 
+  openQuickAddWindow: () => invoke<void>('open_quick_add_window'),
+
   closeStickyWindow: (label: string) => invoke<void>('close_sticky_window', { label }),
 
   showMainWindow: () => invoke<void>('show_main_window'),

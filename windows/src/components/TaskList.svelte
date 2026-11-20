@@ -43,7 +43,7 @@
   <div class="empty-state">
     <CheckSquare size="24" class="empty-icon" />
     <strong>{emptyText}</strong>
-    <button class="empty-action" onclick={() => (store.quickAddOpen = true)}>＋ 添加一个</button>
+    <button class="empty-action" onclick={() => store.openQuickAddWindow()}>＋ 添加一个</button>
   </div>
 {:else}
   {#if searchActive}
@@ -90,7 +90,7 @@
   {/each}
 
   {#if !searchActive}
-    <button class="quick-add" onclick={() => (store.quickAddOpen = true)}>
+    <button class="quick-add" onclick={() => store.openQuickAddWindow()}>
       <Plus size="14" />
       <span>添加一个新待办…</span>
     </button>
