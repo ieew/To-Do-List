@@ -1,0 +1,19 @@
+[Unit]
+Description=Todo Sync Server
+After=network.target
+
+[Service]
+Type=simple
+User=todo-server
+Group=todo-server
+WorkingDirectory=/opt/todo-server/server
+EnvironmentFile=/etc/todo-server/todo-server.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/todo-server/server/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

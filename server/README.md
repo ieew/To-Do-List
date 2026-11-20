@@ -76,6 +76,34 @@ uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
 
 测试覆盖：共享向量（`../shared/testvectors`）、收敛/幂等、授权矩阵与 role-at-HLC、时钟拒绝、实体绑定、分页游标、成员生命周期、快照/恢复、备份脱敏、迁移幂等。
 
+## Linux systemd 部署
+
+`deploy/todo-server.service.example` 是 systemd unit 模板。以下路径、用户和组均为示例，请按实际部署位置调整；应用目录应包含代码和 `.venv`。
+
+```sh
+sudo useradd --system --home /opt/todo-server --shell /usr/sbin/nologin todo-server
+sudo install -d -o todo-server -g todo-server /opt/todo-server/server/data
+sudo install -d -o root -g todo-server -m 0750 /etc/todo-server
+sudo install -o root -g todo-server -m 0640 /dev/null /etc/todo-server/todo-server.env
+```
+
+将 `TODO_SERVER_JWT_SECRET`（至少 32 字节随机串）等服务配置写入 `/etc/todo-server/todo-server.env`，每行使用 `KEY=value` 格式。在 `server` 目录下将模板安装为 unit 文件：
+
+```sh
+sudo install -o root -g root -m 0644 deploy/todo-server.service.example /etc/systemd/system/todo-server.service
+```
+
+确认 unit 中的路径、用户和组正确后，执行：
+
+```sh
+sudo systemctl daemon-reload
+sudo systemctl enable --now todo-server
+sudo systemctl status todo-server
+sudo journalctl -u todo-server -f
+```
+
+更新代码或配置后用 `sudo systemctl restart todo-server` 重启。该 unit 使用单个 Uvicorn worker；服务默认只监听 `127.0.0.1`，公网访问应通过启用 TLS 的反向代理。
+
 ## 设计要点
 
 - **op 信封**：wire 为 snake_case + 嵌套 `hlc`，客户端同步层负责与 Windows `Op` 的 camelCase / 扁平 HLC 互转。
