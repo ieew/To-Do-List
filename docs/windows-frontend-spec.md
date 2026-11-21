@@ -51,7 +51,9 @@
   - Rust `setup()` 起 3 秒兜底线程，窗口仍不可见则强制显示。任何前端异常都不得让窗口永久隐藏。
 - **启动占位唯一**：`index.html` 内联 `#boot`（Logo + 进度条，背景与主题一致），覆盖到 `bootstrap` 完成且 Svelte 首次挂载之后，再淡出（约 180ms；`prefers-reduced-motion` 下直接移除）。禁止「启动占位 → 骨架屏 → 内容」的多层接力，也不使用全屏 spinner。
 - **初始化顺序**：Tauri 模式下 `store.loading` 初值为 `true`；`main.ts` 先 `await store.init()`（上限 3 秒）再 `mount`，确保不渲染种子/演示数据；失败落到 `App.svelte` 的可重试错误覆盖层。
-- **主题一致**：`settings.theme` 写入 `localStorage['todo.theme']` 供首帧占位选色（见第三节白名单）；Rust 在显示窗口前按同一主题调用 `set_background_color`，避免「浅色占位 → 暗色界面」闪变。
+- **主题一致**：`settings.theme` 写入 `localStorage['todo.theme']` 供首帧占位选色（见第三节白名单）；`main.ts` 在 `revealWindow()` **之前**就给 `body` 加 `main-window`（透明），避免先铺舞台渐变再「缩」成圆角卡片。
+- **窗口边界用描边，不用投影**：所有独立窗口（主窗口、便利贴、浮动便利贴、新建任务）`transparent: true` + `decorations: false` + `shadow: false`，卡片铺满整个窗口，边界由卡片自身 `1px solid var(--color-border)` 表达；不使用 `box-shadow`，也不为投影预留透明留边。禁止调用 `set_background_color(None)`：tauri-runtime-wry 2.12 映射为不透明白，透明处会变成白边。
+- **最大化贴边**：`lib/window-frame.svelte.ts` 用 `isMaximized()` + `onResized` 维护最大化状态（模块级单例，标题栏与根节点共用），根节点据此加 `is-maximized`；该状态下圆角与描边一并隐去，内容铺满工作区。
 - **首屏分包**：非首屏组件（`CalendarView`、`StatsView`、`GlobalHistory`）与浏览器预览专用组件（`StickyMode`、`FloatingSticky`）必须动态 `import()`；构建产物入口 HTML 不得 `modulepreload` 这些 chunk。启动 1.2 秒后可空闲预取。
 - **便利贴窗口**：同样隐藏创建，渲染就绪后再显示并完成主窗口换手，见 `sticky-note-spec.md` 二。
 - **验收**：冷启动无纯白帧；窗口首帧为启动占位或已就绪界面；暗色主题重启无浅色闪变；前端脚本抛错时窗口仍能在 3 秒内显示。

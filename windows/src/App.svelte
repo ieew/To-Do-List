@@ -13,6 +13,7 @@
   import Toolbar from './components/Toolbar.svelte';
   import { ipc } from './lib/ipc';
   import { store } from './lib/store.svelte';
+  import { windowFrame } from './lib/window-frame.svelte';
 
   const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
@@ -32,7 +33,6 @@
   onMount(() => {
     let unlistenTray: (() => void) | null = null;
     if (isTauri) {
-      document.body.classList.add('main-window');
       // 托盘菜单「打开便利贴」：主窗口可能已隐藏，事件仍能送达 WebView。
       void ipc
         .onTrayCommand((command) => {
@@ -174,7 +174,7 @@
   }
 </script>
 
-<div class="stage" class:is-tauri={isTauri}>
+<div class="stage" class:is-tauri={isTauri} class:is-maximized={windowFrame.maximized}>
   <div class="app-window" class:is-collapsed={store.stickyMode && !isTauri}>
     <TitleBar />
 
@@ -269,6 +269,13 @@
     padding: 0;
   }
 
+  /* 独立窗口的边界统一由卡片 1px 描边表达，不使用投影（留边也没有意义了）。
+     最大化时圆角与描边一并隐去，避免屏幕边缘出现一圈亮线。 */
+  .stage.is-tauri.is-maximized .app-window {
+    border-radius: 0;
+    border-color: transparent;
+  }
+
   .app-window {
     position: relative;
     width: var(--window-w);
@@ -290,12 +297,12 @@
   }
 
   .stage.is-tauri .app-window {
-    width: 100vw;
-    height: 100vh;
+    width: 100%;
+    height: 100%;
     min-width: 0;
     min-height: 0;
-    border: none;
-    border-radius: 0;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
     box-shadow: none;
   }
 
@@ -363,7 +370,7 @@
     align-items: center;
     justify-content: center;
     gap: var(--space-3);
-    background: var(--color-bg);
+    background: transparent;
     color: var(--color-text-2);
     font-size: var(--text-base);
   }

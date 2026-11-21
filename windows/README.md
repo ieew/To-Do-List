@@ -12,7 +12,9 @@
 - **单层启动占位**：`#boot`（Logo + 进度条）一直覆盖到 `bootstrap` 完成、Svelte 挂载之后，再 180ms 淡出；`prefers-reduced-motion` 下直接移除。不再出现「占位 → 骨架 → 内容」多层接力。
 - **先取数再渲染**：Tauri 模式 `store.loading` 初值为 `true`，`main.ts` 先 `await store.init()`（上限 3 秒）再 `mount`，不会先渲染一遍种子数据；失败时显示可重试错误。
 - **首屏分包**：`StickyMode`、`FloatingSticky`、`CalendarView`、`StatsView`、`GlobalHistory` 按需动态 `import()`，启动 1.2 秒后空闲预取。构建产物 `dist/index.html` 不再预加载浏览器预览专用的便利贴 chunk。
-- **主题一致**：`App.svelte` 把 `settings.theme` 写入 `localStorage['todo.theme']`，仅供 `index.html` 首帧占位选色（纯 UI 偏好缓存，业务数据仍只存 Rust 投影）；Rust 在显示窗口前按同一主题设置窗口底色，暗色用户重启不会闪白。
+- **主题一致**：`App.svelte` 把 `settings.theme` 写入 `localStorage['todo.theme']`，仅供 `index.html` 首帧占位选色（纯 UI 偏好缓存，业务数据仍只存 Rust 投影）；`main.ts` 在显示窗口**之前**就把 `body` 置为透明，暗色用户重启不会闪白。
+- **窗口边界用描边，不用投影**：所有独立窗口（主窗口、便利贴、浮动便利贴、新建任务）都是 `transparent: true` + `decorations: false` + `shadow: false`，卡片**铺满整个窗口**，边界由卡片自身的 `1px solid var(--color-border)` 表达。不再给窗口留边、也不使用 `box-shadow`（原先为投影预留的 8–12px 透明留边已废弃）。**不要调用 `set_background_color(None)`**：tauri-runtime-wry 2.12 会把它映射成不透明白（`255,255,255,255`），透明处会被涂成白边（曾表现为「主窗口边上多出一圈」）。
+- **最大化贴边**：`src/lib/window-frame.svelte.ts` 用 `isMaximized()` + `onResized` 维护最大化状态，根节点据此加 `is-maximized`，CSS 把圆角与描边一并隐去；实测最大化时内容贴满工作区（1920×1080、任务栏上方无缝、四角为直角）。
 - **便利贴同样隐藏创建**：`StickyApp` 在投影与上下文就绪后 `show()`，再调用 `hide_main_window` 隐藏主窗口完成换手；Rust 侧 2.5 秒兜底（显示便利贴并隐藏主窗口）。细节见 [`sticky-note-spec.md`](../docs/sticky-note-spec.md) 二。
 
 实测（本机 release，1120×720）：无纯白帧；窗口约 0.8s 出现且首帧即启动占位，约 1.0–1.2s 可交互。剩余耗时主要来自 WebView2 初始化，属于 Tauri 的启动下限。完整规格见 [`windows-frontend-spec.md`](../docs/windows-frontend-spec.md) 六。

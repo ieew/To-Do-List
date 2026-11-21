@@ -19,8 +19,6 @@ use tauri::menu::{Menu, MenuItem};
 #[cfg(feature = "desktop")]
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 #[cfg(feature = "desktop")]
-use tauri::window::Color;
-#[cfg(feature = "desktop")]
 use tauri::{Emitter, Manager};
 
 /// 便利贴窗口的创建上下文。独立 Webview 通过 label 反查模式与聚焦任务。
@@ -238,17 +236,14 @@ pub fn run() {
             let sync_state = sync::SyncState::new(&conn);
 
             // 主窗口在配置里是隐藏创建的，等前端首帧就绪后再显示，避免 WebView2
-            // 初始化期间用户看到一个空白窗口。这里先把底色同步成当前主题，
-            // 保证「显示窗口 → 首帧绘制」之间不会闪白或闪错颜色。
-            if let Some(main) = app.get_webview_window("main") {
-                let theme = storage::load_settings(&conn).theme;
-                let background = if theme == "dark" {
-                    Color(15, 23, 42, 255) // #0f172a
-                } else {
-                    Color(248, 250, 252, 255) // #f8fafc
-                };
-                let _ = main.set_background_color(Some(background));
-
+            // 初始化期间用户看到一个空白窗口。
+            //
+            // 注意：这里**不能**调用 `set_background_color(None)`。
+            // tauri-runtime-wry 2.12 会把 `None` 映射成不透明白 (`255,255,255,255`)，
+            // 于是透明窗口四周那圈留白会被涂成白色，表现为窗口边缘多出一圈"毛边"。
+            // 透明由 tauri.conf.json 的 `transparent: true` 决定：创建时 wry 已把
+            // WebView2 默认底色设为全透明，不需要也不应该再改。
+            if app.get_webview_window("main").is_some() {
                 // 兜底：前端脚本若加载失败，主窗口会一直隐藏。3 秒后强制显示，
                 // 至少让用户看到 HTML 里的启动占位，而不是「双击没反应」。
                 let handle = app.handle().clone();

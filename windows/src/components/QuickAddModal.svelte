@@ -245,6 +245,9 @@
     width: 100%;
     height: 100%;
     max-width: none;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    box-shadow: none;
   }
 
   .modal.window-sized .modal-body {

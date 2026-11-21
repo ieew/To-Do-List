@@ -211,6 +211,7 @@
     width: 100%;
     height: 100%;
     z-index: auto;
+    box-shadow: none;
     animation: none;
   }
 

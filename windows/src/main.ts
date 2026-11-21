@@ -4,6 +4,7 @@ import './app.css';
 import App from './App.svelte';
 import { isTauri } from './lib/ipc';
 import { store } from './lib/store.svelte';
+import { initWindowFrame } from './lib/window-frame.svelte';
 
 const target = document.getElementById('app');
 if (!target) {
@@ -43,6 +44,12 @@ function wait(ms: number): Promise<void> {
 }
 
 // 先显示窗口再等数据：占位动画本身就是启动阶段的反馈。
+// 显示前先把 body 置为透明并初始化窗口状态：app.css 里 body 默认铺着舞台渐变，
+// 若等 App 挂载后才加 .main-window，用户会先看到一个不透明矩形再"缩"成圆角卡片。
+if (isTauri) {
+  document.body.classList.add('main-window');
+  initWindowFrame();
+}
 revealWindow();
 
 // 首次启动正常只需几十毫秒；设上限防止异常时窗口一直停在占位层。

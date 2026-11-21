@@ -63,8 +63,15 @@ button {
 }
 
 .stage.is-tauri {
-  padding: var(--space-2);
+  padding: 0;
   overflow: hidden;
+}
+
+/* 独立窗口的边界统一由卡片 1px 描边表达，不使用投影（留边也没有意义了）。
+   最大化时圆角与描边一并隐去，避免屏幕边缘出现一圈亮线。 */
+.stage.is-tauri.is-maximized .app-window {
+  border-radius: 0;
+  border-color: transparent;
 }
 
 .app-window {
@@ -93,8 +100,8 @@ button {
   min-width: 0;
   min-height: 0;
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-xl);
+  border-radius: var(--radius-lg);
+  box-shadow: none;
 }
 
 .app-window.is-collapsed {

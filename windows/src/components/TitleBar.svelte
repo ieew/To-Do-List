@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
   import {
     CheckSquare,
     Cloud,
@@ -15,10 +14,12 @@
   } from 'lucide-svelte';
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { store } from '../lib/store.svelte';
+  import { windowFrame } from '../lib/window-frame.svelte';
 
   const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
-  let maximized = $state(false);
+  /* 最大化状态由 lib/window-frame.svelte.ts 统一维护，避免多处重复监听 onResized。 */
+  const maximized = $derived(windowFrame.maximized);
 
   const syncLabel = $derived(
     store.sync.status === 'signed_out'
@@ -38,33 +39,6 @@
     store.settingsSection = 'sync';
     store.settingsOpen = true;
   }
-
-  onMount(() => {
-    if (!isTauri) return;
-    const win = getCurrentWindow();
-    let disposed = false;
-    let unlisten: (() => void) | undefined;
-
-    const refreshMaximized = async (): Promise<void> => {
-      const value = await win.isMaximized();
-      if (!disposed) maximized = value;
-    };
-
-    void refreshMaximized();
-    void win
-      .onResized(() => {
-        void refreshMaximized();
-      })
-      .then((fn) => {
-        if (disposed) fn();
-        else unlisten = fn;
-      });
-
-    return () => {
-      disposed = true;
-      unlisten?.();
-    };
-  });
 
   async function windowAction(action: 'minimize' | 'maximize' | 'close'): Promise<void> {
     if (!isTauri) {
