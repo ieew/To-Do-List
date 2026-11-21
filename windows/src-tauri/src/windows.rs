@@ -159,7 +159,8 @@ pub async fn open_quick_add_window(app: AppHandle) -> Result<(), String> {
         .decorations(false)
         .transparent(true)
         .shadow(false)
-        .resizable(false)
+        .min_inner_size(360.0, 360.0)
+        .resizable(true)
         .visible(false)
         .build()
         .map_err(|error| format!("创建新建任务窗口失败: {error}"))?;
