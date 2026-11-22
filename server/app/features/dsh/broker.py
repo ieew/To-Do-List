@@ -284,13 +284,21 @@ class DshRuntime:
         msg_id: str,
         text: str,
         fp: str,
+        only_device_id: str | None = None,
     ) -> int:
-        """剪贴板直传：只发给同用户的其他在线设备（不回声给来源设备）。返回投出去的台数。"""
+        """剪贴板直传：默认发同用户的其他在线设备；`only_device_id` 非空时只发这一台。
+
+        `exclude_device_id` 是「来源设备」（设备票据时才非空）：不能回声给它。
+        登录用户（CLI/网页）显式指定 `device_id` 时那台是**目标**，走 only_device_id。
+        """
         if not self.online:
             return 0
-        targets = [
-            device for device in self._online_devices_of(user_id) if device != exclude_device_id
-        ]
+        if only_device_id is not None:
+            targets = [only_device_id] if self.is_online(only_device_id) else []
+        else:
+            targets = [
+                device for device in self._online_devices_of(user_id) if device != exclude_device_id
+            ]
         if not targets:
             return 0
         body = json.dumps(

@@ -126,11 +126,16 @@ async def clip(
     services: Container,
     identity: Identity,
 ) -> dict:
-    if identity.device_id:
-        if payload.device_id and payload.device_id != identity.device_id:
+    # 设备票据：来源就是票据里的设备，显式 device_id 只是它的副本。
+    # 登录用户：device_id 是**目标**设备（对端 CLI/网页要发给某台手机），不是来源。
+    source = identity.device_id
+    if source:
+        if payload.device_id and payload.device_id != source:
             raise AppError("forbidden")
-        payload.device_id = identity.device_id
-    return await usecase.clip(services, user_id=identity.user_id, payload=payload)
+        payload.device_id = source
+    return await usecase.clip(
+        services, user_id=identity.user_id, payload=payload, exclude_device_id=source
+    )
 
 
 @router.get("/pull")

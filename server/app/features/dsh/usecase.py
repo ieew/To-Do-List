@@ -254,7 +254,13 @@ async def _require_own_device(services: Services, user_id: str, device_id: str) 
 # ---------------------------------------------------------------- 剪贴板上行
 
 
-async def clip(services: Services, *, user_id: str, payload: ClipRequest) -> dict:
+async def clip(
+    services: Services,
+    *,
+    user_id: str,
+    payload: ClipRequest,
+    exclude_device_id: str | None = None,
+) -> dict:
     """剪贴板：默认不落库，实时转发给同用户的其他在线设备（排除来源设备）。
 
     `dsh_clip_persist=true` 时改为落库（device_id=NULL，全员待投），由 pull 补投。
@@ -269,9 +275,9 @@ async def clip(services: Services, *, user_id: str, payload: ClipRequest) -> dic
 
     at = now_ms()
     msg_id = payload.msg_id or new_id("clip")
-    source = payload.device_id
-    if source:
-        await _require_own_device(services, user_id, source)
+    target = payload.device_id
+    if target:
+        await _require_own_device(services, user_id, target)
 
     runtime = services.dsh
     if settings.dsh_clip_persist:
@@ -285,7 +291,7 @@ async def clip(services: Services, *, user_id: str, payload: ClipRequest) -> dic
                 conn,
                 msg_id=msg_id,
                 user_id=user_id,
-                device_id=None,
+                device_id=target,
                 kind="clip",
                 payload=json.dumps({"text": raw, "fp": payload.fp}, ensure_ascii=False),
                 created_at=at,
@@ -308,10 +314,11 @@ async def clip(services: Services, *, user_id: str, payload: ClipRequest) -> dic
     if runtime is not None:
         targets = await runtime.publish_clip_others(
             user_id=user_id,
-            exclude_device_id=source,
+            exclude_device_id=exclude_device_id,
             msg_id=msg_id,
             text=raw,
             fp=payload.fp,
+            only_device_id=target if exclude_device_id is None else None,
         )
     return {
         "msg_id": msg_id,

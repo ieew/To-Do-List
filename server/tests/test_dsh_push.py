@@ -658,6 +658,22 @@ async def test_clip_fans_out_to_other_devices_only(client: AsyncClient, app) -> 
                 await phone_mqtt.deliver_message(timeout_duration=1.0)
 
 
+async def test_clip_to_specific_device_with_user_token(client: AsyncClient, app) -> None:
+    """登录用户（CLI/网页）带 device_id 时，那台是目标设备，不是来源，不能排除。"""
+    data = await register_user(client)
+    token = data["tokens"]["access_token"]
+    phone = await register_device(client, token)
+
+    async with device_connection(app, phone, client_id="phone") as phone_mqtt:
+        response = await clip_send(
+            client, auth(token), "目标是手机", "fp-target", device_id=phone["device_id"]
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["delivered"] == 1
+        got = await next_payload(phone_mqtt)
+        assert got["p"] == "目标是手机"
+
+
 async def test_clip_broadcast_from_user_without_device_id(client: AsyncClient, app) -> None:
     data = await register_user(client)
     token = data["tokens"]["access_token"]
