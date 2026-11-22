@@ -77,6 +77,7 @@ uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
 | GET | `/v1/dsh/pull` | 该设备未确认的消息（`since` + `limit` 分页） |
 | POST | `/v1/dsh/ack` | 逐设备确认，幂等 |
 | GET | `/v1/dsh/state` | broker 连接数、待投条数、发布队列深度 |
+| GET | `/dsh/` | **网页对端**：发通知（0–7 级）/发剪贴板/收消息/看设备状态 |
 
 ## 开发与验证
 
@@ -95,6 +96,17 @@ uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
 .\.venv\Scripts\python.exe scripts\dsh_smoke.py --username alice --password password123 --register
 .\.venv\Scripts\python.exe scripts\dsh_smoke.py --no-mqtt   # 只验纯 HTTP 通道
 ```
+
+### 网页对端
+
+服务端自带一个单页对端：`http://<host>:8000/dsh/`（登录用待办账号）。
+
+- 「发送」：通知标题/正文 + 0–7 级滑杆，或直接发一段剪贴板；目标可选「全部设备」或某台设备
+- 「收件箱」：页面会注册一个 `platform=web` 的「网页」设备，每 5 秒 `pull` 一次并 `ack`，
+  于是它自己也能收到推给它的通知/剪贴板（调试时很方便）
+- 「设备」：在线/吊销/最近活跃；「状态」：broker 指标与待投条数
+
+页面是同源静态文件（`server/app/features/dsh/web/dsh.html`），不需要额外起服务，也不需要配 CORS。
 
 ## dsh 推送通道
 
