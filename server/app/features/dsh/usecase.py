@@ -66,7 +66,8 @@ async def register_device(services: Services, user_id: str, payload: RegisterDev
         settings.jwt_secret,
         user_id=user_id,
         device_id=device_id,
-        ttl_seconds=settings.dsh_ticket_ttl_min,
+        # 配置项单位是分钟，票据按秒签
+        ttl_seconds=settings.dsh_ticket_ttl_min * 60,
         now_ms=at,
     )
     return {

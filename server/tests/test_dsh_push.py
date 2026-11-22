@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -153,7 +154,8 @@ async def test_register_device_returns_ticket_and_endpoint(client: AsyncClient, 
     assert device["device_id"].startswith("dsh-")
     assert device["action"] == "created"
     assert device["ticket"]
-    assert device["ticket_expires_at"] > 0
+    # 票据 TTL 是分钟级（默认 10 分钟），别把分钟当秒签成 10 秒
+    assert device["ticket_expires_at"] - int(time.time() * 1000) > 5 * 60 * 1000
 
     endpoint = device["mqtt"]
     assert endpoint["online"] is True
