@@ -51,6 +51,11 @@ uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
 | `TODO_SERVER_DSH_PUSH_RATE` | 30 | 每分钟每用户推送上限；0 关闭 |
 | `TODO_SERVER_DSH_CLIP_RATE` | 60 | 每分钟每用户剪贴板上行上限；0 关闭 |
 | `TODO_SERVER_DSH_CLIP_PERSIST` | false | 剪贴板类消息是否落库（默认不落库，只直传） |
+| `TODO_SERVER_DSH_REMINDERS_ENABLED` | true | 待办到点提醒是否推送到设备 |
+| `TODO_SERVER_DSH_REMINDER_LEVEL` | 6 | 提醒用的通知等级 0–7 |
+| `TODO_SERVER_DSH_REMINDER_LEAD_S` | 0 | 提前多少秒提醒 |
+| `TODO_SERVER_DSH_REMINDER_WINDOW_S` | 3600 | 错过多久内补发（超出不提醒） |
+| `TODO_SERVER_DSH_REMINDER_INTERVAL_S` | 30 | 扫描提醒的间隔 |
 
 ## 接口速查
 
@@ -96,6 +101,15 @@ uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
 .\.venv\Scripts\python.exe scripts\dsh_smoke.py --username alice --password password123 --register
 .\.venv\Scripts\python.exe scripts\dsh_smoke.py --no-mqtt   # 只验纯 HTTP 通道
 ```
+
+### 服务端提醒
+
+待办任务的 `remind_at` 到点后，服务端主动给该工作区成员推一条通知（等级默认 6）。
+账号体系完全复用待办的 `users` / `memberships`：没有 dsh 专用账号，设备也必须先在该账号下注册。
+
+- 只读 `op_log` 里任务的 `remind_at`/`status`/`__deleted`/`title` 最新值，不维护第二份任务表
+- `(workspace_id, task_id, remind_at, user_id)` 只推一次；改了 `remind_at` 会再提醒
+- 默认 30 秒扫一次；错过超过 1 小时不补发，避免开机轰炸
 
 ### 网页对端
 
