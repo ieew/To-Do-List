@@ -13,10 +13,11 @@ from app.db.migrations import apply_migrations, current_version, list_migrations
 async def test_apply_migrations_is_idempotent(tmp_path: Path) -> None:
     db_path = tmp_path / "migrate.sqlite3"
     conn = await aiosqlite.connect(str(db_path), isolation_level=None)
+    versions = [version for version, _name, _path in list_migrations()]
     try:
         first = await apply_migrations(conn, now_ms=1)
-        assert first == [1]
-        assert await current_version(conn) == 1
+        assert first == versions
+        assert await current_version(conn) == versions[-1]
 
         second = await apply_migrations(conn, now_ms=2)
         assert second == []
@@ -36,12 +37,15 @@ async def test_apply_migrations_is_idempotent(tmp_path: Path) -> None:
             "snapshots",
             "server_hlc",
             "schema_migrations",
+            "dsh_devices",
+            "dsh_messages",
+            "dsh_acks",
         } <= tables
 
         cursor = await conn.execute("SELECT version, applied_at FROM schema_migrations")
         rows = await cursor.fetchall()
         await cursor.close()
-        assert rows == [(1, 1)]
+        assert rows == [(version, 1) for version in versions]
     finally:
         await conn.close()
 
@@ -56,8 +60,9 @@ async def test_upgrade_from_empty_and_from_partially_applied(tmp_path: Path) -> 
             "version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at INTEGER NOT NULL)"
         )
         applied = await apply_migrations(conn, now_ms=10)
-        assert applied == [1]
-        assert await current_version(conn) == 1
+        versions = [version for version, _name, _path in list_migrations()]
+        assert applied == versions
+        assert await current_version(conn) == versions[-1]
     finally:
         await conn.close()
 

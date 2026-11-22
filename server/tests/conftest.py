@@ -26,6 +26,8 @@ def settings(tmp_path: Path) -> ServerSettings:
         snapshot_every_ops=0,
         auth_rate_limit=0,
         log_level="warning",
+        # 默认不起内嵌 MQTT broker：普通用例不需要，也别占端口。
+        dsh_mqtt_enabled=False,
     )
 
 

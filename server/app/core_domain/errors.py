@@ -44,6 +44,8 @@ ERRORS: dict[str, ErrorInfo] = {
     "member_not_found": ErrorInfo(404, False, "成员不存在"),
     "account_not_found": ErrorInfo(404, False, "该账号尚未注册"),
     "snapshot_not_found": ErrorInfo(404, False, "找不到可用快照"),
+    "device_not_found": ErrorInfo(404, False, "设备不存在或不属于当前账号"),
+    "device_revoked": ErrorInfo(409, False, "设备已被吊销，请重新注册"),
     "username_taken": ErrorInfo(409, False, "该用户名已被占用"),
     "email_taken": ErrorInfo(409, False, "该邮箱已被占用"),
     "last_owner": ErrorInfo(409, False, "至少需要保留一个所有者"),

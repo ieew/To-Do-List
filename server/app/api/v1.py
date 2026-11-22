@@ -13,6 +13,7 @@ from app.db import ops as ops_repo
 from app.features.auth.handler import router as auth_router
 from app.features.auth.handler import workspaces_router
 from app.features.backup.handler import router as backup_router
+from app.features.dsh.handler import router as dsh_router
 from app.features.history.handler import router as history_router
 from app.features.sync_pull.handler import router as pull_router
 from app.features.sync_push.handler import router as push_router
@@ -54,5 +55,6 @@ router.include_router(pull_router)
 router.include_router(workspace_router)
 router.include_router(history_router)
 router.include_router(backup_router)
+router.include_router(dsh_router)
 
 __all__ = ["router", "error_payload"]

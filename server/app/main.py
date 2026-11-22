@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
+from typing import TYPE_CHECKING
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -21,6 +22,9 @@ from app.infra.locking import ProcessLock
 from app.infra.rate_limit import SlidingWindowLimiter
 from app.services import Services
 
+if TYPE_CHECKING:
+    from app.features.dsh.broker import DshRuntime
+
 logger = logging.getLogger("todo.server")
 
 
@@ -30,6 +34,27 @@ def _validation_details(exc: RequestValidationError) -> list[dict[str, str]]:
         location = ".".join(str(part) for part in error.get("loc", ()))
         details.append({"field": location, "reason": str(error.get("msg", "字段不合法"))})
     return details
+
+
+async def _start_dsh_runtime(
+    server_settings: ServerSettings, services: Services
+) -> DshRuntime | None:
+    """起内嵌 broker。失败只降级为纯 HTTP 通道，不拖垮待办主服务。"""
+    if not server_settings.dsh_mqtt_enabled:
+        logger.info("dsh 推送通道已关闭（TODO_SERVER_DSH_MQTT_ENABLED=false）")
+        return None
+
+    from app.features.dsh.broker import DshRuntime
+
+    runtime = DshRuntime(settings=server_settings, services=services)
+    try:
+        await runtime.start()
+    except Exception as exc:  # noqa: BLE001 - 通道不可用不应影响主服务
+        logger.exception("dsh broker 启动失败，推送通道降级为纯 HTTP")
+        runtime.mark_failed(exc)
+        await runtime.stop()
+    services.dsh = runtime
+    return runtime
 
 
 def create_app(settings: ServerSettings | None = None) -> FastAPI:
@@ -50,14 +75,23 @@ def create_app(settings: ServerSettings | None = None) -> FastAPI:
         await writer.start(now_ms=now_ms())
         read_pool = ReadPool(server_settings.db_path, size=4)
         await read_pool.start()
-        services = Services(settings=server_settings, writer=writer, read=read_pool)
+        services = Services(
+            settings=server_settings,
+            writer=writer,
+            read=read_pool,
+            dsh_limiter=SlidingWindowLimiter(server_settings.dsh_push_rate),
+        )
         app.state.services = services
+
+        runtime = await _start_dsh_runtime(server_settings, services)
         logger.info("服务端已启动：db=%s", server_settings.db_path)
         try:
             yield
         finally:
             for task in list(services.background):
                 task.cancel()
+            if runtime is not None:
+                await runtime.stop()
             await writer.stop()
             await read_pool.close()
             lock.release()

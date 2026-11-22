@@ -92,6 +92,33 @@ flowchart TD
 - 接口：`/v1/auth/{register,login,refresh,logout}`、`/v1/sync/push`、`/v1/sync/pull`、`/v1/history/{timeline,snapshot,restore}`、`/v1/workspace/{members,invite,role,remove}`、`/v1/backup/export`。
 - 备份：WAL checkpoint 后单文件拷贝 + 逻辑导出，排除任何密钥。
 
+### 4.1 实时通道（dsh-kit）与待办迁移规划
+
+现状：同步是客户端按 `cursor` 轮询 `/v1/sync/pull`。
+输入法扩展 **dsh-kit** 引入了一条常驻实时通道（MQTT + 服务端消息队列，broker 内嵌在本服务端进程里），
+先用于**通知推送**与**剪贴板同步**。
+
+**已定方向：待办事项以后也要迁移进这条数据链路。** 因此下面的约束现在就要守住，
+否则将来迁移要返工：
+
+1. **`op_log` 仍是唯一业务真相源**。实时通道只负责「送达」，不承载业务裁决；
+   任何走通道的内容都不得绕过 Writer Worker 的授权与幂等校验。
+2. **nudge 必须与协议无关**：唤醒消息只带 `{workspace_id, seq}`，客户端收到后自己去
+   `/v1/sync/pull?since_seq=` 拉 op。将来换端点、换协议，通道不用改。
+3. **不要为待办另造一套传输语义**。dsh 消息的 `kind` 字段可扩展，业务消息直接复用 `op` 信封，
+   不新增第二种消息格式。
+4. **离线补投靠 `seq` 扫描，不靠 broker 会话**：`pull` 幂等且权威，nudge 丢了不影响正确性。
+5. **存储策略分开**：剪贴板不落库（隐私），待办与通知必须落库（不丢）。共用通道，不同策略。
+
+迁移路径（粗粒度，未排期）：
+
+| 阶段 | 内容 |
+| --- | --- |
+| 一（当前） | dsh 只管 `notify` / `clip` |
+| 二 | `nudge` 增加 `workspace_id` 维度，收到即触发一次增量 pull，替掉定时轮询 |
+| 三 | 客户端有实时通道时不轮询，无通道时回退轮询（双模并存） |
+| 四 | 若需「别人改了我立刻知道」，才由 Writer 追加 op 后主动 nudge |
+
 ## 5. Windows 端
 
 ```
@@ -152,6 +179,7 @@ android/
 | SQLite 单写入者瓶颈 | 短事务、批量聚合、读走独立连接、WAL |
 | Tauri 多窗口内存占用 | 便利贴走独立轻量入口，上限 5 个，不加载主 UI |
 | 时钟篡改 | HLC 只做单调合并，服务端阈值拒绝并回传 `server_hlc` |
+| 实时通道与业务同步耦合过深，将来迁不动 | nudge 只带 cursor，`pull` 保持唯一读路径（见 §4.1） |
 
 ## 10. 文档索引
 

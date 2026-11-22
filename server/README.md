@@ -41,6 +41,15 @@ uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
 | `TODO_SERVER_SNAPSHOT_EVERY_OPS` | 500 | 自动快照间隔；0 关闭 |
 | `TODO_SERVER_RESTORE_MAX_OPS` | 5000 | 单次恢复生成 op 上限 |
 | `TODO_SERVER_AUTH_RATE_LIMIT` | 10 | 鉴权接口每分钟每 IP 上限；0 关闭 |
+| `TODO_SERVER_DSH_MQTT_ENABLED` | true | dsh 推送通道（内嵌 MQTT broker）总开关 |
+| `TODO_SERVER_DSH_MQTT_BIND` / `_PORT` | `0.0.0.0` / `1883` | broker 监听地址；`0` 表示随机端口（测试用） |
+| `TODO_SERVER_DSH_MQTT_PUBLIC_HOST` | 空 | 返回给客户端的 broker 地址；留空时用 bind 值，通配地址回退 `127.0.0.1` |
+| `TODO_SERVER_DSH_MQTT_TLS_CERT` / `_KEY` | 空 | 都填才启用 TLS（8883 常用） |
+| `TODO_SERVER_DSH_TICKET_TTL_MIN` | 10 | 设备 MQTT 票据有效期（分钟） |
+| `TODO_SERVER_DSH_MSG_TTL_HOURS` | 72 | 推送消息默认过期时间 |
+| `TODO_SERVER_DSH_MSG_MAX_PENDING` | 1000 | 单设备待投上限，超出淘汰最旧 |
+| `TODO_SERVER_DSH_PUSH_RATE` | 30 | 每分钟每用户推送上限；0 关闭 |
+| `TODO_SERVER_DSH_CLIP_PERSIST` | false | 剪贴板类消息是否落库（默认不落库，只直传） |
 
 ## 接口速查
 
@@ -59,6 +68,13 @@ uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
 | POST | `/v1/history/restore` | 恢复到快照（只追加反向 op） |
 | GET | `/v1/backup/export` | 工作区 zip 导出（排除密钥） |
 | POST | `/v1/admin/backup` | 全库快照（`X-Admin-Token`） |
+| POST | `/v1/dsh/devices/register` | 注册/复用推送设备，返回 `device_id` + 短期 MQTT 票据 |
+| GET | `/v1/dsh/devices` | 设备列表（含 `online`、`revoked`、`last_seen_at`） |
+| POST | `/v1/dsh/devices/{id}/revoke` | 吊销设备并踢掉在线连接 |
+| POST | `/v1/dsh/push` | 投递一条消息，写库并发 nudge（`kind="clip"` 默认只直传） |
+| GET | `/v1/dsh/pull` | 该设备未确认的消息（`since` + `limit` 分页） |
+| POST | `/v1/dsh/ack` | 逐设备确认，幂等 |
+| GET | `/v1/dsh/state` | broker 连接数、待投条数、发布队列深度 |
 
 ## 开发与验证
 
@@ -72,7 +88,23 @@ uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
 
 # 端到端冒烟（需先启动 uvicorn）
 .\.venv\Scripts\python.exe scripts\smoke.py
+
+# dsh 推送通道冒烟：注册设备 → MQTT 收 nudge → pull → ack
+.\.venv\Scripts\python.exe scripts\dsh_smoke.py --username alice --password password123 --register
+.\.venv\Scripts\python.exe scripts\dsh_smoke.py --no-mqtt   # 只验纯 HTTP 通道
 ```
+
+## dsh 推送通道
+
+给手机输入法里的 dsh-kit 客户端用的旁路通道：通知走「MQTT nudge + HTTP pull + ack」，
+剪贴板默认不落库、只做 MQTT 直传。与 `op_log` / 同步协议**完全隔离**，不参与投影。
+
+- 设计：[`../dsh-ime/doc/SERVER-INTEGRATION.md`](../dsh-ime/doc/SERVER-INTEGRATION.md)
+- 协议：本文件「dsh 推送通道」一节 + [`../docs/server-protocol.md`](../docs/server-protocol.md) 第十五节
+- broker 内嵌在 FastAPI 进程里（amqtt，纯 Python），随 `lifespan` 起停；启动失败只降级为纯 HTTP，不影响待办主服务
+- 鉴权：`username = device_id`，`password = 票据`（HMAC，TTL 默认 10 分钟）；只允许订/发自己那条 `dsh/v1/<user>/dev/<device>/in|out`
+- 可靠性：数据库是唯一真相源，nudge 只带 `{t,seq,n}`，丢了也不影响正确性（连接后主动 pull）
+- 退出/吊销：`revoked` 立即生效（内存缓存 + 踢线），票据到期后无法重连
 
 测试覆盖：共享向量（`../shared/testvectors`）、收敛/幂等、授权矩阵与 role-at-HLC、时钟拒绝、实体绑定、分页游标、成员生命周期、快照/恢复、备份脱敏、迁移幂等。
 
@@ -103,6 +135,10 @@ sudo journalctl -u todo-server -f
 ```
 
 更新代码或配置后用 `sudo systemctl restart todo-server` 重启。该 unit 使用单个 Uvicorn worker；服务默认只监听 `127.0.0.1`，公网访问应通过启用 TLS 的反向代理。
+
+dsh 推送通道的 MQTT 端口（默认 1883）**不能走 HTTP 反向代理**：要么自己放行、要么配
+`TODO_SERVER_DSH_MQTT_TLS_CERT`/`_KEY` 用 TLS（常见 8883）。同时把
+`TODO_SERVER_DSH_MQTT_PUBLIC_HOST` 设成手机能访问到的地址，否则客户端拿不到正确的 broker 地址。
 
 ## 设计要点
 

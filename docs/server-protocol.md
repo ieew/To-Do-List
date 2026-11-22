@@ -10,7 +10,7 @@
 - 服务端不感知 AI：`source` 与 `source_meta` 只做审计，**不参与裁决**，服务端不得据 `source="ai"` 放宽或收紧权限。
 - 版本：路径前缀 `/v1`；`GET /v1/health` 返回 `protocol_version = "1.0"`。
 - 破坏性变更必须开 `/v2`，禁止在同版本内改字段语义。
-- 服务端只提供**轮询同步**，不提供 WebSocket / 推送通道。提醒触发由客户端本地调度，服务端不参与。
+- 业务同步只有**轮询**（`/v1/sync/*`），不提供 WebSocket。另有一条与业务无关的旁路推送通道 `/v1/dsh/*`（MQTT nudge + HTTP pull，服务手机输入法里的 dsh-kit），见第十五节；它不读写 `op_log`，也不参与投影。
 
 ## 二、传输约定
 
@@ -692,6 +692,8 @@ sequenceDiagram
 | `email_taken` | 409 | false | 该邮箱已被占用 |
 | `last_owner` | 409 | false | 至少需要保留一个所有者 |
 | `cannot_remove_self` | 409 | false | 不能移除自己 |
+| `device_not_found` | 404 | false | 设备不存在或不属于当前账号 |
+| `device_revoked` | 409 | false | 设备已被吊销，请重新注册 |
 | `restore_too_large` | 409 | false | 恢复范围过大，请使用更近的快照 |
 | `payload_too_large` | 413 | false | 同步数据过大，请分批提交 |
 | `rate_limited` | 429 | true | 操作过于频繁，请稍后重试 |
@@ -724,3 +726,148 @@ sequenceDiagram
 7. **Wire 映射**：按 3.3 表在同步层完成 `camelCase ↔ snake_case` 与 HLC 嵌套/扁平转换，领域层与 IPC 类型不变。
 8. **工作区级事件**：拉取到 `workspace.__deleted` / `membership` 变更后，广播 `projection-updated` 且 `workspaceId = null`（与 `windows-frontend-spec.md` 第四节一致）。
 9. **清单 / 标签与成员**：清单/标签 CRUD 以普通 op 推送；成员邀请/改角色/移除在已登录时改走 `/v1/workspace/*` REST，成功后立即 pull 一次。
+
+## 十五、dsh 推送通道（`/v1/dsh/*`，已实现）
+
+设计背景见 [`../dsh-ime/doc/SERVER-INTEGRATION.md`](../dsh-ime/doc/SERVER-INTEGRATION.md)。本节只写协议约束。
+
+### 15.1 定位
+
+- **旁路**：与 `op_log`、投影、HLC、`/v1/sync/*` 物理隔离，互不读写。
+- **两段式**：MQTT 只推一个极小的 `nudge`（唤醒信号），设备收到后主动 `pull` 权威数据再 `ack`。
+  数据库是唯一真相源，nudge 丢了不影响正确性（设备每次连上也会 pull 一次）。
+- **不承诺必达秒达**，只承诺「不丢不重」：消息 `msg_id` 唯一、ack 幂等、pull 按 `seq` 扫描。
+- 通道可整体关闭（`TODO_SERVER_DSH_MQTT_ENABLED=false`）：HTTP 三段（push/pull/ack）仍可用，
+  只是不再有 nudge 与剪贴板直传。
+
+### 15.2 鉴权
+
+| 场景 | 头 |
+| --- | --- |
+| 登录用户（设备管理、push、state） | `Authorization: Bearer <access_token>` |
+| 设备票据（pull / ack） | `X-Dsh-Device-Id: <device_id>` + `X-Dsh-Ticket: <ticket>` |
+| 运维代投 | `X-Admin-Token: <admin_token>`，且 body 必须带 `user_id` |
+
+设备票据是 HMAC 短票据（默认 10 分钟），载荷含 `user_id`/`device_id`/过期时间，**校验不读库**；
+吊销状态由服务端内存集合判断（立即生效 + 每分钟从库刷新一次）。票据**不能**用于 push / 设备管理。
+
+### 15.3 `POST /v1/dsh/devices/register`
+
+```json
+{"name": "手机", "platform": "android", "device_id": "可选：复用已有设备"}
+```
+
+`201` 返回：
+
+```json
+{
+  "device_id": "dsh-1a2b3c4d",
+  "action": "created",
+  "ticket": "eyJ2IjoxLC….<hex>",
+  "ticket_expires_at": 1730000000000,
+  "mqtt": {
+    "enabled": true, "online": true,
+    "host": "192.168.1.10", "port": 1883, "tls": false,
+    "username": "dsh-1a2b3c4d",
+    "topic_in": "dsh/v1/u-xxxx/dev/dsh-1a2b3c4d/in",
+    "topic_out": "dsh/v1/u-xxxx/dev/dsh-1a2b3c4d/out"
+  }
+}
+```
+
+- 复用自己已注册的 `device_id` → `action="updated"`，同时续期票据。
+- 别人的 `device_id` → `404 device_not_found`（不暴露存在性）；已吊销 → `409 device_revoked`。
+- `mqtt.host` 取 `TODO_SERVER_DSH_MQTT_PUBLIC_HOST`，留空时用 bind 值；通配地址回退 `127.0.0.1`。
+
+### 15.4 `GET /v1/dsh/devices` / `POST /v1/dsh/devices/{id}/revoke`
+
+设备列表返回 `device_id`、`name`、`platform`、`revoked`、`created_at`、`last_seen_at`、`online`。
+吊销返回 `{"device_id":…, "revoked": true, "changed": …, "kicked": <踢掉的连接数>}`；
+吊销后票据立即失效，重连被拒，且该 `device_id` 不能再次注册（换新设备注册）。
+
+### 15.5 `POST /v1/dsh/push`
+
+```json
+{"kind": "notify", "payload": {"title": "喝水"}, "device_id": "dsh-…", "ttl_s": 3600, "msg_id": "可选幂等键"}
+```
+
+- `device_id` 省略 = 广播给该用户所有设备（各设备各自 ack）。
+- `kind`：`^[a-z][a-z0-9_.-]{0,31}$`，本期不绑定业务语义。
+- `payload` 任意 JSON，序列化后上限 32 KiB，超限 `413 payload_too_large`。
+- `msg_id` 唯一 → 重复投递返回同一 `seq` 且 `duplicate=true`。
+- `kind="clip"` 且 `TODO_SERVER_DSH_CLIP_PERSIST=false`：**不落库**，只做 MQTT 直传；
+  设备离线时 `delivered="dropped"`，且必须带 `device_id`。
+- 返回（落库分支）：
+
+```json
+{"msg_id":"msg-…","seq":1024,"kind":"notify","device_id":null,
+ "created_at":1730000000000,"expires_at":1730259200000,
+ "stored":true,"duplicate":false,"pending":3,"trimmed":0,"nudged":true}
+```
+
+`pending` 是投递后该设备仍未确认的条数，`nudged=false` 表示设备不在线（等它 pull）。
+单设备待投超过 `TODO_SERVER_DSH_MSG_MAX_PENDING` 时淘汰最旧（`trimmed`）。
+
+### 15.6 `GET /v1/dsh/pull?device_id=&since=&limit=`
+
+- `since`：上次的 `next_seq`；`limit`：1–500，默认 100。
+- 只返回**该设备未确认**且未过期的消息，按 `seq` 升序；广播消息对每台设备各算一份。
+- 登录用户必须给 `device_id`；设备票据可省（取票据里的）。
+
+```json
+{"messages":[{"seq":1024,"msg_id":"msg-…","kind":"notify","payload":{},
+              "device_id":null,"created_at":…,"expires_at":…}],
+ "next_seq":1024,"has_more":false,"latest_seq":1024,"server_ms":…}
+```
+
+### 15.7 `POST /v1/dsh/ack`
+
+```json
+{"seqs": [1024, 1025], "device_id": "dsh-…"}
+```
+
+- 幂等：重复确认返回 `acked=0`，不报错。
+- 只接受属于本用户的消息；别人的 `seq` 静默忽略（`acked` 不含）。
+- 不存在「全部设备都确认」的全局状态：广播消息由每台设备各自确认。
+
+### 15.8 `GET /v1/dsh/state`
+
+```json
+{"broker":{"enabled":true,"online":true,"error":null,"bound_port":1883,
+           "devices_online":1,"publish_queue_depth":0,"publish_ms":0,
+           "nudges_sent":12,"nudges_dropped":0},
+ "devices":{"total":1,"revoked":0},
+ "messages":{"pending":3,"latest_seq":1024,"server_ms":…},
+ "writer_queue_depth":0}
+```
+
+四个观察点：`devices_online`、`messages.pending`、`publish_queue_depth`、`writer_queue_depth`。
+任一持续上涨即为堵住或资源不足。
+
+### 15.9 MQTT 接入
+
+- 连接：`username = device_id`，`password = ticket`，`clean_session = true`。
+- 主题（只能订/发自己那一条，其他一律拒绝）：
+
+```
+dsh/v1/{user_id}/dev/{device_id}/in    设备订阅：服务端 → 设备（nudge / clip）
+dsh/v1/{user_id}/dev/{device_id}/out   设备上报：设备 → 服务端（心跳，预留）
+```
+
+- `nudge` 载荷（故意做小）：
+
+```json
+{"t":"nudge","seq":1024,"n":3}
+```
+
+  `seq` 是本次投递的消息序号；`n` 只是「大约还有几条」的提示，**设备一律以 pull 结果为准**。
+- `clip` 直传载荷：`{"t":"clip","id":"msg-…","p":"<payload 原文>"}`。
+- QoS 1，不带 retain；broker 的会话与离线队列是内存态，重启即丢（靠 pull 兜底）。
+
+### 15.10 客户端最小实现顺序
+
+1. 登录 → `devices/register` 拿 `device_id` + 票据 + `mqtt.*`；
+2. 连 broker（`username`/`password` 用返回值），订阅 `topic_in`；
+3. 连上后先 `pull`（`since=本地游标`）把所有未确认消息取回来；
+4. 收到 `nudge`/`clip` → `pull` → 应用 → `ack` → 推进本地游标并存盘；
+5. 断线重连后重复 3；票据过期（401）就重新 `register` 续期。
