@@ -80,6 +80,7 @@ def create_app(settings: ServerSettings | None = None) -> FastAPI:
             writer=writer,
             read=read_pool,
             dsh_limiter=SlidingWindowLimiter(server_settings.dsh_push_rate),
+            dsh_clip_limiter=SlidingWindowLimiter(server_settings.dsh_clip_rate),
         )
         app.state.services = services
 

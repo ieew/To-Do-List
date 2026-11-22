@@ -621,3 +621,112 @@ async def test_push_level_validation(client: AsyncClient) -> None:
     not_object = await push(client, token, device_id=device["device_id"], payload="纯文本", level=5)
     assert not_object.status_code == 400
     assert not_object.json()["error"]["code"] == "invalid_request"
+
+
+# ---------------------------------------------------------------- 剪贴板上行
+
+
+async def clip_send(client: AsyncClient, headers: dict, text: str, fp: str, device_id=None):
+    body = {"text": text, "fp": fp}
+    if device_id is not None:
+        body["device_id"] = device_id
+    return await client.post("/v1/dsh/clip", json=body, headers=headers)
+
+
+async def test_clip_fans_out_to_other_devices_only(client: AsyncClient, app) -> None:
+    data = await register_user(client)
+    token = data["tokens"]["access_token"]
+    phone = await register_device(client, token, name="phone")
+    tablet = await register_device(client, token, name="tablet")
+
+    async with device_connection(app, phone, client_id="phone") as phone_mqtt:
+        async with device_connection(app, tablet, client_id="tablet") as tablet_mqtt:
+            headers = {"X-Dsh-Device-Id": phone["device_id"], "X-Dsh-Ticket": phone["ticket"]}
+            response = await clip_send(client, headers, "从手机复制", "fp-1")
+            assert response.status_code == 200, response.text
+            body = response.json()
+            assert body["stored"] is False
+            assert body["delivered"] == 1  # 只发给了平板
+
+            got = await next_payload(tablet_mqtt)
+            assert got["t"] == "clip"
+            assert got["p"] == "从手机复制"
+            assert got["fp"] == "fp-1"
+
+            # 来源设备（手机）不该收到自己的剪贴板
+            with pytest.raises(asyncio.TimeoutError):
+                await phone_mqtt.deliver_message(timeout_duration=1.0)
+
+
+async def test_clip_broadcast_from_user_without_device_id(client: AsyncClient, app) -> None:
+    data = await register_user(client)
+    token = data["tokens"]["access_token"]
+    phone = await register_device(client, token)
+
+    async with device_connection(app, phone, client_id="phone") as phone_mqtt:
+        response = await clip_send(client, auth(token), "网页发的", "fp-web")
+        assert response.status_code == 200, response.text
+        assert response.json()["delivered"] == 1
+        got = await next_payload(phone_mqtt)
+        assert got["p"] == "网页发的"
+
+
+async def test_clip_requires_device_ownership(client: AsyncClient) -> None:
+    alice_token, alice_device = await new_identity(client, username="alice")
+    bob_token, _ = await new_identity(client, username="bobby")
+
+    response = await clip_send(client, auth(bob_token), "偷看", "fp-x", device_id=alice_device)
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "device_not_found"
+    assert alice_token
+
+
+async def test_clip_size_and_auth_validation(client: AsyncClient) -> None:
+    data = await register_user(client)
+    token = data["tokens"]["access_token"]
+    device = await register_device(client, token)
+
+    too_big = await clip_send(client, auth(token), "x" * 32769, "fp", device_id=device["device_id"])
+    assert too_big.status_code == 400
+
+    empty = await clip_send(client, auth(token), "", "fp", device_id=device["device_id"])
+    assert empty.status_code == 400
+
+    anonymous = await clip_send(client, {}, "x", "fp")
+    assert anonymous.status_code == 401
+
+
+async def test_clip_persisted_when_enabled(tmp_path: Path) -> None:
+    settings = ServerSettings(
+        db_path=tmp_path / "clip-persist.sqlite3",
+        jwt_secret="test-secret-" + "x" * 40,
+        backup_dir=tmp_path / "backups",
+        snapshot_every_ops=0,
+        auth_rate_limit=0,
+        log_level="warning",
+        dsh_mqtt_enabled=True,
+        dsh_mqtt_bind="127.0.0.1",
+        dsh_mqtt_port=0,
+        dsh_push_rate=0,
+        dsh_clip_rate=0,
+        dsh_clip_persist=True,
+    )
+    application = create_app(settings)
+    async with application.router.lifespan_context(application):
+        transport = ASGITransport(app=application)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            data = await register_user(client)
+            token = data["tokens"]["access_token"]
+            device = await register_device(client, token)
+
+            response = await clip_send(
+                client, auth(token), "落库的剪贴板", "fp-2", device_id=device["device_id"]
+            )
+            assert response.status_code == 200, response.text
+            assert response.json()["stored"] is True
+
+            body = (await pull(client, token, device["device_id"])).json()
+            assert len(body["messages"]) == 1
+            message = body["messages"][0]
+            assert message["kind"] == "clip"
+            assert message["payload"] == {"text": "落库的剪贴板", "fp": "fp-2"}

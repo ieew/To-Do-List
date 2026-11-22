@@ -16,7 +16,7 @@ import aiosqlite
 from app.core_domain.errors import AppError
 from app.features.dsh import port
 from app.features.dsh.port import ServicesPort as Services
-from app.features.dsh.schemas import PushRequest, RegisterDeviceRequest
+from app.features.dsh.schemas import ClipRequest, PushRequest, RegisterDeviceRequest
 from app.features.dsh.ticket import mint_ticket
 from app.infra.clock import now_ms
 from app.infra.security import new_id
@@ -249,6 +249,77 @@ async def _require_own_device(services: Services, user_id: str, device_id: str) 
         raise AppError("device_not_found")
     if int(row["revoked"]):
         raise AppError("device_revoked")
+
+
+# ---------------------------------------------------------------- 剪贴板上行
+
+
+async def clip(services: Services, *, user_id: str, payload: ClipRequest) -> dict:
+    """剪贴板：默认不落库，实时转发给同用户的其他在线设备（排除来源设备）。
+
+    `dsh_clip_persist=true` 时改为落库（device_id=NULL，全员待投），由 pull 补投。
+    """
+    settings = services.settings
+    if services.dsh_clip_limiter is not None and not await services.dsh_clip_limiter.allow(user_id):
+        raise AppError("rate_limited")
+
+    raw = payload.text
+    if len(raw.encode("utf-8")) > MAX_PAYLOAD_BYTES:
+        raise AppError("payload_too_large", message=f"剪贴板内容超过 {MAX_PAYLOAD_BYTES} 字节")
+
+    at = now_ms()
+    msg_id = payload.msg_id or new_id("clip")
+    source = payload.device_id
+    if source:
+        await _require_own_device(services, user_id, source)
+
+    runtime = services.dsh
+    if settings.dsh_clip_persist:
+        expires_at = at + settings.dsh_msg_ttl_hours * 3600 * 1000
+
+        async def txn(conn: aiosqlite.Connection) -> int:
+            existing = await port.find_message_seq(conn, msg_id)
+            if existing is not None:
+                return existing
+            return await port.insert_message(
+                conn,
+                msg_id=msg_id,
+                user_id=user_id,
+                device_id=None,
+                kind="clip",
+                payload=json.dumps({"text": raw, "fp": payload.fp}, ensure_ascii=False),
+                created_at=at,
+                expires_at=expires_at,
+            )
+
+        seq = await services.writer.submit(txn)
+        nudged = bool(
+            runtime and await runtime.publish_nudge(user_id=user_id, device_id=None, seq=seq)
+        )
+        return {
+            "msg_id": msg_id,
+            "stored": True,
+            "delivered": 0,
+            "nudged": nudged,
+            "seq": seq,
+        }
+
+    targets = 0
+    if runtime is not None:
+        targets = await runtime.publish_clip_others(
+            user_id=user_id,
+            exclude_device_id=source,
+            msg_id=msg_id,
+            text=raw,
+            fp=payload.fp,
+        )
+    return {
+        "msg_id": msg_id,
+        "stored": False,
+        "delivered": targets,
+        "nudged": False,
+        "seq": 0,
+    }
 
 
 # ---------------------------------------------------------------- 拉取 / 确认

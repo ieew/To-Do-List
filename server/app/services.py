@@ -23,3 +23,4 @@ class Services:
     # dsh 推送通道：broker 未启用或启动失败时仍是对象，只是 online=False。
     dsh: DshRuntime | None = None
     dsh_limiter: SlidingWindowLimiter | None = None
+    dsh_clip_limiter: SlidingWindowLimiter | None = None

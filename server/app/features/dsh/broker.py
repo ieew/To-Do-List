@@ -276,6 +276,34 @@ class DshRuntime:
         ).encode("utf-8")
         return self._enqueue(topic_in(user_id, device_id), body)
 
+    async def publish_clip_others(
+        self,
+        *,
+        user_id: str,
+        exclude_device_id: str | None,
+        msg_id: str,
+        text: str,
+        fp: str,
+    ) -> int:
+        """剪贴板直传：只发给同用户的其他在线设备（不回声给来源设备）。返回投出去的台数。"""
+        if not self.online:
+            return 0
+        targets = [
+            device for device in self._online_devices_of(user_id) if device != exclude_device_id
+        ]
+        if not targets:
+            return 0
+        body = json.dumps(
+            {"t": "clip", "id": msg_id, "p": text, "fp": fp},
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        sent = 0
+        for target in targets:
+            if self._enqueue(topic_in(user_id, target), body):
+                sent += 1
+        return sent
+
     def _online_devices_of(self, user_id: str) -> list[str]:
         seen: list[str] = []
         for binding in self._bindings.values():

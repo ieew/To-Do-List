@@ -62,6 +62,22 @@ class PushRequest(_StrictModel):
         return value
 
 
+class ClipRequest(_StrictModel):
+    """剪贴板上行：文本 + 指纹。默认不落库，只做实时转发。"""
+
+    text: str = Field(min_length=1, max_length=32768)
+    fp: str = Field(default="", max_length=64)
+    device_id: str | None = None
+    msg_id: str | None = None
+
+    @field_validator("msg_id")
+    @classmethod
+    def _check_msg_id(cls, value: str | None) -> str | None:
+        if value is not None and not _MSG_ID_RE.match(value):
+            raise ValueError("msg_id 只能是 1–64 位字母、数字或 ._:+-")
+        return value
+
+
 class AckRequest(_StrictModel):
     seqs: list[int] = Field(min_length=1, max_length=500)
     device_id: str | None = None

@@ -822,7 +822,23 @@ sequenceDiagram
 `pending` 是投递后该设备仍未确认的条数，`nudged=false` 表示设备不在线（等它 pull）。
 单设备待投超过 `TODO_SERVER_DSH_MSG_MAX_PENDING` 时淘汰最旧（`trimmed`）。
 
-### 15.6 `GET /v1/dsh/pull?device_id=&since=&limit=`
+### 15.6 `POST /v1/dsh/clip`
+
+设备把本机剪贴板文本送上来，服务端**默认不落库**，只实时转发给同用户的其他在线设备。
+
+```json
+{"text": "复制的文字", "fp": "可选指纹", "device_id": "dsh-…", "msg_id": "可选幂等键"}
+```
+
+- 鉴权同 pull：登录用户（`device_id` 可选）或设备票据（用票据里的设备，不能冒充别的设备）。
+- 长度限制 32 KiB（`text` 必填非空）。
+- `dsh_clip_persist=false`（默认）：只直传，设备离线就丢；返回
+  `{"msg_id":…,"stored":false,"delivered":<送达台数>,"seq":0}`，**来源设备不会收到自己的内容**。
+- `dsh_clip_persist=true`：改成落库（`kind="clip"`, `device_id=NULL`），由 pull 补投，
+  返回 `{"stored":true,"seq":…,"nudged":…}`。
+- 剪贴板是「不留痕」优先的通道，失败不重试；通知走 push，别混淆。
+
+### 15.7 `GET /v1/dsh/pull?device_id=&since=&limit=`
 
 - `since`：上次的 `next_seq`；`limit`：1–500，默认 100。
 - 只返回**该设备未确认**且未过期的消息，按 `seq` 升序；广播消息对每台设备各算一份。
@@ -834,7 +850,7 @@ sequenceDiagram
  "next_seq":1024,"has_more":false,"latest_seq":1024,"server_ms":…}
 ```
 
-### 15.7 `POST /v1/dsh/ack`
+### 15.8 `POST /v1/dsh/ack`
 
 ```json
 {"seqs": [1024, 1025], "device_id": "dsh-…"}
@@ -844,7 +860,7 @@ sequenceDiagram
 - 只接受属于本用户的消息；别人的 `seq` 静默忽略（`acked` 不含）。
 - 不存在「全部设备都确认」的全局状态：广播消息由每台设备各自确认。
 
-### 15.8 `GET /v1/dsh/state`
+### 15.9 `GET /v1/dsh/state`
 
 ```json
 {"broker":{"enabled":true,"online":true,"error":null,"bound_port":1883,
@@ -858,7 +874,7 @@ sequenceDiagram
 四个观察点：`devices_online`、`messages.pending`、`publish_queue_depth`、`writer_queue_depth`。
 任一持续上涨即为堵住或资源不足。
 
-### 15.9 MQTT 接入
+### 15.10 MQTT 接入
 
 - 连接：`username = device_id`，`password = ticket`，`clean_session = true`。
 - 主题（只能订/发自己那一条，其他一律拒绝）：
@@ -878,7 +894,7 @@ dsh/v1/{user_id}/dev/{device_id}/out   设备上报：设备 → 服务端（心
 - `clip` 直传载荷：`{"t":"clip","id":"msg-…","p":"<payload 原文>"}`。
 - QoS 1，不带 retain；broker 的会话与离线队列是内存态，重启即丢（靠 pull 兜底）。
 
-### 15.10 客户端最小实现顺序
+### 15.11 客户端最小实现顺序
 
 1. 登录 → `devices/register` 拿 `device_id` + 票据 + `mqtt.*`；
 2. 连 broker（`username`/`password` 用返回值），订阅 `topic_in`；

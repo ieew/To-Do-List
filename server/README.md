@@ -49,6 +49,7 @@ uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
 | `TODO_SERVER_DSH_MSG_TTL_HOURS` | 72 | 推送消息默认过期时间 |
 | `TODO_SERVER_DSH_MSG_MAX_PENDING` | 1000 | 单设备待投上限，超出淘汰最旧 |
 | `TODO_SERVER_DSH_PUSH_RATE` | 30 | 每分钟每用户推送上限；0 关闭 |
+| `TODO_SERVER_DSH_CLIP_RATE` | 60 | 每分钟每用户剪贴板上行上限；0 关闭 |
 | `TODO_SERVER_DSH_CLIP_PERSIST` | false | 剪贴板类消息是否落库（默认不落库，只直传） |
 
 ## 接口速查
@@ -72,6 +73,7 @@ uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
 | GET | `/v1/dsh/devices` | 设备列表（含 `online`、`revoked`、`last_seen_at`） |
 | POST | `/v1/dsh/devices/{id}/revoke` | 吊销设备并踢掉在线连接 |
 | POST | `/v1/dsh/push` | 投递一条消息，写库并发 nudge；`level` 0–7 只决定客户端提醒方式 |
+| POST | `/v1/dsh/clip` | 剪贴板上行：默认不落库，只实时转发给同用户其他设备 |
 | GET | `/v1/dsh/pull` | 该设备未确认的消息（`since` + `limit` 分页） |
 | POST | `/v1/dsh/ack` | 逐设备确认，幂等 |
 | GET | `/v1/dsh/state` | broker 连接数、待投条数、发布队列深度 |

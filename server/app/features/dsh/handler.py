@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, Header, Query, Request, status
 from app.api.deps import get_current_user, get_services
 from app.core_domain.errors import AppError
 from app.features.dsh import usecase
-from app.features.dsh.schemas import AckRequest, PushRequest, RegisterDeviceRequest
+from app.features.dsh.schemas import AckRequest, ClipRequest, PushRequest, RegisterDeviceRequest
 from app.features.dsh.ticket import verify_ticket
 from app.infra.clock import now_ms
 from app.infra.security import constant_time_equals, decode_access_token
@@ -118,6 +118,19 @@ async def push(
         if payload.user_id and payload.user_id != user_id:
             raise AppError("forbidden")
     return await usecase.push(services, user_id=user_id, payload=payload)
+
+
+@router.post("/clip")
+async def clip(
+    payload: ClipRequest,
+    services: Container,
+    identity: Identity,
+) -> dict:
+    if identity.device_id:
+        if payload.device_id and payload.device_id != identity.device_id:
+            raise AppError("forbidden")
+        payload.device_id = identity.device_id
+    return await usecase.clip(services, user_id=identity.user_id, payload=payload)
 
 
 @router.get("/pull")

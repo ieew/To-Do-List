@@ -52,6 +52,7 @@ class ServerSettings(BaseSettings):
     dsh_msg_ttl_hours: int = 72
     dsh_msg_max_pending: int = 1000
     dsh_push_rate: int = 30
+    dsh_clip_rate: int = 60
     dsh_clip_persist: bool = False
 
     @property
