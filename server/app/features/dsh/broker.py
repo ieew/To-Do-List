@@ -23,6 +23,7 @@ from amqtt.plugins.base import BaseAuthPlugin, BaseTopicPlugin
 
 from app.config import ServerSettings
 from app.features.dsh import port, usecase
+from app.features.dsh import reminder as reminder_job
 from app.features.dsh.port import ServicesPort as Services
 from app.features.dsh.ticket import verify_ticket
 from app.infra.clock import now_ms
@@ -80,6 +81,9 @@ class DshRuntime:
         self._nudges_sent = 0
         self._nudges_dropped = 0
         self._publish_ms: int | None = None
+        self._reminder_task: asyncio.Task | None = None
+        self._last_reminder_sweep: int | None = None
+        self._reminders_fired = 0
 
     # ------------------------------------------------------------ 生命周期
 
@@ -122,7 +126,13 @@ class DshRuntime:
         self._publish_task = asyncio.create_task(self._publish_loop(), name="dsh-nudge")
         self._refresh_task = asyncio.create_task(self._refresh_revoked_loop(), name="dsh-revoked")
         self._cleanup_task = asyncio.create_task(self._cleanup_loop(), name="dsh-cleanup")
-        for task in (self._publish_task, self._refresh_task, self._cleanup_task):
+        self._reminder_task = asyncio.create_task(self._reminder_loop(), name="dsh-reminder")
+        for task in (
+            self._publish_task,
+            self._refresh_task,
+            self._cleanup_task,
+            self._reminder_task,
+        ):
             self._services.background.add(task)
             task.add_done_callback(self._services.background.discard)
 
@@ -136,7 +146,12 @@ class DshRuntime:
     async def stop(self) -> None:
         global _ACTIVE_RUNTIME
 
-        for task in (self._publish_task, self._refresh_task, self._cleanup_task):
+        for task in (
+            self._publish_task,
+            self._refresh_task,
+            self._cleanup_task,
+            self._reminder_task,
+        ):
             if task is not None and not task.done():
                 task.cancel()
                 with contextlib.suppress(BaseException):
@@ -144,6 +159,7 @@ class DshRuntime:
         self._publish_task = None
         self._refresh_task = None
         self._cleanup_task = None
+        self._reminder_task = None
 
         broker, self._broker = self._broker, None
         self._started = False
@@ -369,6 +385,23 @@ class DshRuntime:
             logger.info("dsh 清理过期消息 %s 条", removed)
         return removed
 
+    # ------------------------------------------------------------ 提醒
+
+    async def _reminder_loop(self) -> None:
+        if not self._settings.dsh_reminders_enabled:
+            return
+        interval = max(5, int(self._settings.dsh_reminder_interval_s))
+        while True:
+            try:
+                fired = await reminder_job.sweep(self._services)
+                self._last_reminder_sweep = now_ms()
+                if fired:
+                    self._reminders_fired += fired
+                    logger.info("dsh 提醒已推送 %s 条", fired)
+            except Exception:  # noqa: BLE001 - 提醒失败不能带崩 broker
+                logger.warning("dsh 提醒扫描失败", exc_info=True)
+            await asyncio.sleep(interval)
+
     # ------------------------------------------------------------ 可观测
 
     def snapshot(self) -> dict[str, Any]:
@@ -382,6 +415,12 @@ class DshRuntime:
             "publish_ms": self._publish_ms,
             "nudges_sent": self._nudges_sent,
             "nudges_dropped": self._nudges_dropped,
+            "reminders": {
+                "enabled": bool(self._settings.dsh_reminders_enabled),
+                "level": int(self._settings.dsh_reminder_level),
+                "last_sweep_at": self._last_reminder_sweep,
+                "fired": self._reminders_fired,
+            },
         }
 
 

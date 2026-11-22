@@ -136,10 +136,17 @@ def _mqtt_endpoint(services: Services, user_id: str, device_id: str) -> dict:
 # ---------------------------------------------------------------- 投递
 
 
-async def push(services: Services, *, user_id: str, payload: PushRequest) -> dict:
+async def push(
+    services: Services,
+    *,
+    user_id: str,
+    payload: PushRequest,
+    skip_rate_limit: bool = False,
+) -> dict:
     settings = services.settings
-    if services.dsh_limiter is not None and not await services.dsh_limiter.allow(user_id):
-        raise AppError("rate_limited")
+    if not skip_rate_limit and services.dsh_limiter is not None:
+        if not await services.dsh_limiter.allow(user_id):
+            raise AppError("rate_limited")
 
     body = payload.payload
     if payload.level is not None and payload.kind != "clip":

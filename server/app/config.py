@@ -54,6 +54,12 @@ class ServerSettings(BaseSettings):
     dsh_push_rate: int = 30
     dsh_clip_rate: int = 60
     dsh_clip_persist: bool = False
+    # 服务端提醒：把待办的 remind_at 变成推送（账号体系复用 users/memberships）
+    dsh_reminders_enabled: bool = True
+    dsh_reminder_level: int = 6
+    dsh_reminder_lead_s: int = 0
+    dsh_reminder_window_s: int = 3600
+    dsh_reminder_interval_s: int = 30
 
     @property
     def allowed_cors_origins(self) -> list[str]:
