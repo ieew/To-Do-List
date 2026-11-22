@@ -141,7 +141,12 @@ async def push(services: Services, *, user_id: str, payload: PushRequest) -> dic
     if services.dsh_limiter is not None and not await services.dsh_limiter.allow(user_id):
         raise AppError("rate_limited")
 
-    raw = json.dumps(payload.payload, ensure_ascii=False, separators=(",", ":"))
+    body = payload.payload
+    if payload.level is not None and payload.kind != "clip":
+        if not isinstance(body, dict):
+            raise AppError("invalid_request", message="带 level 时 payload 必须是对象")
+        body = {**body, "level": payload.level}
+    raw = json.dumps(body, ensure_ascii=False, separators=(",", ":"))
     if len(raw.encode("utf-8")) > MAX_PAYLOAD_BYTES:
         raise AppError(
             "payload_too_large",
@@ -233,6 +238,7 @@ async def push(services: Services, *, user_id: str, payload: PushRequest) -> dic
         "pending": int(result["pending"]),
         "trimmed": int(result["trimmed"]),
         "nudged": nudged,
+        "level": payload.level,
     }
 
 

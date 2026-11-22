@@ -71,7 +71,7 @@ uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
 | POST | `/v1/dsh/devices/register` | 注册/复用推送设备，返回 `device_id` + 短期 MQTT 票据 |
 | GET | `/v1/dsh/devices` | 设备列表（含 `online`、`revoked`、`last_seen_at`） |
 | POST | `/v1/dsh/devices/{id}/revoke` | 吊销设备并踢掉在线连接 |
-| POST | `/v1/dsh/push` | 投递一条消息，写库并发 nudge（`kind="clip"` 默认只直传） |
+| POST | `/v1/dsh/push` | 投递一条消息，写库并发 nudge；`level` 0–7 只决定客户端提醒方式 |
 | GET | `/v1/dsh/pull` | 该设备未确认的消息（`since` + `limit` 分页） |
 | POST | `/v1/dsh/ack` | 逐设备确认，幂等 |
 | GET | `/v1/dsh/state` | broker 连接数、待投条数、发布队列深度 |

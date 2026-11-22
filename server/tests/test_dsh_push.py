@@ -87,6 +87,7 @@ async def push(
     device_id: str | None = None,
     ttl_s: int | None = None,
     msg_id: str | None = None,
+    level: int | None = None,
 ):
     body: dict = {"kind": kind, "payload": {"title": "hello"} if payload is None else payload}
     if device_id is not None:
@@ -95,6 +96,8 @@ async def push(
         body["ttl_s"] = ttl_s
     if msg_id is not None:
         body["msg_id"] = msg_id
+    if level is not None:
+        body["level"] = level
     return await client.post("/v1/dsh/push", json=body, headers=auth(token))
 
 
@@ -589,3 +592,32 @@ async def test_http_channel_works_with_broker_disabled(tmp_path: Path) -> None:
             state = (await client.get("/v1/dsh/state", headers=auth(token))).json()
             assert state["broker"]["enabled"] is False
             assert state["broker"]["online"] is False
+
+
+async def test_push_level_merged_into_payload(client: AsyncClient) -> None:
+    data = await register_user(client)
+    token = data["tokens"]["access_token"]
+    device = await register_device(client, token)
+
+    for level in (0, 3, 7):
+        pushed = await push(client, token, device_id=device["device_id"], level=level)
+        assert pushed.status_code == 200, pushed.text
+        assert pushed.json()["level"] == level
+
+    body = (await pull(client, token, device["device_id"])).json()
+    levels = [item["payload"]["level"] for item in body["messages"]]
+    # 等级只影响客户端提醒方式，0 级同样投递、同样在待投列表里
+    assert levels == [0, 3, 7]
+
+
+async def test_push_level_validation(client: AsyncClient) -> None:
+    data = await register_user(client)
+    token = data["tokens"]["access_token"]
+    device = await register_device(client, token)
+
+    too_high = await push(client, token, device_id=device["device_id"], level=8)
+    assert too_high.status_code == 400
+
+    not_object = await push(client, token, device_id=device["device_id"], payload="纯文本", level=5)
+    assert not_object.status_code == 400
+    assert not_object.json()["error"]["code"] == "invalid_request"

@@ -54,6 +54,13 @@ async def main() -> int:
     parser.add_argument("--register", action="store_true", help="账号不存在时先注册")
     parser.add_argument("--device-name", default="smoke")
     parser.add_argument("--no-mqtt", action="store_true", help="跳过 MQTT，只验 HTTP 通道")
+    parser.add_argument(
+        "--level",
+        type=int,
+        default=3,
+        choices=range(0, 8),
+        help="通知等级 0–7（只影响客户端提醒方式）",
+    )
     parser.add_argument("--cafile", default=None, help="broker 用 TLS 时的 CA 文件")
     parser.add_argument("--timeout", type=float, default=10.0)
     args = parser.parse_args()
@@ -97,6 +104,7 @@ async def main() -> int:
                 json={
                     "kind": DEFAULT_KIND,
                     "payload": {"title": "冒烟测试", "body": "来自 dsh_smoke.py"},
+                    "level": args.level,
                     "device_id": device["device_id"],
                 },
                 headers=headers,
@@ -105,7 +113,11 @@ async def main() -> int:
                 raise SystemExit(f"投递失败：{pushed.status_code} {pushed.text}")
             pushed_body = pushed.json()
             seq = pushed_body["seq"]
-            _step(True, f"投递成功：seq={seq} nudged={pushed_body['nudged']}")
+            _step(
+                True,
+                f"投递成功：seq={seq} level={pushed_body.get('level')} "
+                f"nudged={pushed_body['nudged']}",
+            )
 
             if mqtt is not None:
                 try:

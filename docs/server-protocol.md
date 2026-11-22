@@ -788,8 +788,22 @@ sequenceDiagram
 ### 15.5 `POST /v1/dsh/push`
 
 ```json
-{"kind": "notify", "payload": {"title": "喝水"}, "device_id": "dsh-…", "ttl_s": 3600, "msg_id": "可选幂等键"}
+{"kind": "notify", "payload": {"title": "喝水"}, "level": 3,
+ "device_id": "dsh-…", "ttl_s": 3600, "msg_id": "可选幂等键"}
 ```
+
+- `level`（可选，0–7）**只决定客户端的提醒方式，与投递可靠性无关**：任何等级都会照常落库、
+  投递、补投、过期清理；等级不会让消息更容易被丢，也不会跳过 ack。
+  给了 `level` 会合并进 `payload.level`（此时 `payload` 必须是对象），客户端以 `payload.level` 为准。
+  不带 `payload.level` 时客户端用本地默认等级（默认 3）。
+
+  | 等级 | 提醒方式 |
+  | --- | --- |
+  | 0 | 不打扰：不弹通知，客户端仅本地留档，照常 ack |
+  | 1–2 | 通知中心：不悬浮、不出声、不震动 |
+  | 3–5 | 悬浮通知（heads-up） |
+  | 6 | 悬浮通知 + 震动 |
+  | 7 | 悬浮通知 + 震动 + 响声 |
 
 - `device_id` 省略 = 广播给该用户所有设备（各设备各自 ack）。
 - `kind`：`^[a-z][a-z0-9_.-]{0,31}$`，本期不绑定业务语义。
@@ -800,7 +814,7 @@ sequenceDiagram
 - 返回（落库分支）：
 
 ```json
-{"msg_id":"msg-…","seq":1024,"kind":"notify","device_id":null,
+{"msg_id":"msg-…","seq":1024,"kind":"notify","device_id":null,"level":3,
  "created_at":1730000000000,"expires_at":1730259200000,
  "stored":true,"duplicate":false,"pending":3,"trimmed":0,"nudged":true}
 ```

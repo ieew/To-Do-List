@@ -36,6 +36,9 @@ class PushRequest(_StrictModel):
     user_id: str | None = None
     ttl_s: int | None = Field(default=None, ge=1, le=30 * 24 * 3600)
     msg_id: str | None = None
+    # 通知等级 0–7：只决定客户端提醒方式（见 docs/server-protocol.md §15.5），
+    # 与服务端投递可靠性无关；给了就合并进 payload.level。
+    level: int | None = Field(default=None, ge=0, le=7)
 
     @field_validator("kind")
     @classmethod
