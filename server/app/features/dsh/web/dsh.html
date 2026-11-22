@@ -251,8 +251,9 @@
 
   async function ensureDevice() {
     try {
-      var out = await api("POST", "/v1/dsh/devices/register",
-        { name: "网页", platform: "web" });
+      var body = { name: "网页", platform: "web" };
+      if (state.deviceId) body.device_id = state.deviceId;  // 复用，别每次登录都新建
+      var out = await api("POST", "/v1/dsh/devices/register", body);
       state.deviceId = out.device_id;
       save();
     } catch (e) {
@@ -266,6 +267,7 @@
       + esc(state.deviceId) + "</span>";
     await refreshDevices();
     await refreshState();
+    switchTab("send");
     startPolling();
   }
 
