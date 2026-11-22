@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>dsh-kit 对端</title>
+<style>
+  :root {
+    --bg: #16161a;
+    --card: #1e1e24;
+    --line: #2c2c35;
+    --text: #e8e8ec;
+    --dim: #9a9aa6;
+    --accent: #4dd0c1;
+    --warn: #ffb86b;
+    --bad: #ff6b6b;
+    --good: #7ee787;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.5 -apple-system, "PingFang SC", "Noto Sans SC", sans-serif;
+    padding: 16px 14px 40px;
+  }
+  h1 { font-size: 18px; margin: 0 0 4px; color: var(--accent); }
+  .sub { color: var(--dim); font-size: 12px; margin-bottom: 14px; }
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 12px; margin-bottom: 12px;
+  }
+  .row { display: flex; gap: 8px; align-items: center; }
+  .row > * { min-width: 0; }
+  label { display: block; color: var(--dim); font-size: 12px; margin: 8px 0 4px; }
+  input, textarea, select, button {
+    width: 100%; padding: 9px 10px; border-radius: 8px;
+    border: 1px solid var(--line); background: #141418; color: var(--text);
+    font: inherit;
+  }
+  textarea { min-height: 84px; resize: vertical; }
+  button {
+    background: var(--accent); color: #08302c; border: 0; font-weight: 600;
+    margin-top: 10px; cursor: pointer;
+  }
+  button.ghost { background: #26262e; color: var(--text); border: 1px solid var(--line); }
+  button.small { width: auto; padding: 4px 10px; margin: 0; font-size: 12px; }
+  button:disabled { opacity: .5; cursor: default; }
+  .tabs { display: flex; gap: 6px; margin-bottom: 12px; }
+  .tabs button { margin: 0; flex: 1; background: #26262e; color: var(--dim); border: 1px solid var(--line); }
+  .tabs button.on { background: #1f3b38; color: var(--accent); border-color: #2f5b56; }
+  .hide { display: none !important; }
+  .pill { font-size: 11px; padding: 1px 7px; border-radius: 99px; background: #2a2a33; color: var(--dim); }
+  .pill.on { background: #17362c; color: var(--good); }
+  .pill.off { background: #33251f; color: var(--warn); }
+  .pill.bad { background: #3a1f1f; color: var(--bad); }
+  .dev { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .dev:last-child { border-bottom: 0; }
+  .dev small { color: var(--dim); display: block; font-size: 11px; }
+  .msg { padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .msg:last-child { border-bottom: 0; }
+  .msg .t { color: var(--dim); font-size: 11px; }
+  .msg .b { white-space: pre-wrap; word-break: break-word; }
+  .level { font-size: 11px; font-weight: 700; margin-right: 6px; }
+  .l0, .l1, .l2 { color: var(--dim); }
+  .l3, .l4, .l5 { color: var(--accent); }
+  .l6 { color: var(--warn); }
+  .l7 { color: var(--bad); }
+  pre { margin: 0; white-space: pre-wrap; word-break: break-all; font-size: 12px; color: var(--dim); }
+  .muted { color: var(--dim); font-size: 12px; }
+  .err { color: var(--bad); font-size: 12px; min-height: 16px; }
+  .ok { color: var(--good); }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  @media (max-width: 420px) { .grid2 { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<h1>dsh-kit 对端</h1>
+<div class="sub" id="who">未登录 · <span id="origin"></span></div>
+
+<div class="tabs" id="tabs">
+  <button data-tab="send" class="on">发送</button>
+  <button data-tab="inbox">收件箱</button>
+  <button data-tab="devices">设备</button>
+  <button data-tab="state">状态</button>
+</div>
+
+<!-- 登录 -->
+<div class="card" id="loginCard">
+  <label>账号</label>
+  <input id="user" autocomplete="username" placeholder="待办账号">
+  <label>密码</label>
+  <input id="pass" type="password" autocomplete="current-password" placeholder="密码">
+  <button id="loginBtn">登录</button>
+  <div class="err" id="loginErr"></div>
+  <div class="muted" style="margin-top:6px">登录信息只存在本机浏览器，不会上传到别处。</div>
+</div>
+
+<!-- 发送 -->
+<div id="tab-send" class="hide">
+  <div class="card">
+    <label>发给</label>
+    <select id="target"><option value="">全部设备</option></select>
+
+    <label>通知标题</label>
+    <input id="title" placeholder="例如：喝水">
+    <label>通知正文</label>
+    <textarea id="body" placeholder="可选"></textarea>
+    <label>等级 <span id="levelHint" class="muted"></span></label>
+    <div class="row">
+      <input id="level" type="range" min="0" max="7" step="1" value="3">
+      <span class="level l3" id="levelNum" style="min-width:28px;text-align:right">L3</span>
+    </div>
+    <button id="notifyBtn">发通知</button>
+  </div>
+
+  <div class="card">
+    <label>剪贴板文本</label>
+    <textarea id="clip" placeholder="要推到手机剪贴板的文字"></textarea>
+    <button id="clipBtn" class="ghost">发剪贴板</button>
+  </div>
+</div>
+
+<!-- 收件箱 -->
+<div id="tab-inbox" class="hide">
+  <div class="card">
+    <div class="row" style="justify-content:space-between">
+      <div class="muted">自动拉取（当前页面也是一个「网页」设备）</div>
+      <button class="small ghost" id="pullBtn">立即拉取</button>
+    </div>
+    <div id="inbox" class="muted" style="margin-top:8px">还没有消息</div>
+  </div>
+</div>
+
+<!-- 设备 -->
+<div id="tab-devices" class="hide">
+  <div class="card">
+    <div id="devices" class="muted">还没有设备</div>
+    <button class="small ghost" id="refreshDev" style="margin-top:10px">刷新</button>
+  </div>
+</div>
+
+<!-- 状态 -->
+<div id="tab-state" class="hide">
+  <div class="card">
+    <pre id="stateBox">未登录</pre>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var LS = "dsh.web.session";
+  var DEV = "dsh.web.device";
+  var state = {
+    tokens: null, user: "", deviceId: "", cursor: 0, timer: null, inbox: []
+  };
+
+  function $(id) { return document.getElementById(id); }
+  function qs(q) { return document.querySelector(q); }
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+  function save() {
+    localStorage.setItem(LS, JSON.stringify({
+      tokens: state.tokens, user: state.user, cursor: state.cursor
+    }));
+    localStorage.setItem(DEV, state.deviceId || "");
+  }
+  function load() {
+    try {
+      var raw = localStorage.getItem(LS);
+      if (raw) {
+        var o = JSON.parse(raw);
+        state.tokens = o.tokens || null;
+        state.user = o.user || "";
+        state.cursor = o.cursor || 0;
+      }
+      state.deviceId = localStorage.getItem(DEV) || "";
+    } catch (e) { /* ignore */ }
+  }
+
+  async function api(method, path, body, retry) {
+    var headers = { "Accept": "application/json" };
+    if (state.tokens && state.tokens.access) {
+      headers["Authorization"] = "Bearer " + state.tokens.access;
+    }
+    var init = { method: method, headers: headers };
+    if (body !== undefined) {
+      headers["Content-Type"] = "application/json";
+      init.body = JSON.stringify(body);
+    }
+    var resp = await fetch(path, init);
+    if (resp.status === 401 && retry !== false && state.tokens && state.tokens.refresh) {
+      var ok = await refresh();
+      if (ok) return api(method, path, body, false);
+    }
+    var text = await resp.text();
+    var data = {};
+    try { data = text ? JSON.parse(text) : {}; } catch (e) { data = { raw: text }; }
+    if (!resp.ok) {
+      var err = (data && data.error) || {};
+      var msg = err.message || ("HTTP " + resp.status);
+      var ex = new Error(msg);
+      ex.status = resp.status;
+      ex.code = err.code || "";
+      throw ex;
+    }
+    return data;
+  }
+
+  async function refresh() {
+    try {
+      var out = await api("POST", "/v1/auth/refresh", {
+        refresh_token: state.tokens.refresh
+      }, false);
+      state.tokens = out.tokens;
+      save();
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  async function login() {
+    var user = $("user").value.trim();
+    var pass = $("pass").value;
+    if (!user || !pass) { $("loginErr").textContent = "账号和密码都要填"; return; }
+    $("loginErr").textContent = "";
+    $("loginBtn").disabled = true;
+    try {
+      var out;
+      try {
+        out = await api("POST", "/v1/auth/login", { username: user, password: pass }, false);
+      } catch (e) {
+        if (e.status !== 401) throw e;
+        out = await api("POST", "/v1/auth/register",
+          { username: user, password: pass }, false);
+      }
+      state.tokens = out.tokens;
+      state.user = user;
+      save();
+      await ensureDevice();
+      await boot();
+    } catch (e) {
+      $("loginErr").textContent = "登录失败：" + e.message;
+    } finally {
+      $("loginBtn").disabled = false;
+    }
+  }
+
+  async function ensureDevice() {
+    try {
+      var out = await api("POST", "/v1/dsh/devices/register",
+        { name: "网页", platform: "web" });
+      state.deviceId = out.device_id;
+      save();
+    } catch (e) {
+      $("loginErr").textContent = "注册网页设备失败：" + e.message;
+    }
+  }
+
+  async function boot() {
+    $("loginCard").classList.add("hide");
+    $("who").innerHTML = esc(state.user) + " · 已登录 · <span class='pill on'>网页设备 "
+      + esc(state.deviceId) + "</span>";
+    await refreshDevices();
+    await refreshState();
+    startPolling();
+  }
+
+  function startPolling() {
+    if (state.timer) clearInterval(state.timer);
+    state.timer = setInterval(function () {
+      refreshState().catch(function () {});
+      pullOnce(true).catch(function () {});
+    }, 5000);
+    pullOnce(true).catch(function () {});
+  }
+
+  async function refreshDevices() {
+    var out = await api("GET", "/v1/dsh/devices");
+    var list = out.devices || [];
+    var sel = $("target");
+    var keep = sel.value;
+    sel.innerHTML = "<option value=''>全部设备</option>";
+    list.forEach(function (d) {
+      if (d.revoked) return;
+      var opt = document.createElement("option");
+      opt.value = d.device_id;
+      opt.textContent = (d.name || d.device_id) + (d.online ? "（在线）" : "（离线）");
+      sel.appendChild(opt);
+    });
+    if (keep) sel.value = keep;
+
+    $("devices").innerHTML = list.length ? list.map(function (d) {
+      var cls = d.revoked ? "bad" : (d.online ? "on" : "off");
+      var label = d.revoked ? "已吊销" : (d.online ? "在线" : "离线");
+      return "<div class='dev'><div><b>" + esc(d.name || d.device_id) + "</b>"
+        + "<small>" + esc(d.device_id) + " · " + esc(d.platform || "-")
+        + (d.last_seen_at ? " · " + new Date(d.last_seen_at).toLocaleString() : "")
+        + "</small></div>"
+        + "<span class='pill " + cls + "'>" + label + "</span></div>";
+    }).join("") : "<span class='muted'>还没有设备</span>";
+  }
+
+  async function refreshState() {
+    var out = await api("GET", "/v1/dsh/state");
+    $("stateBox").textContent = JSON.stringify(out, null, 2);
+  }
+
+  async function pullOnce(silent) {
+    if (!state.deviceId) return;
+    var out = await api("GET", "/v1/dsh/pull?device_id=" + encodeURIComponent(state.deviceId)
+      + "&since=" + state.cursor + "&limit=100");
+    var msgs = out.messages || [];
+    if (msgs.length) {
+      msgs.forEach(function (m) { state.inbox.unshift(m); });
+      state.cursor = out.next_seq || state.cursor;
+      save();
+      await api("POST", "/v1/dsh/ack",
+        { device_id: state.deviceId, seqs: msgs.map(function (m) { return m.seq; }) });
+      renderInbox();
+    } else if (out.next_seq > state.cursor) {
+      state.cursor = out.next_seq; save();
+    }
+    if (!silent) renderInbox();
+  }
+
+  function levelLabel(l) {
+    if (l === 0) return "静默（不重要）";
+    if (l <= 2) return "通知中心";
+    if (l <= 5) return "悬浮";
+    if (l === 6) return "悬浮+震动";
+    return "悬浮+震动+响铃";
+  }
+
+  function renderInbox() {
+    var box = $("inbox");
+    if (!state.inbox.length) { box.innerHTML = "<span class='muted'>还没有消息</span>"; return; }
+    box.innerHTML = state.inbox.slice(0, 50).map(function (m) {
+      var p = m.payload || {};
+      var when = m.created_at ? new Date(m.created_at).toLocaleTimeString() : "";
+      if (m.kind === "notify") {
+        var lv = (typeof p.level === "number") ? p.level : 3;
+        return "<div class='msg'><div class='t'>" + when + " · 通知</div>"
+          + "<div class='b'><span class='level l" + lv + "'>L" + lv + "</span>"
+          + esc(p.title || "") + (p.body ? " — " + esc(p.body) : "") + "</div></div>";
+      }
+      if (m.kind === "clip") {
+        var text = (p && typeof p === "object") ? (p.text || "") : p;
+        return "<div class='msg'><div class='t'>" + when + " · 剪贴板</div>"
+          + "<div class='b'>" + esc(text) + "</div></div>";
+      }
+      return "<div class='msg'><div class='t'>" + when + " · " + esc(m.kind) + "</div>"
+        + "<pre>" + esc(JSON.stringify(p)) + "</pre></div>";
+    }).join("");
+  }
+
+  async function sendNotify() {
+    var title = $("title").value.trim();
+    if (!title) { alert("标题不能为空"); return; }
+    var level = parseInt($("level").value, 10);
+    var payload = { title: title, body: $("body").value };
+    var body = { kind: "notify", payload: payload, level: level };
+    var target = $("target").value;
+    if (target) body.device_id = target;
+    $("notifyBtn").disabled = true;
+    try {
+      var out = await api("POST", "/v1/dsh/push", body);
+      $("title").value = ""; $("body").value = "";
+      $("notifyBtn").textContent = "已发送 seq=" + out.seq;
+      setTimeout(function () { $("notifyBtn").textContent = "发通知"; }, 1500);
+    } catch (e) {
+      alert("发送失败：" + e.message);
+    } finally {
+      $("notifyBtn").disabled = false;
+    }
+  }
+
+  async function sendClip() {
+    var text = $("clip").value;
+    if (!text) { alert("剪贴板内容为空"); return; }
+    var body = { text: text };
+    var target = $("target").value;
+    if (target) body.device_id = target;
+    $("clipBtn").disabled = true;
+    try {
+      var out = await api("POST", "/v1/dsh/clip", body);
+      $("clip").value = "";
+      $("clipBtn").textContent = "已发送（送达 " + (out.delivered || 0) + " 台）";
+      setTimeout(function () { $("clipBtn").textContent = "发剪贴板"; }, 1800);
+    } catch (e) {
+      alert("发送失败：" + e.message);
+    } finally {
+      $("clipBtn").disabled = false;
+    }
+  }
+
+  function switchTab(name) {
+    ["send", "inbox", "devices", "state"].forEach(function (t) {
+      $("tab-" + t).classList.toggle("hide", t !== name);
+      var btn = qs("#tabs button[data-tab='" + t + "']");
+      if (btn) btn.classList.toggle("on", t === name);
+    });
+    if (name === "inbox") pullOnce(false).catch(function () {});
+    if (name === "devices") refreshDevices().catch(function () {});
+    if (name === "state") refreshState().catch(function () {});
+  }
+
+  function bind() {
+    $("origin").textContent = location.origin;
+    $("loginBtn").addEventListener("click", login);
+    $("pass").addEventListener("keydown", function (e) { if (e.key === "Enter") login(); });
+    $("notifyBtn").addEventListener("click", sendNotify);
+    $("clipBtn").addEventListener("click", sendClip);
+    $("pullBtn").addEventListener("click", function () { pullOnce(false); });
+    $("refreshDev").addEventListener("click", function () {
+      refreshDevices().catch(function () {});
+    });
+    $("level").addEventListener("input", function () {
+      var lv = parseInt($("level").value, 10);
+      $("levelNum").textContent = "L" + lv;
+      $("levelNum").className = "level l" + lv;
+      $("levelHint").textContent = levelLabel(lv);
+    });
+    $("levelHint").textContent = levelLabel(3);
+    Array.prototype.forEach.call(document.querySelectorAll("#tabs button"), function (b) {
+      b.addEventListener("click", function () { switchTab(b.dataset.tab); });
+    });
+  }
+
+  async function main() {
+    bind();
+    load();
+    if (state.tokens && state.tokens.refresh) {
+      var ok = await refresh();
+      if (ok) {
+        try {
+          await ensureDevice();
+          await boot();
+          return;
+        } catch (e) {
+          state.tokens = null; save();
+        }
+      }
+    }
+    $("loginCard").classList.remove("hide");
+  }
+
+  main();
+})();
+</script>
+</body>
+</html>

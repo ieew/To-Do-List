@@ -746,3 +746,18 @@ async def test_clip_persisted_when_enabled(tmp_path: Path) -> None:
             message = body["messages"][0]
             assert message["kind"] == "clip"
             assert message["payload"] == {"text": "落库的剪贴板", "fp": "fp-2"}
+
+
+# ---------------------------------------------------------------- 网页对端
+
+
+async def test_web_page_served(client: AsyncClient) -> None:
+    redirect = await client.get("/dsh", follow_redirects=False)
+    assert redirect.status_code in (301, 302, 307, 308)
+    assert redirect.headers["location"] == "/dsh/"
+
+    page = await client.get("/dsh/")
+    assert page.status_code == 200
+    assert page.headers["content-type"].startswith("text/html")
+    assert "dsh-kit 对端" in page.text
+    assert "/v1/dsh/push" in page.text  # 页面用的是同一套接口

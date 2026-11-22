@@ -17,6 +17,7 @@ from app.config import ServerSettings
 from app.core_domain.errors import AppError, error_payload
 from app.db.read_pool import ReadPool
 from app.db.writer import WriterWorker
+from app.features.dsh.page import router as dsh_page_router
 from app.infra.clock import now_ms
 from app.infra.locking import ProcessLock
 from app.infra.rate_limit import SlidingWindowLimiter
@@ -169,6 +170,8 @@ def create_app(settings: ServerSettings | None = None) -> FastAPI:
         return JSONResponse(status_code=500, content={"error": error_payload("internal_error")})
 
     app.include_router(v1_router)
+    # dsh-kit 的网页对端（/dsh/），静态 HTML，同源、无 CORS 依赖
+    app.include_router(dsh_page_router)
     return app
 
 
