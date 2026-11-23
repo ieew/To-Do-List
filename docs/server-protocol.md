@@ -729,7 +729,7 @@ sequenceDiagram
 
 ## 十五、dsh 推送通道（`/v1/dsh/*`，已实现）
 
-设计背景见 [`../dsh-ime/doc/SERVER-INTEGRATION.md`](../dsh-ime/doc/SERVER-INTEGRATION.md)。本节只写协议约束。
+客户端设计见 [`./ime-push-client.md`](./ime-push-client.md)。本节只写协议约束。
 
 ### 15.1 定位
 

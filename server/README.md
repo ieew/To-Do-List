@@ -127,7 +127,7 @@ uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
 给手机输入法里的 dsh-kit 客户端用的旁路通道：通知走「MQTT nudge + HTTP pull + ack」，
 剪贴板默认不落库、只做 MQTT 直传。与 `op_log` / 同步协议**完全隔离**，不参与投影。
 
-- 设计：[`../dsh-ime/doc/SERVER-INTEGRATION.md`](../dsh-ime/doc/SERVER-INTEGRATION.md)
+- 客户端设计：[`../docs/ime-push-client.md`](../docs/ime-push-client.md)（分层、入口、0–7 级、剪贴板、排障）
 - 协议：本文件「dsh 推送通道」一节 + [`../docs/server-protocol.md`](../docs/server-protocol.md) 第十五节
 - broker 内嵌在 FastAPI 进程里（amqtt，纯 Python），随 `lifespan` 起停；启动失败只降级为纯 HTTP，不影响待办主服务
 - 鉴权：`username = device_id`，`password = 票据`（HMAC，TTL 默认 10 分钟）；只允许订/发自己那条 `dsh/v1/<user>/dev/<device>/in|out`
