@@ -8,7 +8,6 @@ import android.net.Uri
 import android.os.Binder
 import android.os.Bundle
 import android.os.Process
-import com.todo.android.core.data.ProjectionHolder
 import com.todo.android.core.data.repository.OpRepository
 import com.todo.android.core.data.repository.TaskCommands
 import com.todo.android.core.data.time.IsoTime
@@ -143,7 +142,7 @@ class ImeTaskProvider : ContentProvider() {
     // ---------------------------------------------------------------- 内部
 
     private fun entryPoint(): ImeEntryPoint =
-        EntryPointAccessors.fromApplication(requireNotNull(context), ImeEntryPoint::class.java)
+        EntryPointAccessors.fromApplication(requireNotNull(context).applicationContext, ImeEntryPoint::class.java)
 
     /** 首帧投影（Room 查询在 IO 线程完成；provider 跑在 binder 线程，不阻塞主线程）。 */
     private fun projection(): WorkspaceProjection = runBlocking {
