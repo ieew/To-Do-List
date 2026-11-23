@@ -2,7 +2,7 @@
 
 > 状态：P0/P1/P2/P3 已真机验证，P4 服务端提醒已上线；本文是实现到现在为止的**设计契约**。
 > 协议以 [`server-protocol.md`](./server-protocol.md) 第十五节为准；服务端实现在 `server/app/features/dsh/`。
-> 客户端代码不随本仓库分发（它跑在手机输入法进程里，是 Lua 脚本 + 一个 dex），
+> 客户端代码在 [`../ime-plugin/`](../ime-plugin/)（Lua 脚本 + dex 源码 + 构建脚本）。
 > 本文只写「设计上必须成立什么」，实现与之冲突时改实现或改本文，不允许两套说法。
 
 ## 一、定位与边界
@@ -279,6 +279,9 @@ kit.call(action: string, argsJson: string) -> string   // 返回 JSON 或纯文�
 - 只传文本，上限 32 KiB；同段文字 2 秒内重复触发只发一次；
 - `clip_enabled` 总开关（默认 true）；`clip.status` / `clip.test` 用于面板自检；
 - 目标语义：用户 token 调用时 `device_id` 是**接收方**；设备票据调用时来源设备被排除。
+- **上行必须用设备票据**（`X-Dsh-Device-Id` + `X-Dsh-Ticket`）：服务端据此把本机当来源、不回显。
+  不能用「用户 token + 自己的 device_id」——那会被当成「只发给这一台」，等于发给自己。
+  票据缺失时才退化为用户 token，且**不带** `device_id`（此时无法排除自己，靠客户端指纹去重兜底）。
 
 ## 十、账号与设备（复用待办账号）
 

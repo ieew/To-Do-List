@@ -128,6 +128,7 @@ uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
 剪贴板默认不落库、只做 MQTT 直传。与 `op_log` / 同步协议**完全隔离**，不参与投影。
 
 - 客户端设计：[`../docs/ime-push-client.md`](../docs/ime-push-client.md)（分层、入口、0–7 级、剪贴板、排障）
+- 客户端代码：[`../ime-plugin/`](../ime-plugin/)（Lua 脚本 + dex 源码 + 构建/测试脚本）
 - 协议：本文件「dsh 推送通道」一节 + [`../docs/server-protocol.md`](../docs/server-protocol.md) 第十五节
 - broker 内嵌在 FastAPI 进程里（amqtt，纯 Python），随 `lifespan` 起停；启动失败只降级为纯 HTTP，不影响待办主服务
 - 鉴权：`username = device_id`，`password = 票据`（HMAC，TTL 默认 10 分钟）；只允许订/发自己那条 `dsh/v1/<user>/dev/<device>/in|out`

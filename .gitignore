@@ -14,3 +14,7 @@ server/data/*.sqlite3
 server/data/*.sqlite3-shm
 server/data/*.sqlite3-wal
 server/data/*.lock
+
+# 输入法插件的构建产物
+ime-plugin/build/
+ime-plugin/out/
