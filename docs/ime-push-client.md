@@ -1,6 +1,7 @@
 # 中文输入法扩展客户端（dsh-kit）设计
 
 > 状态：P0/P1/P2/P3 已真机验证，P4 服务端提醒已上线；本文是实现到现在为止的**设计契约**。
+> 待办面板的 App 端桥（ContentProvider）见第十七节，插件端面板见第十八节。
 > 协议以 [`server-protocol.md`](./server-protocol.md) 第十五节为准；服务端实现在 `server/app/features/dsh/`。
 > 客户端代码在 [`../ime-plugin/`](../ime-plugin/)（Lua 脚本 + dex 源码 + 构建脚本）。
 > 本文只写「设计上必须成立什么」，实现与之冲突时改实现或改本文，不允许两套说法。
@@ -313,6 +314,9 @@ kit.call(action: string, argsJson: string) -> string   // 返回 JSON 或纯文�
 默认不要求绑键。要绑就用 `rime/scripts/dsh.lua`（`dsh` 命令 → `ui.panel`）。
 **不修改主题文件**，主题升级不受影响。
 
+待办面板另有入口 `rime/scripts/dsh_todo.lua`（候选栏按钮 / 常驻通知，见第十八节），
+与状态面板相互独立：一个管通道，一个管待办。
+
 ## 十二、安全
 
 | 面 | 做法 |
@@ -329,7 +333,8 @@ kit.call(action: string, argsJson: string) -> string   // 返回 JSON 或纯文�
 ```
 /sdcard/Documents/rime/
 ├── scripts/dsh.lua                    键位入口（可选）
-├── scripts/dsh-kit.dex                部署的 dex（约 280 KB，含 Paho）
+├── scripts/dsh_todo.lua               待办面板入口（候选栏按钮 / 常驻通知）
+├── scripts/dsh-kit.dex                部署的 dex（约 310 KB，含 Paho）
 ├── scripts/dsh.d/config.json          用户可见配置
 ├── tools/dsh/main.lua                 工具入口（必须这个目录结构）
 └── logs/dsh.log                       L0 启动日志；logs/kit-YYYYMMDD.log 框架日志镜像
@@ -394,3 +399,193 @@ kit.call(action: string, argsJson: string) -> string   // 返回 JSON 或纯文�
    注意 0 级本来就静默，只在通知中心「不重要」里。
 5. 通知重复 → 检查是否多份 dex/多个 Boot；强停输入法再试。
 6. 剪贴板单向 → 对端设备是否在线；`clip_enabled`；`ignore_apps` 是否命中当前应用。
+
+## 十七、待办面板桥（App 端 `feature/ime`）
+
+> 输入法里的「待办面板」读的是待办 App 的本地数据。插件（dsh-kit）没有自己的数据库和同步，
+> 因此 App 必须提供一个跨进程接口。本节契约由 `android/feature/ime` 实现，插件侧只调 `ContentResolver`。
+
+### 17.1 为什么不是插件自己同步
+
+1. 插件跑在 `com.nirenr.trime` 进程，注入的 dex 没有 manifest，拿不到待办账号的登录态与令牌，也没有 Room 库；
+2. 自己同步 = 复制待办的全部 op/同步逻辑（约 2.5k–3.5k 行），两边各自维护 HLC 与冲突解决，必然分叉；
+3. `ContentProvider` 是 Android 上最轻的跨进程契约：插件只调 `ContentResolver`，App 未运行时 provider 会把进程拉起。
+
+### 17.2 模块
+
+| 项 | 值 |
+| --- | --- |
+| 模块 | `:feature:ime`（`android/feature/ime`） |
+| namespace | `com.todo.android.feature.ime` |
+| 依赖 | `core:data`、`core:domain`、coroutines、hilt |
+| 注册 | `settings.gradle.kts` include；`app/build.gradle.kts` implementation |
+| 组件 | 模块自带 `AndroidManifest.xml` 声明 provider，App 主 manifest 不动 |
+
+实现文件：
+
+- `ImeContract.kt`：URI、列名、参数、方法名常量的唯一出处；
+- `ImeQueries.kt`：两类任务的纯函数筛选/排序（可单测）；
+- `ImeTaskProvider.kt`：`ContentProvider`，读取拿 `ProjectionHolder.projection` 首帧，写入走 `TaskCommands`。
+
+### 17.3 契约
+
+Authority：`com.todo.android.ime`。
+
+读取：
+
+```
+content://com.todo.android.ime/tasks?scope=waiting|upcoming&limit=20
+```
+
+- `scope` 缺省 `waiting`；`limit` 缺省 20，上限 50；未知 `scope` 抛 `IllegalArgumentException`；
+- 返回 `MatrixCursor`，列见 `ImeContract.READ_COLUMNS`：
+  `task_id, title, start_at, due_at, priority, list_id, list_name, workspace_id, overdue`；
+- `start_at` / `due_at` 为毫秒时间戳（`0` 表示没有）；`overdue` 为 `0/1`。
+
+快速添加：
+
+```
+ContentResolver.insert(content://com.todo.android.ime/tasks, {title, list_id?, workspace_id?})
+```
+
+- `title` 必填，trim 后 1–500 字；
+- `list_id` 缺省取 `smart` 清单，再缺省取第一个清单；`workspace_id` 缺省取当前工作区；
+- 内部调 `TaskCommands.createTask(start_at=now, due_at=now+7d)`，与 App 内快速添加是同一条 op 管道；
+- 返回新任务 `content://…/tasks/<task_id>`（插件不需要该 id，仅作确认）。
+
+勾选完成：
+
+```
+ContentResolver.call(content://com.todo.android.ime/tasks, "set_done", taskId, {done: Boolean})
+```
+
+- `taskId` 走 `arg` 或 `extras.task_id`；`done` 缺省 true；
+- 内部调 `TaskCommands.setDone(taskId, activeWorkspaceId, done)`；
+- 返回 `Bundle{ok=true}`。
+
+其它方法（`update` / `delete` / 未知 `call`）一律抛 `UnsupportedOperationException`，插件按「不可用」处理。
+
+### 17.4 两类任务
+
+| scope | 条件 | 排序 |
+| --- | --- | --- |
+| `waiting` | 未完成，`start_at` 为空或已过 | 逾期优先 → `due_at` → `start_at` → `order` |
+| `upcoming` | 未完成，`start_at` ∈ (now, now+36h] | `start_at` → `order` |
+
+`upcoming` 的 36 小时窗口常量在 `ImeContract.UPCOMING_WINDOW_MS`，改窗口只改这一处。
+
+### 17.5 安全
+
+- 插件是注入 dex，没有自己的 manifest，无法声明 signature 权限 → provider `exported=true`；
+- 每次调用用 `Binder.getCallingUid()` + `PackageManager.getPackagesForUid` 校验包名，
+  只放行 `com.nirenr.trime`（`ImeContract.CALLER_PACKAGE`）与本 App 自己；
+- 只暴露读取、添加、完成；不暴露删除、编辑、成员、历史；
+- provider 进程被拉起时，`ContentProvider.onCreate` 先于 `Application.onCreate`，
+  但 `query/insert/call` 由 binder 线程进入，此时 Hilt 已初始化，可以安全取 `EntryPoint`；
+  因此 `onCreate` 里不碰 Hilt，只在 `query/insert/call` 里取。
+
+### 17.6 构建与安装
+
+- 只新增模块，App 现有界面与逻辑不变；
+- 用户 `assembleDebug` 覆盖安装一次即可；插件侧通过 `ContentResolver` 探测 provider 是否存在
+  （`IllegalArgumentException` / `SecurityException` 视为未安装或未授权）；
+- 服务端无改动。
+
+### 17.7 降级
+
+插件侧（dsh-kit）对任何 provider 错误都表现为「待办不可用」：
+
+- provider 不存在（App 未安装）→ 面板提示「未安装待办 App」；
+- `SecurityException` → 提示「App 拒绝调用」；
+- 其它异常 → 面板显示错误摘要，日志记一条。
+
+### 17.8 验收
+
+- [ ] `adb shell content query --uri content://com.todo.android.ime/tasks?scope=waiting` 有数据（或空集）
+- [ ] 插件面板显示的两类任务与 App 内一致
+- [ ] 插件添加任务后 App 内立即可见（同一 op 管道）
+- [ ] 插件勾选后 App 内状态同步变化
+- [ ] 非 `com.nirenr.trime` 调用被 `SecurityException` 拒绝
+
+## 十八、待办面板（插件端 dsh-kit）
+
+> 数据契约见第十七节（App 端 `feature/ime`）。本节只写插件侧：入口、悬浮窗、通知、开关。
+
+### 18.1 三个入口
+
+| 入口 | 用户动作 | 实现 | 运行环境 |
+| --- | --- | --- | --- |
+| 工具页开关 | 输入法 → 工具 → dsh → 开关 | `Ui.attachActivity` 里的两个 CheckBox | LuaActivity |
+| 候选栏按钮 | 点候选栏上的「待办」 | 主题 `preset_keys` 的 `command = "dsh_todo.lua"` | 输入法服务（有 `service`） |
+| 常驻通知 | 点通知 | `TodoNotice` 的 PendingIntent → LuaActivity 跑 `dsh_todo.lua` | LuaActivity |
+
+三个入口最后都落到 `kit.call("todo.toggle")`：悬浮窗开着就收，没开就唤出。
+工具页里的开关是「开/关」而不是「唤起」，与它们语义不同。
+
+### 18.2 悬浮窗
+
+- 类型：API 26+ `TYPE_APPLICATION_OVERLAY`（2038），以下 `TYPE_PHONE`（2002）；
+- 权限：`SYSTEM_ALERT_WINDOW`，宿主的 manifest 已声明，但**需要用户在系统设置里授予**
+  （「显示在其他应用上层」）。未授予时 `TodoOverlay.show()` 直接返回，`Kit.call` 弹 toast 提示；
+- 可拖动：标题栏按住拖，松手把 `x/y` 存 `SharedPreferences("dsh_todo_overlay")`，下次原位弹出；
+- 尺寸：宽 `min(屏宽-32dp, 380dp)`，高 `min(屏高×58%, 520dp)`；默认位置在屏幕偏上，避开键盘；
+- 面板内容（`TodoPanelView`）：
+  - 标题栏（拖动区）+ 刷新 + 关闭；
+  - 「等待完成」列表（逾期优先，红字标逾期）；
+  - 「即将开始 · 36 小时」列表；
+  - 每区最多 8 行，多的显示「还有 N 条，去 App 里看」；
+  - 底部快速添加输入框 + 「添加」按钮（键盘回车也提交）；
+- 数据：`TodoClient` 调 `content://com.todo.android.ime`（契约 17.3），所有调用在后台线程，结果回主线程；
+- 降级：provider 不存在/被拒 → 面板顶部一行提示，不崩、不阻塞输入法。
+
+### 18.3 常驻通知
+
+- 渠道 `dsh_kit_todo`（LOW，静默，不响不震）；
+- `ongoing=true`、不可划掉；点击 → LuaActivity 跑 `dsh_todo.lua` → `todo.toggle` → Activity 立即 finish；
+- **为什么必须经 Activity**：注入的 dex 没有 manifest，注册不了 Receiver/Service，
+  通知点击只能用宿主里现存的 exported 组件（`com.androlua.LuaActivity`）；
+- 已知代价：点击时 Activity 会闪一下；悬浮窗用 application context 的 `WindowManager` 添加，
+  Activity 结束不影响它。
+
+### 18.4 工具页开关
+
+| 开关 | 对应 action | 说明 |
+| --- | --- | --- |
+| 常驻通知 | `todo.notice on/off` | 创建/取消 ongoing 通知；权限被关时 toast 提示 |
+| 启用待办面板 | `todo.enable` / `todo.disable` | 总开关；关掉后候选栏/通知入口被拒 |
+| 悬浮窗权限（行） | — | 未授予时点击跳系统设置 `ACTION_MANAGE_OVERLAY_PERMISSION` |
+| 复制候选栏配置 | — | 把 `preset_keys` 片段送到剪贴板，**不改主题** |
+
+### 18.5 候选栏按钮
+
+不改主题：用户在主题 `main.lua` 的 `preset_keys` 里加
+
+```
+DshTodo = { label = "待办", command = "dsh_todo.lua" },
+```
+
+再把 `"DshTodo"` 加进 `toolbar.keys`。主题升级不受影响；不想加就不加。
+
+### 18.6 状态与日志
+
+- `kit.call("todo.status")` 返回 JSON：`{enabled, overlay, canDraw, notice, provider}`；
+- 日志 tag：`todo/overlay`、`todo/notice`、`todo/add`、`todo`，都进 `dsh.log` 与 `kit-*.log`。
+
+### 18.7 构建与部署
+
+```
+tools/build.sh                       # 出 out/dsh-kit.dex
+cp out/dsh-kit.dex /sdcard/Documents/rime/scripts/dsh-kit.dex
+cp src/lua/dsh_todo.lua /sdcard/Documents/rime/scripts/dsh_todo.lua
+# 升级 dex 后强制停止输入法一次（旧 Boot 会留在 sharedData）
+```
+
+### 18.8 验收
+
+- [ ] 工具页两个开关状态正确，切换后杀进程重开仍保持
+- [ ] 悬浮窗权限未授予时，工具页点权限行能跳到系统设置
+- [ ] 候选栏「待办」能唤出/收起悬浮窗（不经过 Activity）
+- [ ] 点常驻通知能唤出/收起悬浮窗
+- [ ] 面板添加任务后 App 内立即可见；勾选后 App 内状态变化
+- [ ] App 未安装时面板显示「未安装待办 App」而不是崩
+- [ ] 拖动面板后重开位置不变

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <!--
+          给输入法插件（com.nirenr.trime 进程里的 dsh-kit）的桥。
+          exported 是必须的（插件是另一个应用）；安全由 ImeTaskProvider.ensureCallerAllowed()
+          校验调用方包名保证，而不是 signature 权限——插件注入在宿主里，加不了权限声明。
+        -->
+        <provider
+            android:name="com.todo.android.feature.ime.ImeTaskProvider"
+            android:authorities="com.todo.android.ime"
+            android:exported="true"
+            android:grantUriPermissions="false"
+            android:multiprocess="false" />
+    </application>
+
+</manifest>

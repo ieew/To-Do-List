@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
+import android.content.Intent;
 import android.graphics.Color;
 import android.os.Handler;
 import android.os.Looper;
@@ -11,6 +12,7 @@ import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -79,6 +81,8 @@ public final class Ui {
                     title.setTextColor(Color.parseColor("#FF80CBC4"));
                     title.setTextSize(18);
                     box.addView(title);
+
+                    box.addView(todoSwitches(activity));
 
                     final TextView st = new TextView(activity);
                     st.setTextColor(Color.parseColor("#FFE8E8E8"));
@@ -165,6 +169,86 @@ public final class Ui {
                 }
             }
         });
+    }
+
+    /** 工具页顶部的待办开关：常驻通知、启用面板、悬浮窗权限、候选栏配置。 */
+    private View todoSwitches(final Activity activity) {
+        LinearLayout box = new LinearLayout(activity);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(0, dp(activity, 4), 0, dp(activity, 4));
+
+        final CheckBox notice = new CheckBox(activity);
+        notice.setText("常驻通知（点通知唤出/收起待办面板）");
+        notice.setTextColor(Color.parseColor("#FFE8E8E8"));
+        notice.setTextSize(13);
+        notice.setChecked(kit.todoNotice().isEnabled());
+        notice.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                kit.call("todo.notice", notice.isChecked() ? "on" : "off");
+            }
+        });
+        box.addView(notice);
+
+        final CheckBox enabled = new CheckBox(activity);
+        enabled.setText("启用待办面板（候选栏按钮 / 通知入口）");
+        enabled.setTextColor(Color.parseColor("#FFE8E8E8"));
+        enabled.setTextSize(13);
+        enabled.setChecked(kit.todoEnabled());
+        enabled.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                kit.call(enabled.isChecked() ? "todo.enable" : "todo.disable");
+            }
+        });
+        box.addView(enabled);
+
+        TextView perm = new TextView(activity);
+        perm.setTextSize(12);
+        perm.setTextColor(Color.parseColor("#FF80CBC4"));
+        boolean canDraw = kit.todoOverlay().canDraw();
+        perm.setText(canDraw ? "悬浮窗权限：已授予" : "悬浮窗权限：未授予，点这里去开");
+        perm.setPadding(0, dp(activity, 4), 0, dp(activity, 4));
+        perm.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if (kit.todoOverlay().canDraw()) return;
+                Intent intent = kit.todoOverlay().permissionIntent();
+                if (intent == null) return;
+                try {
+                    activity.startActivity(intent);
+                } catch (Throwable t) {
+                    kit.log().e("ui/todo/perm", t);
+                }
+            }
+        });
+        box.addView(perm);
+
+        Button cfg = actButton(activity, "复制候选栏配置", new Runnable() {
+            @Override
+            public void run() {
+                copyToolbarSnippet();
+            }
+        });
+        cfg.setTextSize(11);
+        box.addView(cfg);
+        return box;
+    }
+
+    /** 候选栏按钮不改主题：只把配置片段送到剪贴板，用户自己决定加不加。 */
+    private void copyToolbarSnippet() {
+        String snippet = "preset_keys = {\n"
+                + "  DshTodo = { label = \"待办\", command = \"dsh_todo.lua\" },\n"
+                + "}\n"
+                + "-- 再把它加进主题 styles/<样式>/main.lua 的 toolbar.keys，例如：\n"
+                + "toolbar.keys = { \"DshTodo\", ... }";
+        try {
+            ClipboardManager cm = (ClipboardManager) ctx().getSystemService(Context.CLIPBOARD_SERVICE);
+            cm.setPrimaryClip(ClipData.newPlainText("dsh-todo", snippet));
+            kit.host().toast("配置已复制，粘到自己主题里");
+        } catch (Throwable t) {
+            kit.log().e("ui/copySnippet", t);
+        }
     }
 
     private Button actButton(final Activity activity, String text, final Runnable action) {

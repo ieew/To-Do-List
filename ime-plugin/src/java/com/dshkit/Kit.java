@@ -2,6 +2,7 @@ package com.dshkit;
 
 import android.app.Activity;
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.os.Build;
 
 import com.dshkit.core.Config;
@@ -19,6 +20,9 @@ import com.dshkit.mod.ClipSource;
 import com.dshkit.mod.NetWatcher;
 import com.dshkit.mod.NotifyModule;
 import com.dshkit.mod.NotifySink;
+import com.dshkit.mod.TodoClient;
+import com.dshkit.mod.TodoNotice;
+import com.dshkit.mod.TodoOverlay;
 
 import java.io.File;
 import java.util.Map;
@@ -31,7 +35,7 @@ import java.util.Map;
  */
 public final class Kit {
 
-    public static final String VERSION = "0.2.0";
+    public static final String VERSION = "0.3.0";
 
     private static Kit INSTANCE;
 
@@ -49,6 +53,10 @@ public final class Kit {
     private final ClipSource clipSource;
     private final ClipModule clipModule;
     private final NetWatcher netWatcher;
+    private final TodoClient todoClient;
+    private final TodoOverlay todoOverlay;
+    private final TodoNotice todoNotice;
+    private final SharedPreferences todoPrefs;
     private final long bootAt = System.currentTimeMillis();
     private Ui ui;
 
@@ -96,6 +104,10 @@ public final class Kit {
         this.clipModule = new ClipModule(ctx, log, clipSource);
         this.clipModule.setSession(session);
         this.netWatcher = new NetWatcher(ctx, log, session);
+        this.todoClient = new TodoClient(ctx);
+        this.todoOverlay = new TodoOverlay(ctx, todoClient, log);
+        this.todoNotice = new TodoNotice(ctx, notifySink, log);
+        this.todoPrefs = ctx.getSharedPreferences("dsh_todo", Context.MODE_PRIVATE);
         this.session.setListener(new Session.Listener() {
             @Override
             public void onSessionChanged(Map<String, Object> status) {
@@ -140,6 +152,7 @@ public final class Kit {
         INSTANCE.session.start();
         if (INSTANCE.config.clipEnabled) INSTANCE.clipSource.start();
         INSTANCE.netWatcher.start();
+        INSTANCE.todoNotice.sync();
         return INSTANCE;
     }
 
@@ -166,6 +179,36 @@ public final class Kit {
 
     public NotifyModule notifyModule() {
         return notifyModule;
+    }
+
+    public TodoClient todoClient() {
+        return todoClient;
+    }
+
+    public TodoOverlay todoOverlay() {
+        return todoOverlay;
+    }
+
+    public TodoNotice todoNotice() {
+        return todoNotice;
+    }
+
+    public boolean todoEnabled() {
+        return todoPrefs.getBoolean("enabled", false);
+    }
+
+    public void setTodoEnabled(boolean on) {
+        todoPrefs.edit().putBoolean("enabled", on).apply();
+        log.i("todo", "面板开关=" + on);
+    }
+
+    private Map<String, Object> todoStatus() {
+        return Json.obj(
+                "enabled", Boolean.valueOf(todoEnabled()),
+                "overlay", Boolean.valueOf(todoOverlay.isVisible()),
+                "canDraw", Boolean.valueOf(todoOverlay.canDraw()),
+                "notice", Boolean.valueOf(todoNotice.isEnabled()),
+                "provider", Boolean.valueOf(todoClient.available()));
     }
 
     public String version() {
@@ -242,6 +285,49 @@ public final class Kit {
                 host.restoreKeyboard();
                 return null;
             }
+            if (action.equals("todo.status")) {
+                return Json.write(todoStatus());
+            }
+            if (action.equals("todo.toggle") || action.equals("todo.panel")) {
+                if (todoReady()) todoOverlay.toggle();
+                return null;
+            }
+            if (action.equals("todo.show")) {
+                if (todoReady()) todoOverlay.show();
+                return null;
+            }
+            if (action.equals("todo.hide")) {
+                todoOverlay.hide();
+                return null;
+            }
+            if (action.equals("todo.enable")) {
+                setTodoEnabled(true);
+                host.toast("待办面板已启用");
+                return null;
+            }
+            if (action.equals("todo.disable")) {
+                setTodoEnabled(false);
+                todoOverlay.hide();
+                host.toast("待办面板已停用");
+                return null;
+            }
+            if (action.equals("todo.notice")) {
+                boolean on = !"off".equalsIgnoreCase(args == null ? "" : args.trim());
+                boolean ok = todoNotice.setEnabled(on);
+                if (on) host.toast(ok ? "常驻通知已开，点击可唤出面板" : "通知权限被关闭，开不了");
+                else host.toast("常驻通知已关");
+                return null;
+            }
+            if (action.equals("todo.add")) {
+                try {
+                    String id = todoClient.add(args == null ? "" : args.trim());
+                    host.toast(id != null && !id.isEmpty() ? "已添加待办" : "添加失败");
+                } catch (Throwable t) {
+                    log.e("todo/add", t);
+                    host.toast(todoErrorText(t));
+                }
+                return null;
+            }
             if (action.equals("clip.peek")) {
                 return peekClip();
             }
@@ -299,6 +385,24 @@ public final class Kit {
                 log.w("slow", action + " " + (System.currentTimeMillis() - t0) + "ms");
             }
         }
+    }
+
+    private boolean todoReady() {
+        if (!todoEnabled()) {
+            host.toast("待办面板没启用：去输入法工具页打开");
+            return false;
+        }
+        if (!todoOverlay.canDraw()) {
+            host.toast("没有悬浮窗权限：去系统设置允许输入法「显示在其他应用上层」");
+            return false;
+        }
+        return true;
+    }
+
+    private static String todoErrorText(Throwable t) {
+        if (t instanceof SecurityException) return "待办 App 拒绝调用";
+        if (t instanceof IllegalArgumentException) return "没装待办 App 或版本太旧";
+        return "待办不可用：" + t.getClass().getSimpleName();
     }
 
     /** `kit:call("notify.test", "7")`：参数是等级，缺省 7。 */

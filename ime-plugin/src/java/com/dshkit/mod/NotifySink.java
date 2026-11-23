@@ -45,6 +45,8 @@ public final class NotifySink {
     public static final String CH_ALERT = "dsh_kit_l_alert";
     /** 兼容旧配置：状态常驻渠道（默认不用）。 */
     public static final String CH_STATE = "dsh_kit_state";
+    /** 待办面板的常驻开关通知。 */
+    public static final String CH_TODO = "dsh_kit_todo";
 
     private static final String GROUP = "dsh_kit";
 
@@ -89,6 +91,8 @@ public final class NotifySink {
                     "悬浮显示 + 震动 + 响声", true, true);
             create(nm, channelClass, ctor, CH_STATE, "dsh 服务状态", IMPORTANCE_MIN,
                     "常驻状态（默认关闭）", false, false);
+            create(nm, channelClass, ctor, CH_TODO, "待办面板", IMPORTANCE_LOW,
+                    "常驻开关：点一下唤出待办面板", false, false);
             channelsReady = true;
         } catch (Throwable t) {
             log.e("notify/channels", t);
@@ -248,6 +252,35 @@ public final class NotifySink {
             return true;
         } catch (Throwable t) {
             log.e("notify/show", t);
+            return false;
+        }
+    }
+
+    /**
+     * 常驻通知（待办面板开关）：不可划掉，点击动作由调用方给 PendingIntent。
+     * 用 MIN 渠道，不响不震，只在通知中心常驻。
+     */
+    public boolean showOngoing(String tag, String title, String text, PendingIntent pending) {
+        ensureChannels();
+        try {
+            NotificationManager nm =
+                    (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm == null) return false;
+            Notification.Builder builder = newBuilder(CH_TODO);
+            if (builder == null) return false;
+            builder.setSmallIcon(android.R.drawable.ic_dialog_info);
+            builder.setContentTitle(title);
+            builder.setContentText(text);
+            builder.setOngoing(true);
+            builder.setAutoCancel(false);
+            builder.setShowWhen(false);
+            builder.setGroup(GROUP);
+            if (pending != null) builder.setContentIntent(pending);
+            nm.notify(tag, tag.hashCode(), builder.build());
+            log.i("notify", "常驻通知已显示 tag=" + tag);
+            return true;
+        } catch (Throwable t) {
+            log.e("notify/ongoing", t);
             return false;
         }
     }

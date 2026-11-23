@@ -50,6 +50,7 @@ dependencies {
     implementation(project(":core:reminder"))
     implementation(project(":feature:ai"))
     implementation(project(":feature:widget"))
+    implementation(project(":feature:ime"))
     implementation(project(":feature:tasks"))
     implementation(project(":feature:detail"))
     implementation(project(":feature:calendar"))

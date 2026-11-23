@@ -14,10 +14,11 @@ ime-plugin/
 ├── src/java/com/dshkit/          dex 源码
 │   ├── Boot.java Kit.java KitLog.java TrimeHost.java Ui.java
 │   ├── core/                     L2+L3，零 Android 依赖（可纯 JVM 单测）
-│   └── mod/                      L4：通知、剪贴板、网络监听
+│   └── mod/                      L4：通知、剪贴板、网络监听、待办面板（Todo*）
 ├── src/java/org/eclipse/paho/    为 dex 化补的两个 Paho 依赖点（ResourceBundle / NetworkModule）
 ├── src/lua/
 │   ├── dsh.lua                   键位入口（可选）
+│   ├── dsh_todo.lua              待办面板入口（候选栏按钮 / 常驻通知）
 │   └── tool_dsh.lua              工具入口（部署时改名 tools/dsh/main.lua）
 ├── tools/
 │   ├── build.sh                  javac → 补 Paho jar → d8 → out/dsh-kit.dex
@@ -66,6 +67,8 @@ bash tools/e2e.sh     # 需要仓库根的 .venv（服务端依赖），起临�
 cp ime-plugin/out/dsh-kit.dex /sdcard/Documents/rime/scripts/dsh-kit.dex
 # 2) 键位入口（可选）
 cp ime-plugin/src/lua/dsh.lua        /sdcard/Documents/rime/scripts/dsh.lua
+# 2.5) 待办面板入口（候选栏按钮 / 常驻通知）
+cp ime-plugin/src/lua/dsh_todo.lua   /sdcard/Documents/rime/scripts/dsh_todo.lua
 # 3) 工具入口：必须是 tools/<名字>/main.lua 的目录结构
 mkdir -p /sdcard/Documents/rime/tools/dsh
 cp ime-plugin/src/lua/tool_dsh.lua   /sdcard/Documents/rime/tools/dsh/main.lua
@@ -93,7 +96,10 @@ vi /sdcard/Documents/rime/scripts/dsh.d/config.json
 1. 输入法 → 工具 → `dsh`，出现面板即成功；
 2. 「测试通知」按 0/1/3/6/7 各弹一条，逐档验证悬浮/震动/声音；
 3. 「重连」后状态变「已连接」；「复制日志」把日志送到剪贴板；
-4. 收不到消息时用 CLI 当对端排查：`python3 tools/dsh_cli.py notify --title 测试`。
+4. 收不到消息时用 CLI 当对端排查：`python3 tools/dsh_cli.py notify --title 测试`；
+5. 待办面板：工具页顶部的「启用待办面板 / 常驻通知」两个开关；
+   悬浮窗权限未授予时点「悬浮窗权限」行去系统设置；候选栏按钮的配置用「复制候选栏配置」拿
+   （需要 App 端 `feature/ime` 已编译安装，契约见设计文档第十七节）。
 
 ## 与服务端的关系
 
