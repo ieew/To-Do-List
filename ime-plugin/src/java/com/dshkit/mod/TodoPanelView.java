@@ -160,13 +160,26 @@ public final class TodoPanelView {
         return lp;
     }
 
-    /** 右下角抓手：小胶囊，拖动同时改宽高。 */
+    /** 右下角抓手：两条直角线段（┘ 形），拖动同时改宽高。 */
     private View cornerGrip() {
         FrameLayout box = new FrameLayout(ctx);
-        View bar = new View(ctx);
-        bar.setBackground(round(0x4D6B7280, 2));
-        bar.setLayoutParams(new FrameLayout.LayoutParams(dp(16), dp(4), Gravity.CENTER));
-        box.addView(bar);
+
+        View hLine = new View(ctx);
+        hLine.setBackground(round(0x8C6B7280, 1));
+        FrameLayout.LayoutParams hl = new FrameLayout.LayoutParams(
+                dp(14), dp(2), Gravity.BOTTOM | Gravity.END);
+        hl.setMargins(0, 0, dp(4), dp(4));
+        hLine.setLayoutParams(hl);
+        box.addView(hLine);
+
+        View vLine = new View(ctx);
+        vLine.setBackground(round(0x8C6B7280, 1));
+        FrameLayout.LayoutParams vl = new FrameLayout.LayoutParams(
+                dp(2), dp(14), Gravity.BOTTOM | Gravity.END);
+        vl.setMargins(0, 0, dp(4), dp(4));
+        vLine.setLayoutParams(vl);
+        box.addView(vLine);
+
         box.setOnTouchListener(new View.OnTouchListener() {
             @Override
             public boolean onTouch(View v, MotionEvent event) {
