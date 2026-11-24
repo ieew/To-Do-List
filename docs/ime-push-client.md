@@ -314,7 +314,7 @@ kit.call(action: string, argsJson: string) -> string   // 返回 JSON 或纯文�
 默认不要求绑键。要绑就用 `rime/scripts/dsh.lua`（`dsh` 命令 → `ui.panel`）。
 **不修改主题文件**，主题升级不受影响。
 
-待办面板另有入口 `rime/scripts/dsh_todo.lua`（候选栏按钮 / 常驻通知，见第十八节），
+待办面板另有入口 `rime/scripts/dsh_todo.lua`（候选栏按钮，见第十八节；常驻通知直接走进程内广播），
 与状态面板相互独立：一个管通道，一个管待办。
 
 ## 十二、安全
@@ -333,7 +333,7 @@ kit.call(action: string, argsJson: string) -> string   // 返回 JSON 或纯文�
 ```
 /sdcard/Documents/rime/
 ├── scripts/dsh.lua                    键位入口（可选）
-├── scripts/dsh_todo.lua               待办面板入口（候选栏按钮 / 常驻通知）
+├── scripts/dsh_todo.lua               待办面板入口（候选栏按钮；通知点击不再用它）
 ├── scripts/dsh-kit.dex                部署的 dex（约 310 KB，含 Paho）
 ├── scripts/dsh.d/config.json          用户可见配置
 ├── tools/dsh/main.lua                 工具入口（必须这个目录结构）
@@ -517,7 +517,7 @@ ContentResolver.call(content://com.todo.android.ime/tasks, "set_done", taskId, {
 | --- | --- | --- | --- |
 | 工具页开关 | 输入法 → 工具 → dsh → 开关 | `Ui.attachActivity` 里的两个 CheckBox | LuaActivity |
 | 候选栏按钮 | 点候选栏上的「待办」 | 主题 `preset_keys` 的 `command = "dsh_todo.lua"` | 输入法服务（有 `service`） |
-| 常驻通知 | 点通知 | `TodoNotice` 的 PendingIntent → LuaActivity 跑 `dsh_todo.lua` | LuaActivity |
+| 常驻通知 | 点通知 | `TodoNotice` 的 PendingIntent 发本地广播 `com.dshkit.todo.TOGGLE`，进程内动态注册的接收器收到后调 `overlay.toggle()` | 输入法服务（进程内广播，不出界面） |
 
 三个入口最后都落到 `kit.call("todo.toggle")`：悬浮窗开着就收，没开就唤出。
 工具页里的开关是「开/关」而不是「唤起」，与它们语义不同。
@@ -541,11 +541,14 @@ ContentResolver.call(content://com.todo.android.ime/tasks, "set_done", taskId, {
 ### 18.3 常驻通知
 
 - 渠道 `dsh_kit_todo`（LOW，静默，不响不震）；
-- `ongoing=true`、不可划掉；点击 → LuaActivity 跑 `dsh_todo.lua` → `todo.toggle` → Activity 立即 finish；
-- **为什么必须经 Activity**：注入的 dex 没有 manifest，注册不了 Receiver/Service，
-  通知点击只能用宿主里现存的 exported 组件（`com.androlua.LuaActivity`）；
-- 已知代价：点击时 Activity 会闪一下；悬浮窗用 application context 的 `WindowManager` 添加，
-  Activity 结束不影响它。
+- `ongoing=true`、不可划掉；点击 → 发一条本地广播 `com.dshkit.todo.TOGGLE`，
+  `TodoNotice` 在进程内动态注册的接收器收到后调 `overlay.toggle()`，全程不出界面；
+- **为什么不经过 Activity**：dex 注入在宿主进程里，`Context.registerReceiver` 注册的
+  接收器不需要 manifest 声明，通知点击可以直接发广播，不用再闪 `LuaActivity`；
+  Android 13+ 动态注册必须带 flags，这里用反射调 API 26+ 的带 flags 重载、
+  传 `RECEIVER_NOT_EXPORTED`（发送方是宿主自己，同 uid 可收到），失败退回老接口；
+- 已知代价：进程被系统杀掉后点击通知无反应（广播不会拉起进程）；输入法常驻，
+  下次启动注入时重新注册。动态注册失败时自动退回 `LuaActivity` 兜底（会闪一下，但可用）。
 
 ### 18.4 工具页开关
 

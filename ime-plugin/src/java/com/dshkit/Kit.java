@@ -35,7 +35,7 @@ import java.util.Map;
  */
 public final class Kit {
 
-    public static final String VERSION = "0.3.0";
+    public static final String VERSION = "0.3.1";
 
     private static Kit INSTANCE;
 
@@ -106,7 +106,7 @@ public final class Kit {
         this.netWatcher = new NetWatcher(ctx, log, session);
         this.todoClient = new TodoClient(ctx);
         this.todoOverlay = new TodoOverlay(ctx, todoClient, log);
-        this.todoNotice = new TodoNotice(ctx, notifySink, log);
+        this.todoNotice = new TodoNotice(ctx, notifySink, log, todoOverlay);
         this.todoPrefs = ctx.getSharedPreferences("dsh_todo", Context.MODE_PRIVATE);
         this.session.setListener(new Session.Listener() {
             @Override
