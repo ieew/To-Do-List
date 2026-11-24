@@ -232,6 +232,15 @@ public final class Ui {
         });
         cfg.setTextSize(11);
         box.addView(cfg);
+
+        Button reload = actButton(activity, "重载配置（重新读 config.json）", new Runnable() {
+            @Override
+            public void run() {
+                kit.reloadConfig();
+            }
+        });
+        reload.setTextSize(11);
+        box.addView(reload);
         return box;
     }
 

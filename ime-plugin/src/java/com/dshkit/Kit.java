@@ -35,14 +35,14 @@ import java.util.Map;
  */
 public final class Kit {
 
-    public static final String VERSION = "0.3.0";
+    public static final String VERSION = "0.3.2";
 
     private static Kit INSTANCE;
 
     private final TrimeHost host;
     private final KitLog log;
     private final Store store;
-    private final Config config;
+    private volatile Config config;
     private final Scheduler sched;
     private final EventBus bus;
     private final HttpApi api;
@@ -106,7 +106,7 @@ public final class Kit {
         this.netWatcher = new NetWatcher(ctx, log, session);
         this.todoClient = new TodoClient(ctx);
         this.todoOverlay = new TodoOverlay(ctx, todoClient, log);
-        this.todoNotice = new TodoNotice(ctx, notifySink, log);
+        this.todoNotice = new TodoNotice(ctx, notifySink, log, todoOverlay);
         this.todoPrefs = ctx.getSharedPreferences("dsh_todo", Context.MODE_PRIVATE);
         this.session.setListener(new Session.Listener() {
             @Override
@@ -171,6 +171,35 @@ public final class Kit {
 
     public Config config() {
         return config;
+    }
+
+    /**
+     * 重载配置：重新读 `dsh.d/config.json`，换掉配置对象并重连。
+     * 工具页的「重载配置」按钮走这里，改完地址不用强停输入法。
+     */
+    public void reloadConfig() {
+        try {
+            Config fresh = Config.load(new File(Config.DEFAULT_PATH), log);
+            this.config = fresh;
+            api.setServer(fresh.server);
+            session.setConfig(fresh);
+            if (fresh.clipEnabled) {
+                if (!clipSource.isStarted()) clipSource.start();
+            } else {
+                clipSource.stop();
+            }
+            log.i("config", "重载：source=" + fresh.source
+                    + " server=" + fresh.server + " user=" + fresh.username);
+            if (!fresh.hasServer()) {
+                host.toast("配置已重载，但 server 没填（dsh.d/config.json）");
+                return;
+            }
+            host.toast("配置已重载：" + fresh.server + "，正在重连");
+            session.kick();
+        } catch (Throwable t) {
+            log.e("config/reload", t);
+            host.toast("重载失败：" + t.getClass().getSimpleName());
+        }
     }
 
     public Session session() {
