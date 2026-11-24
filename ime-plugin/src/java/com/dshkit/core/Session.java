@@ -800,8 +800,9 @@ public final class Session {
             }
             lastError = "拉取失败：" + e.getMessage();
             log.w("session", "pull(" + reason + ") " + lastError);
-            if (online && (e.status == 0 || e.status >= 500)) {
-                // 网络/服务端抖：连接可能已经废了，重新走一遍
+            // 0/5xx 是网络或服务端抖动；401 是账号/设备票据过期——都要断开重连，
+            // 由 attempt() 里的 ensureDevice 换新票。只记错误不重连会让通道永久卡住。
+            if (online && (e.status == 0 || e.status >= 500 || e.status == 401)) {
                 try {
                     transport.disconnect();
                 } catch (Throwable ignored) {
