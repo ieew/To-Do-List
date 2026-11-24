@@ -547,6 +547,14 @@ public final class Session {
                     result = api.pull(access, device.deviceId, cursor, PAGE_SIZE);
                 }
                 if (result.messages.isEmpty()) {
+                    // 服务端库重建/重编号后 seq 会回退：游标比最新 seq 还大就永远拉不到新消息，
+                    // 重置一次从头补（服务端对已 ack 的 msg_id 幂等）。
+                    if (result.latestSeq > 0 && result.latestSeq < cursor) {
+                        log.w("session", "服务端消息 seq 回退（latest=" + result.latestSeq
+                                + " < 游标 " + cursor + "），重置游标");
+                        resetCursor();
+                        continue;
+                    }
                     if (result.nextSeq > cursor) setCursor(result.nextSeq);
                     break;
                 }
@@ -605,6 +613,13 @@ public final class Session {
         if (value <= cursor) return;
         cursor = value;
         store.put(K_CURSOR, Long.valueOf(value));
+        store.saveIfDirty();
+    }
+
+    /** 服务端 seq 回退时强行把游标打回 0（setCursor 只会前进）。 */
+    private void resetCursor() {
+        cursor = 0;
+        store.put(K_CURSOR, Long.valueOf(0));
         store.saveIfDirty();
     }
 

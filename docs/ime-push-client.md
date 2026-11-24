@@ -218,6 +218,10 @@ kit.call(action: string, argsJson: string) -> string   // 返回 JSON 或纯文�
 3. pull 分页 100，最多 20 页；每页应用完再取下一页。
 4. 未知 `kind` 也要 ack 掉（否则堵住队列），只记日志不弹通知。
 5. `payload.level` 决定提醒方式，**不决定是否 ack**：0 级照样 pull/ack/入库。
+6. **游标回退要能自愈**：服务端换库/重编号后 `latest_seq` 可能比本地 `cursor` 小，
+   这时继续带旧游标 pull 永远拉不到消息（提醒因此静默丢失）。pull 返回空且
+   `latest_seq > 0 && latest_seq < cursor` 时把游标重置为 0 再拉一轮；
+   服务端按 `msg_id` 幂等，重复拉取不会重复弹通知。
 
 ### 7.2 兜底与重连
 
