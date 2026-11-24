@@ -146,6 +146,82 @@ public final class TodoPanelView {
         return box;
     }
 
+    /** 面板可见时重新拉数据。 */
+    public void refresh() {
+        if (refreshing) return;
+        refreshing = true;
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    final List<TodoClient.Task> waiting =
+                            client.query(TodoClient.SCOPE_WAITING, TodoClient.DEFAULT_LIMIT);
+                    final List<TodoClient.Task> upcoming =
+                            client.query(TodoClient.SCOPE_UPCOMING, TodoClient.DEFAULT_LIMIT);
+                    main.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            render(waiting, upcoming);
+                        }
+                    });
+                } catch (final Throwable t) {
+                    main.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            showError(t);
+                        }
+                    });
+                } finally {
+                    refreshing = false;
+                }
+            }
+        }, "dsh-todo-query").start();
+    }
+
+    // ---------------------------------------------------------------- 构建
+
+    private View buildTitleBar() {
+        LinearLayout bar = new LinearLayout(ctx);
+        bar.setOrientation(LinearLayout.HORIZONTAL);
+        bar.setGravity(Gravity.CENTER_VERTICAL);
+        bar.setPadding(0, 0, 0, dp(8));
+
+        TextView title = new TextView(ctx);
+        title.setText("待办");
+        title.setTextColor(TEXT);
+        title.setTextSize(17);
+        title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        title.setPadding(dp(2), 0, 0, 0);
+        LinearLayout.LayoutParams titleLp = new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        title.setLayoutParams(titleLp);
+        bar.addView(title);
+
+        bar.addView(touchButton("刷新", new Runnable() {
+            @Override
+            public void run() {
+                refresh();
+            }
+        }));
+
+        bar.addView(touchButton("关闭", new Runnable() {
+            @Override
+            public void run() {
+                listener.onClose();
+            }
+        }));
+
+        // 整个标题栏空白处拖动；按钮自己消费点击，不触发拖动
+        bar.setOnTouchListener(new View.OnTouchListener() {
+            @Override
+            public boolean onTouch(View v, MotionEvent event) {
+                listener.onTitleTouch(event);
+                return true;
+            }
+        });
+        return bar;
+    }
+
     private LinearLayout section(String name) {
         LinearLayout box = new LinearLayout(ctx);
         box.setOrientation(LinearLayout.VERTICAL);

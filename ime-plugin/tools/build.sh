@@ -18,8 +18,15 @@ mkdir -p "$OUT/classes" "$OUT/dex" "$DEST"
 
 echo "== javac =="
 find "$BASE/src/java" -name '*.java' > "$OUT/sources.txt"
+set +e
 javac -source 8 -target 8 -encoding UTF-8 -nowarn \
-      -classpath "$AJAR:$PAHO" -d "$OUT/classes" @"$OUT/sources.txt" 2>&1 | grep -v 'bootstrap class path' || true
+      -classpath "$AJAR:$PAHO" -d "$OUT/classes" @"$OUT/sources.txt" 2>&1 | grep -v 'bootstrap class path'
+JAVAC_RC=${PIPESTATUS[0]}
+set -e
+if [ "$JAVAC_RC" -ne 0 ]; then
+    echo "javac 失败（rc=$JAVAC_RC），终止构建（别再吞错误产出缺类 dex）"
+    exit 1
+fi
 
 echo "== patch paho jar（剔掉 NetworkModuleService，用我们自己的实现）=="
 PATCHED="$OUT/paho-dex.jar"
