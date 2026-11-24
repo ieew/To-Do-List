@@ -33,6 +33,8 @@ desktop = [
     "dep:tauri-plugin-single-instance",
     "dep:tauri-plugin-autostart",
     "dep:tauri-specta",
+    # dsh 实时通道（MQTT nudge）只在桌面端编译。
+    "dep:rumqttc",
 ]
 # 生成 src/lib/ipc-bindings.generated.ts 时才需要（npm run gen:bindings）。
 bindings-export = ["desktop", "dep:specta-typescript"]
@@ -55,6 +57,16 @@ tauri-plugin-opener = { version = "2", optional = true }
 tauri-plugin-notification = { version = "2", optional = true }
 tauri-plugin-single-instance = { version = "2", optional = true }
 tauri-plugin-autostart = { version = "2", optional = true }
+# dsh 推送通道：MQTT 只做「唤醒信号」，权威数据仍走 HTTP pull。
+# 用 native-tls（Windows 上是 schannel），避免引入 ring 在 MinGW 下的编译风险；
+# 服务端默认不启用 MQTT TLS，tls=true 时客户端会降级为 HTTP 轮询。
+rumqttc = { version = "0.25", default-features = false, features = ["use-native-tls"], optional = true }
+
+[target.'cfg(windows)'.dependencies]
+# Windows Toast 直接调用 WinRT：插件会吞掉 show() 的错误，且无法注册 AUMID。
+tauri-winrt-notification = "0.8"
+# 注册 HKCU\Software\Classes\AppUserModelId\<id>，让未打包应用也能弹 Toast。
+winreg = "0.56"
 # 固定 RC 版本：specta 2 生态仍在 beta，必须用 = 锁定，避免升级漂移。
 specta = { version = "=2.0.0-rc.28", features = ["derive", "serde_json"] }
 tauri-specta = { version = "=2.0.0-rc.29", features = ["derive", "typescript"], optional = true }

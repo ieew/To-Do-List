@@ -35,6 +35,12 @@ export const commands = {
 	snoozeReminder: (taskId: string, minutes: number, options?: InvokeOptions) => __TAURI_INVOKE<null>("snooze_reminder", { taskId, minutes }, options),
 	/**  开机自启：写/删注册表 Run 项，由设置页保存时调用。 */
 	setAutostart: (enabled: boolean, options?: InvokeOptions) => __TAURI_INVOKE<null>("set_autostart", { enabled }, options),
+	dshStatus: (options?: InvokeOptions) => __TAURI_INVOKE<DshStatusDto_Serialize>("dsh_status", undefined, options),
+	dshSyncNow: (options?: InvokeOptions) => __TAURI_INVOKE<null>("dsh_sync_now", undefined, options),
+	dshReconnect: (options?: InvokeOptions) => __TAURI_INVOKE<null>("dsh_reconnect", undefined, options),
+	dshSendClipboard: (options?: InvokeOptions) => __TAURI_INVOKE<string>("dsh_send_clipboard", undefined, options),
+	dshTestNotification: (options?: InvokeOptions) => __TAURI_INVOKE<null>("dsh_test_notification", undefined, options),
+	openLogsFolder: (options?: InvokeOptions) => __TAURI_INVOKE<null>("open_logs_folder", undefined, options),
 	authRegister: (serverUrl: string, username: string, password: string, email: string | null, displayName: string | null, workspaceName: string | null, options?: InvokeOptions) => __TAURI_INVOKE<AuthResult_Serialize>("auth_register", { serverUrl, username, password, email, displayName, workspaceName }, options),
 	authLogin: (serverUrl: string, username: string, password: string, options?: InvokeOptions) => __TAURI_INVOKE<AuthResult_Serialize>("auth_login", { serverUrl, username, password }, options),
 	authLogout: (options?: InvokeOptions) => __TAURI_INVOKE<null>("auth_logout", undefined, options),
@@ -310,6 +316,41 @@ export type CreateTaskInput_Serialize = {
 	model: string | null,
 };
 
+/**  设置页与同步横幅使用的通道状态。 */
+export type DshStatusDto = DshStatusDto_Serialize | DshStatusDto_Deserialize;
+
+/**  设置页与同步横幅使用的通道状态。 */
+export type DshStatusDto_Deserialize = {
+	/**  通道总开关（推送或剪贴板任一开启）且已登录。 */
+	enabled: boolean,
+	signedIn: boolean,
+	mqttEnabled: boolean,
+	mqttConnected: boolean,
+	/**  MQTT 不可用，已退化为定时 HTTP 轮询；此时默认配置下收不到剪贴板。 */
+	degraded: boolean,
+	deviceId?: string | null,
+	lastPullAt?: number | null,
+	lastClipSentAt?: number | null,
+	lastClipReceivedAt?: number | null,
+	lastError?: string | null,
+};
+
+/**  设置页与同步横幅使用的通道状态。 */
+export type DshStatusDto_Serialize = {
+	/**  通道总开关（推送或剪贴板任一开启）且已登录。 */
+	enabled: boolean,
+	signedIn: boolean,
+	mqttEnabled: boolean,
+	mqttConnected: boolean,
+	/**  MQTT 不可用，已退化为定时 HTTP 轮询；此时默认配置下收不到剪贴板。 */
+	degraded: boolean,
+	deviceId: string | null,
+	lastPullAt: number | null,
+	lastClipSentAt: number | null,
+	lastClipReceivedAt: number | null,
+	lastError: string | null,
+};
+
 export type HistoryDiff = HistoryDiff_Serialize | HistoryDiff_Deserialize;
 
 export type HistoryDiff_Deserialize = {
@@ -432,6 +473,10 @@ export type Settings_Deserialize = {
 	aiAllowDestructive?: boolean,
 	/**  允许在 AI 助手中附加图片（仅发送给用户自配端点，不落盘）。 */
 	aiImageInput?: boolean,
+	/**  接收 dsh 通道的服务端通知与提醒（需登录）。 */
+	pushEnabled?: boolean,
+	/**  剪贴板双向同步。默认关闭：剪贴板会包含密码等敏感内容。 */
+	clipEnabled?: boolean,
 };
 
 export type Settings_Serialize = {
@@ -463,6 +508,10 @@ export type Settings_Serialize = {
 	aiAllowDestructive: boolean,
 	/**  允许在 AI 助手中附加图片（仅发送给用户自配端点，不落盘）。 */
 	aiImageInput: boolean,
+	/**  接收 dsh 通道的服务端通知与提醒（需登录）。 */
+	pushEnabled: boolean,
+	/**  剪贴板双向同步。默认关闭：剪贴板会包含密码等敏感内容。 */
+	clipEnabled: boolean,
 };
 
 /**  便利贴窗口的创建上下文。独立 Webview 通过 label 反查模式与聚焦任务。 */

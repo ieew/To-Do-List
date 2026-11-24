@@ -20,24 +20,28 @@
 ### Windows 调度（已实现）
 
 - 关闭主窗口默认隐藏到**系统托盘**（可在设置中关闭），Rust 进程与提醒循环常驻；托盘菜单提供「显示主窗口 / 打开便利贴 / 立即同步 / 退出」。
-- 提醒循环每 **30 秒** tick 一次，并用 `Notify` 在本地写入、设置变更、稍后提醒时立即唤醒；睡眠唤醒与修改系统时间由 tick 自然覆盖。
+- 提醒循环每 **30 秒** tick 一次，并用 `Notify` 在本地写入、设置变更、稍后提醒、同步拉回变更时立即唤醒；睡眠唤醒与修改系统时间由 tick 自然覆盖。
+- **扫描全部工作区**（不只是当前工作区）：逐 workspace 走增量投影缓存，按 `task_id` 去重。否则切到别的工作区后旧提醒会静默失效。
 - 生效时刻 = `remind_at - reminder_lead`，与 `snooze_until` 取较晚者；每条 `remind_at` 只触发一次。
 - `last_fired_at` 保存**已触发过的 `remind_at` 值**（不是触发时刻），所以修改提前量不会重复提醒。
+- 幂等判定用 **`last_fired_at == remind_at`**（不是 `>=`）：远端把 `remind_at` 改早时，旧的更大值不会永久压制新提醒。
 - 修改或删除任务时会清空该任务的本地提醒态；修改 `remind_at` 也会重置触发记录，避免旧记录压制新提醒。
-- 通知使用 `tauri-plugin-notification`；点击通知目前只用于系统提示，稍后提醒通过任务右键菜单（10 分钟 / 1 小时）完成。
+- 通知直接调用 Windows WinRT Toast，并在启动时注册 AUMID（`HKCU\Software\Classes\AppUserModelId\com.todo.windows`）；自定义 AUMID 失败回落 PowerShell AUMID。点击通知会恢复主窗口并定位到任务。
+- **展示成功后才写 `last_fired_at`**；发送失败只记日志、下一轮重试，不再出现「一次失败 = 永久丢失」。
 - 免打扰（`dnd_start` / `dnd_end`，支持跨天）期间不发通知，但也不丢弃：写入 `reminder_deferred`，等时段结束后合并补弹一次。
 - 通知开关关闭时只更新本地触发记录，不弹系统通知。
-- 客户端本地调度保留（应用在跑时由客户端自己提醒）。
-- **服务端提醒（可选，默认开）**：见「一之二」，应用完全退出后也能由服务器推送到手机。
+- **服务端提醒（可选，默认开）**：见「一之二」，应用完全退出后也能由服务器补推。Windows 端收到 `payload.type=reminder` 时按 `task_id + remind_at` 与本地 `last_fired_at` 去重；本地已触发则跳过，服务端先到则写入本地标记阻止本地补发。免打扰期间的服端提醒同样写入 `reminder_deferred`。
+
 
 ### 本地表
 
 ```sql
 task_local(task_id PRIMARY KEY, last_fired_at INTEGER, snooze_until INTEGER)
 reminder_deferred(task_id, remind_at, deferred_at, PRIMARY KEY(task_id, remind_at))
+dsh_seen(msg_id PRIMARY KEY, seen_at INTEGER)   -- dsh 消息去重，7 天清理
 ```
 
-两张表都不进 `op_log`、不参与同步；换设备不会带过去。
+都不进 `op_log`、不参与同步；换设备不会带过去。
 
 ### 错过提醒补发
 

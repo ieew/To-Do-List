@@ -416,7 +416,7 @@ impl Api {
     }
 }
 
-fn parse_error(status: u16, text: &str) -> ApiError {
+pub(crate) fn parse_error(status: u16, text: &str) -> ApiError {
     if let Ok(envelope) = serde_json::from_str::<WireErrorEnvelope>(text) {
         return ApiError {
             status,

@@ -77,5 +77,7 @@ export const defaultSettings: Settings = {
   aiModel: 'qwen2.5-7b',
   aiConfirmThreshold: 10,
   aiAllowDestructive: false,
-  aiImageInput: true
+  aiImageInput: true,
+  pushEnabled: true,
+  clipEnabled: false
 };

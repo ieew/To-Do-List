@@ -1419,6 +1419,8 @@ async fn finish_login(
     backup_path: Option<String>,
 ) -> AuthResult {
     state.sync.set_signed_in(true);
+    state.dsh.reset();
+    state.dsh.wake();
     match engine::run_once(state).await {
         Ok(outcome) => sync::publish(app, state, &outcome),
         Err(error) => {
@@ -1552,6 +1554,7 @@ pub async fn auth_logout(app: AppHandle, state: State<'_, AppState>) -> Result<(
     }
     // 保留本地数据与 sync_account：同账户再次登录时不会重复清库。
     state.sync.set_signed_in(false);
+    state.dsh.reset();
     sync::emit_state(&app, &state);
     Ok(())
 }
@@ -2066,6 +2069,8 @@ pub fn save_settings(
     let _ = app.emit("settings-updated", &settings);
     // 提前提醒、免打扰、通知开关都会影响调度结果。
     crate::reminder::wake(&app);
+    // 推送/剪贴板开关变化后立即重算通道状态。
+    state.dsh.wake();
     Ok(())
 }
 
@@ -2101,6 +2106,54 @@ pub fn set_autostart(app: AppHandle, enabled: bool) -> Result<(), String> {
         manager.disable()
     };
     result.map_err(|error| format!("设置开机自启失败: {error}"))
+}
+
+/* --------------------------- 推送与剪贴板 --------------------------- */
+
+#[tauri::command]
+#[specta::specta]
+pub fn dsh_status(state: State<'_, AppState>) -> crate::dsh::DshStatusDto {
+    state.dsh.snapshot()
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn dsh_sync_now(state: State<'_, AppState>) -> Result<(), String> {
+    crate::dsh::worker::request_sync(&state);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn dsh_reconnect(state: State<'_, AppState>) -> Result<(), String> {
+    crate::dsh::worker::request_reconnect(&state);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn dsh_send_clipboard(app: AppHandle) -> Result<String, String> {
+    crate::dsh::worker::send_clipboard_now(&app).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn dsh_test_notification(app: AppHandle) -> Result<(), String> {
+    crate::dsh::worker::send_test_notification(&app).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn open_logs_folder(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    let _ = app;
+    let dir = crate::logging::log_dir(&state.data_dir);
+    std::fs::create_dir_all(&dir)
+        .map_err(|error| format!("创建日志目录失败: {error}"))?;
+    std::process::Command::new("explorer")
+        .arg(&dir)
+        .spawn()
+        .map_err(|error| format!("打开日志目录失败: {error}"))?;
+    Ok(())
 }
 
 /* ----------------------------- AI 密钥 ----------------------------- */

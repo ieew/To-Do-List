@@ -19,6 +19,12 @@ fn show_main(app: &AppHandle) {
     }
 }
 
+/// 点击通知时把用户带回主窗口：先关掉主形态便利贴，再显示主窗口。
+pub(crate) fn focus_main(app: &AppHandle) {
+    close_window(app, "sticky-main");
+    show_main(app);
+}
+
 fn close_window(app: &AppHandle, label: &str) {
     if let Some(window) = app.get_webview_window(label) {
         let _ = window.close();

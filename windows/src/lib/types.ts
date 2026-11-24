@@ -168,6 +168,10 @@ export interface Settings {
   aiAllowDestructive: boolean;
   /** 允许在 AI 助手中附加图片。 */
   aiImageInput: boolean;
+  /** 接收 dsh 通道的服务端通知与提醒（需登录）。 */
+  pushEnabled: boolean;
+  /** 剪贴板双向同步，默认关闭。 */
+  clipEnabled: boolean;
 }
 
 export interface AiPlanItem {
@@ -264,6 +268,27 @@ export interface SyncNoticeDto {
   message: string;
   retryable: boolean;
   at: number;
+}
+
+/** dsh 推送/剪贴板通道状态。 */
+export interface DshStatus {
+  enabled: boolean;
+  signedIn: boolean;
+  mqttEnabled: boolean;
+  mqttConnected: boolean;
+  /** MQTT 不可用，已降级为定时 HTTP 轮询。 */
+  degraded: boolean;
+  deviceId: string | null;
+  lastPullAt: number | null;
+  lastClipSentAt: number | null;
+  lastClipReceivedAt: number | null;
+  lastError: string | null;
+}
+
+/** 点击通知后要求前端定位任务。 */
+export interface OpenTaskPayload {
+  taskId: string | null;
+  workspaceId: string | null;
 }
 
 export interface AuthResult {

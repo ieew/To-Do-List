@@ -134,10 +134,9 @@ pub fn plan(
             continue;
         }
         // 同一条 remind_at 只触发一次；改提前量不会导致重复提醒。
-        if task
-            .last_fired_at
-            .is_some_and(|fired| fired >= task.remind_at)
-        {
+        // 注意用「相等」而不是「大于等于」：远端把 remind_at 改早时，
+        // 旧的 last_fired_at 会大于新值，用 >= 会让这条提醒永久失效。
+        if task.last_fired_at == Some(task.remind_at) {
             continue;
         }
 
@@ -273,6 +272,16 @@ mod tests {
         assert!(result.fire.is_empty());
         assert!(result.defer.is_empty());
         assert!(result.drop.is_empty());
+    }
+
+    #[test]
+    fn moving_remind_at_earlier_is_not_suppressed_by_stale_marker() {
+        // 旧标记来自更晚的 remind_at：改早之后必须重新提醒。
+        let now = 1_000 * MINUTE;
+        let mut item = task(now - MINUTE);
+        item.last_fired_at = Some(now + 60 * MINUTE);
+        let result = plan(&[item], now, 0, 0, no_dnd());
+        assert_eq!(result.fire.len(), 1);
     }
 
     #[test]

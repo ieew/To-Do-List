@@ -18,10 +18,12 @@ import type {
   ContextMenuState,
   Density,
   DrawerTab,
+  DshStatus,
   FloatingStickyState,
   HistoryOp,
   MainView,
   Member,
+  OpenTaskPayload,
   Priority,
   Role,
   Settings,
@@ -193,6 +195,7 @@ class TodoStore {
   syncStatus = $state<SyncStatus>('signed_out');
   sync = $state<SyncStateDto>(emptySyncState());
   syncNotice = $state<SyncNoticeDto | null>(null);
+  dshStatus = $state<DshStatus | null>(null);
   contextMenu = $state<ContextMenuState | null>(null);
   toast = $state<ToastMessage | null>(null);
   private toastTimer: ReturnType<typeof setTimeout> | null = null;
@@ -200,6 +203,8 @@ class TodoStore {
   private settingsUnlisten: (() => void) | null = null;
   private syncStatusUnlisten: (() => void) | null = null;
   private syncNoticeUnlisten: (() => void) | null = null;
+  private dshStatusUnlisten: (() => void) | null = null;
+  private openTaskUnlisten: (() => void) | null = null;
 
   constructor() {
     // 开始时间是动态边界：每分钟重新计算一次，避免视图停留在旧时间点。
@@ -251,6 +256,21 @@ class TodoStore {
       if (!this.syncNoticeUnlisten) {
         this.syncNoticeUnlisten = await ipc.onSyncNotice((notice) => {
           this.syncNotice = notice;
+        });
+      }
+      try {
+        this.dshStatus = await ipc.dshStatus();
+      } catch {
+        // 通道未初始化时忽略，后续事件会补上。
+      }
+      if (!this.dshStatusUnlisten) {
+        this.dshStatusUnlisten = await ipc.onDshStatus((status) => {
+          this.dshStatus = status;
+        });
+      }
+      if (!this.openTaskUnlisten) {
+        this.openTaskUnlisten = await ipc.onOpenTask((payload) => {
+          void this.handleOpenTask(payload);
         });
       }
     } catch (error) {
@@ -307,6 +327,81 @@ class TodoStore {
   private applySyncState(state: SyncStateDto): void {
     this.sync = state;
     this.syncStatus = state.status;
+  }
+
+  /** 点击系统通知：跨工作区时先切换，再打开任务详情。 */
+  private async handleOpenTask(payload: OpenTaskPayload): Promise<void> {
+    if (!payload.taskId) return;
+    this.settingsOpen = false;
+    if (payload.workspaceId && payload.workspaceId !== this.activeWorkspaceId) {
+      try {
+        await this.setActiveWorkspace(payload.workspaceId);
+      } catch {
+        // 工作区可能已被删除；继续尝试在当前投影里查找。
+      }
+    }
+    this.openTask(payload.taskId);
+  }
+
+  async refreshDshStatus(): Promise<void> {
+    if (!isTauri) return;
+    try {
+      this.dshStatus = await ipc.dshStatus();
+    } catch (error) {
+      this.showToast(errorMessage(error), 'error');
+    }
+  }
+
+  async dshSyncNow(): Promise<void> {
+    if (!isTauri) return;
+    try {
+      await ipc.dshSyncNow();
+      this.showToast('已请求拉取推送消息');
+    } catch (error) {
+      this.showToast(errorMessage(error), 'error');
+    }
+  }
+
+  async dshReconnect(): Promise<void> {
+    if (!isTauri) return;
+    try {
+      await ipc.dshReconnect();
+      this.showToast('正在重新连接推送通道');
+    } catch (error) {
+      this.showToast(errorMessage(error), 'error');
+    }
+  }
+
+  async sendClipboardNow(): Promise<void> {
+    if (!isTauri) {
+      this.showToast('浏览器预览不支持剪贴板同步', 'info');
+      return;
+    }
+    try {
+      const result = await ipc.dshSendClipboard();
+      this.showToast(result);
+    } catch (error) {
+      this.showToast(errorMessage(error), 'error');
+    }
+  }
+
+  async sendTestNotification(): Promise<void> {
+    if (!isTauri) return;
+    try {
+      await ipc.dshTestNotification();
+      this.showToast('测试通知已发送，稍等片刻');
+    } catch (error) {
+      this.showToast(errorMessage(error), 'error');
+    }
+  }
+
+  async openLogsFolder(): Promise<void> {
+    if (!isTauri) return;
+    try {
+      await ipc.openLogsFolder();
+    } catch (error) {
+      this.showToast(errorMessage(error), 'error');
+    }
   }
 
   get isSignedIn(): boolean {

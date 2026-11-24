@@ -179,6 +179,13 @@ fn migrate(conn: &Connection) -> Result<()> {
             deferred_at INTEGER NOT NULL,
             PRIMARY KEY (task_id, remind_at)
         );
+
+        -- dsh 推送：已处理过的 msg_id，ack 失败重拉时避免重复弹通知/重复写剪贴板。
+        CREATE TABLE IF NOT EXISTS dsh_seen (
+            msg_id  TEXT PRIMARY KEY,
+            seen_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_dsh_seen_at ON dsh_seen(seen_at);
         "#,
     )?;
 
@@ -527,6 +534,8 @@ pub fn reset_for_account(conn: &Connection, backup_dir: &Path) -> Result<Option<
 
     conn.execute("DELETE FROM op_log", [])?;
     conn.execute("DELETE FROM meta", [])?;
+    // dsh 消息去重记录也属于旧账户；不清会让新账户同 msg_id 被误判为已处理。
+    conn.execute("DELETE FROM dsh_seen", [])?;
     conn.execute(
         "UPDATE local_hlc SET physical_ms = ?1, counter = 0 WHERE id = 1",
         params![now_ms()],
@@ -654,12 +663,15 @@ pub fn task_local_all(conn: &Connection) -> Result<HashMap<String, TaskLocal>> {
 }
 
 /// 标记某条 `remind_at` 已触发，并清空稍后提醒。
+///
+/// 直接覆盖而不是取 MAX：调度侧用「相等」判定幂等；如果保留更晚的旧值，
+/// 把提醒时间改早后会每轮重复触发。
 pub fn mark_reminder_fired(conn: &Connection, task_id: &str, remind_at_ms: i64) -> Result<()> {
     conn.execute(
         "INSERT INTO task_local (task_id, last_fired_at, snooze_until)
          VALUES (?1, ?2, NULL)
          ON CONFLICT(task_id) DO UPDATE SET
-             last_fired_at = MAX(COALESCE(last_fired_at, 0), excluded.last_fired_at),
+             last_fired_at = excluded.last_fired_at,
              snooze_until = NULL",
         params![task_id, remind_at_ms],
     )?;
@@ -717,6 +729,33 @@ pub fn deferred_reminders(conn: &Connection) -> Result<Vec<(String, i64)>> {
 pub fn clear_deferred_reminders(conn: &Connection) -> Result<()> {
     conn.execute("DELETE FROM reminder_deferred", [])?;
     Ok(())
+}
+
+/* --------------------------- dsh 去重 --------------------------- */
+
+pub fn dsh_seen_contains(conn: &Connection, msg_id: &str) -> Result<bool> {
+    let count: i64 = conn.query_row(
+        "SELECT COUNT(1) FROM dsh_seen WHERE msg_id = ?1",
+        params![msg_id],
+        |row| row.get(0),
+    )?;
+    Ok(count > 0)
+}
+
+pub fn dsh_seen_insert(conn: &Connection, msg_id: &str, seen_at: i64) -> Result<()> {
+    conn.execute(
+        "INSERT OR IGNORE INTO dsh_seen (msg_id, seen_at) VALUES (?1, ?2)",
+        params![msg_id, seen_at],
+    )?;
+    Ok(())
+}
+
+pub fn dsh_seen_prune(conn: &Connection, before_ms: i64) -> Result<usize> {
+    let removed = conn.execute(
+        "DELETE FROM dsh_seen WHERE seen_at < ?1",
+        params![before_ms],
+    )?;
+    Ok(removed)
 }
 
 /// 同步引擎与测试用的投影入口：不需要 Tauri 的 AI 密钥状态。
@@ -1416,5 +1455,20 @@ mod tests {
             .expect("读取 node_id 失败");
         assert_eq!(node_before, node_after);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn reminder_marker_is_overwritten_not_maxed() {
+        let conn = Connection::open_in_memory().expect("打开内存库失败");
+        migrate(&conn).expect("建表失败");
+
+        mark_reminder_fired(&conn, "task-1", 2_000).expect("标记失败");
+        mark_reminder_fired(&conn, "task-1", 1_000).expect("标记失败");
+        let local = task_local_get(&conn, "task-1").expect("读取失败");
+        assert_eq!(
+            local.last_fired_at,
+            Some(1_000),
+            "把提醒时间改早后必须覆盖旧值，否则调度会每轮重复触发"
+        );
     }
 }

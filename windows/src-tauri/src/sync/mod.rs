@@ -169,6 +169,8 @@ pub fn publish(app: &AppHandle, state: &AppState, outcome: &engine::RoundOutcome
             "projection-updated",
             serde_json::json!({ "workspaceId": null }),
         );
+        // 远端可能改了 remind_at / 删了任务；立即重算提醒，不必等 30s tick。
+        crate::reminder::wake(app);
     }
     let dto = snapshot_for(state);
     let _ = app.emit("sync-status-changed", &dto);

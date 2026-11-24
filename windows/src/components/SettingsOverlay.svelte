@@ -1,7 +1,9 @@
 <script lang="ts">
   import {
     Bell,
+    BellRing,
     ChevronLeft,
+    ClipboardCopy,
     Eye,
     EyeOff,
     Info,
@@ -22,6 +24,7 @@
     | 'appearance'
     | 'tasks'
     | 'reminders'
+    | 'dsh'
     | 'ai'
     | 'sync'
     | 'members'
@@ -32,6 +35,7 @@
     { id: 'appearance', label: '外观', icon: Palette },
     { id: 'tasks', label: '任务与清单', icon: ListTodo },
     { id: 'reminders', label: '提醒', icon: Bell },
+    { id: 'dsh', label: '推送与剪贴板', icon: BellRing },
     { id: 'ai', label: 'AI 助手', icon: Sparkles },
     { id: 'sync', label: '同步与数据', icon: RefreshCw },
     { id: 'members', label: '成员', icon: Users },
@@ -515,6 +519,142 @@
                   <input type="checkbox" bind:checked={draft.autoStart} />
                   <span class="toggle-track"><span class="toggle-thumb"></span></span>
                 </label>
+              </div>
+            </div>
+          </div>
+        </div>
+      {:else if active === 'dsh'}
+        <div class="settings-panel">
+          <p class="panel-desc">
+            推送通道复用待办账号：登录后自动注册本机设备。服务端只下发通知与提醒；剪贴板默认不落库，只实时转发给其他在线设备。
+          </p>
+
+          <div class="setting-group">
+            <div class="setting-group-title">通道状态</div>
+            <div class="setting-row">
+              <div class="setting-label">
+                <div class="setting-title">实时连接</div>
+                <div class="setting-desc">
+                  {#if !store.isSignedIn}
+                    登录后自动连接。
+                  {:else if store.dshStatus?.mqttConnected}
+                    已连接 MQTT，通知与剪贴板可实时到达。
+                  {:else if store.dshStatus?.degraded}
+                    实时连接不可用，已降级为定时拉取；默认配置下剪贴板实时同步不可用。
+                  {:else}
+                    正在连接…
+                  {/if}
+                </div>
+              </div>
+              <div class="setting-control">
+                <span class="unit">
+                  {store.dshStatus?.mqttConnected ? '在线' : store.dshStatus?.degraded ? '降级' : '未连接'}
+                </span>
+              </div>
+            </div>
+            <div class="setting-row">
+              <div class="setting-label">
+                <div class="setting-title">设备 ID</div>
+                <div class="setting-desc">用于区分多台设备；服务端按账号隔离消息。</div>
+              </div>
+              <div class="setting-control">
+                <span class="unit">{store.dshStatus?.deviceId ?? '尚未注册'}</span>
+              </div>
+            </div>
+            <div class="setting-row">
+              <div class="setting-label">
+                <div class="setting-title">最近拉取</div>
+                <div class="setting-desc">最近一次成功从服务端取回推送消息的时间。</div>
+              </div>
+              <div class="setting-control">
+                <span class="unit">{lastSyncedText(store.dshStatus?.lastPullAt ?? null)}</span>
+              </div>
+            </div>
+            <div class="setting-row">
+              <div class="setting-label">
+                <div class="setting-title">最近剪贴板</div>
+                <div class="setting-desc">
+                  发送：{lastSyncedText(store.dshStatus?.lastClipSentAt ?? null)} · 接收：{lastSyncedText(store.dshStatus?.lastClipReceivedAt ?? null)}
+                </div>
+              </div>
+            </div>
+            {#if store.dshStatus?.lastError}
+              <div class="info-banner danger">{store.dshStatus.lastError}</div>
+            {/if}
+          </div>
+
+          <div class="setting-group">
+            <div class="setting-group-title">开关</div>
+            <div class="setting-row">
+              <div class="setting-label">
+                <div class="setting-title">接收服务端通知与提醒</div>
+                <div class="setting-desc">
+                  与本地提醒按「任务 + 提醒时间」去重；桌面通知总开关仍在「提醒」分区。
+                </div>
+              </div>
+              <div class="setting-control">
+                <label class="toggle">
+                  <input type="checkbox" bind:checked={draft.pushEnabled} />
+                  <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                </label>
+              </div>
+            </div>
+            <div class="setting-row">
+              <div class="setting-label">
+                <div class="setting-title">剪贴板同步</div>
+                <div class="setting-desc">
+                  自动双向、静默执行。只同步纯文本，上限 32KiB；内容会以明文经服务端转发，请勿在复制密码等敏感内容时开启。
+                </div>
+              </div>
+              <div class="setting-control">
+                <label class="toggle">
+                  <input type="checkbox" bind:checked={draft.clipEnabled} />
+                  <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div class="setting-group">
+            <div class="setting-group-title">操作</div>
+            <div class="setting-row">
+              <div class="setting-label">
+                <div class="setting-title">立即拉取 / 重连</div>
+                <div class="setting-desc">拉取会补收离线期间的消息；重连会重新注册设备并刷新票据。</div>
+              </div>
+              <div class="setting-control">
+                <button class="btn" onclick={() => store.dshSyncNow()}>立即拉取</button>
+                <button class="btn" onclick={() => store.dshReconnect()}>重连</button>
+              </div>
+            </div>
+            <div class="setting-row">
+              <div class="setting-label">
+                <div class="setting-title">发送当前剪贴板</div>
+                <div class="setting-desc">手动把当前剪贴板文本发给其他已登录设备，不受上面的同步开关影响。</div>
+              </div>
+              <div class="setting-control">
+                <button class="btn" onclick={() => store.sendClipboardNow()}>
+                  <ClipboardCopy size={14} />
+                  发送
+                </button>
+              </div>
+            </div>
+            <div class="setting-row">
+              <div class="setting-label">
+                <div class="setting-title">测试推送</div>
+                <div class="setting-desc">向本账号广播一条测试通知，用于验证手机/其他设备是否能收到。</div>
+              </div>
+              <div class="setting-control">
+                <button class="btn" onclick={() => store.sendTestNotification()}>发送测试通知</button>
+              </div>
+            </div>
+            <div class="setting-row">
+              <div class="setting-label">
+                <div class="setting-title">诊断日志</div>
+                <div class="setting-desc">提醒与推送的运行日志；不记录剪贴板原文。</div>
+              </div>
+              <div class="setting-control">
+                <button class="btn" onclick={() => store.openLogsFolder()}>打开日志目录</button>
               </div>
             </div>
           </div>

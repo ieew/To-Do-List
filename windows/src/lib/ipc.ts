@@ -8,6 +8,8 @@ import type {
   AuthRegisterInput,
   AuthResult,
   BootstrapResponse,
+  DshStatus,
+  OpenTaskPayload,
   Settings,
   SyncNoticeDto,
   SyncPreflight,
@@ -97,6 +99,18 @@ export const ipc = {
 
   snoozeReminder: (taskId: string, minutes: number) =>
     invoke<void>('snooze_reminder', { taskId, minutes }),
+
+  dshStatus: () => invoke<DshStatus>('dsh_status'),
+
+  dshSyncNow: () => invoke<void>('dsh_sync_now'),
+
+  dshReconnect: () => invoke<void>('dsh_reconnect'),
+
+  dshSendClipboard: () => invoke<string>('dsh_send_clipboard'),
+
+  dshTestNotification: () => invoke<void>('dsh_test_notification'),
+
+  openLogsFolder: () => invoke<void>('open_logs_folder'),
 
   authRegister: (input: AuthRegisterInput) =>
     invoke<AuthResult>('auth_register', {
@@ -220,6 +234,16 @@ export const ipc = {
   onTrayCommand: (handler: (command: string) => void): Promise<UnlistenFn> =>
     listen<{ command: string }>('tray-command', (event) => {
       handler(event.payload.command);
+    }),
+
+  onDshStatus: (handler: (status: DshStatus) => void): Promise<UnlistenFn> =>
+    listen<DshStatus>('dsh-status-changed', (event) => {
+      handler(event.payload);
+    }),
+
+  onOpenTask: (handler: (payload: OpenTaskPayload) => void): Promise<UnlistenFn> =>
+    listen<OpenTaskPayload>('open-task', (event) => {
+      handler(event.payload);
     })
 };
 

@@ -184,6 +184,10 @@ pub struct Settings {
     pub ai_allow_destructive: bool,
     /// 允许在 AI 助手中附加图片（仅发送给用户自配端点，不落盘）。
     pub ai_image_input: bool,
+    /// 接收 dsh 通道的服务端通知与提醒（需登录）。
+    pub push_enabled: bool,
+    /// 剪贴板双向同步。默认关闭：剪贴板会包含密码等敏感内容。
+    pub clip_enabled: bool,
 }
 
 impl Default for Settings {
@@ -210,6 +214,8 @@ impl Default for Settings {
             ai_confirm_threshold: 10,
             ai_allow_destructive: false,
             ai_image_input: true,
+            push_enabled: true,
+            clip_enabled: false,
         }
     }
 }

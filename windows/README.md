@@ -53,6 +53,7 @@ npm run tauri dev
 <软件目录>\data\todo.sqlite3        # 主库（WAL 模式）
 <软件目录>\data\todo.sqlite3-wal    # WAL 提交日志
 <软件目录>\data\todo.sqlite3-shm    # WAL 共享内存索引
+<软件目录>\data\logs\todo-windows-YYYY-MM-DD.log  # 运行日志（提醒/推送/剪贴板，不含剪贴板原文）
 ```
 
 - 可用环境变量 `TODO_DATA_DIR` 覆盖数据目录；[`start-desktop.bat`](start-desktop.bat) 会把它设为 `windows\data`，方便开发时查看与备份。
@@ -69,6 +70,19 @@ npm run tauri dev
 - 免打扰时段支持跨天；期间提醒不丢弃，延后到时段结束合并补弹一次。
 - 稍后提醒：右键任务 → 稍后提醒 10 分钟 / 1 小时（仅对已设置提醒的任务显示）。
 - 本地态存于 `data/todo.sqlite3` 的 `task_local` / `reminder_deferred` 表，不进 `op_log`、不同步。
+- **提醒扫描全部工作区**（不只当前工作区）；通知展示成功后才写 `last_fired_at`，失败会在下一轮重试。
+- **Windows Toast 必须注册 AUMID**：启动时写 `HKCU\Software\Classes\AppUserModelId\com.todo.windows`；失败自动回落 PowerShell AUMID。点击通知会恢复主窗口并定位到任务。
+- 排查用日志在 `data/logs/`，设置页「推送与剪贴板 → 打开日志目录」可直接打开。
+
+## 推送与剪贴板（dsh 通道）
+
+复用服务端 `/v1/dsh/*`：登录后自动注册本机设备，MQTT 只推一个极小 nudge，权威消息走 HTTP `pull` 再 `ack`。
+
+- **服务端通知**：支持 `kind=notify` 与任务提醒（`payload.type=reminder`）。提醒与本地 30 秒调度按 `task_id + remind_at` 去重；免打扰期间压入 `reminder_deferred`，结束后合并补弹。
+- **剪贴板同步**：自动双向、静默，默认**关闭**；只同步纯文本、上限 32KiB，内容会以明文经服务端转发（服务端默认不落库，只实时转发给其他在线设备）。
+- **实时通道**：MQTT 连不上时降级为 30 秒定时 pull；此时通知仍可收到，但默认配置下剪贴板实时接收不可用。
+- **设备票据**：仅存内存，约 8 分钟续期一次；剪贴板上行必须用票据，服务端据此排除来源、避免回显。
+- 设置项：`pushEnabled`（接收通知/提醒）、`clipEnabled`（剪贴板同步）；另有「立即拉取 / 重连 / 发送当前剪贴板 / 发送测试通知」。
 
 ## 预览截图
 
@@ -87,9 +101,10 @@ npm run tauri dev
 - **S1 主窗口**：Windows 11 风格自绘标题栏（左侧图标、标题、同步状态；右侧业务按钮与最小化/最大化/关闭，控制按钮贴窗口右边缘，最大化后切换为还原图标）、可拖拽侧栏（150–300px，双击重置）、清单/标签/成员/AI 入口。
 - **Rust 数据层**：SQLite `op_log` 只追加；HLC 全序、字段级 LWW、标签与子任务 OR-Set、确定性投影 reducer；写操作同事务写 `op_log` + 推进 `local_hlc` + 广播 `projection-updated`。
 - **云端同步**：`src-tauri/src/sync/` 提供注册/登录/刷新/登出、push/pull 后台循环、HLC 校正与指数退避；令牌存 Windows 凭据管理器；设置页「同步与数据」内嵌账户登录，标题栏显示真实同步状态，时钟偏差/权限变更用黄色/红色提示条。首次登录到不同账户会先 `VACUUM INTO` 备份本地库再全量拉取；同账户重复登录保留本地 op。详见 [`../docs/client-sync-integration.md`](../docs/client-sync-integration.md)。
-- **提醒与托盘**：`src-tauri/src/reminder/` 每 30 秒重算计划，支持提前 N 分钟、稍后提醒（10 分钟 / 1 小时）、免打扰跨天时段结束后合并补弹、60 分钟补发窗口；关闭主窗口默认隐藏到托盘，托盘菜单可显示主窗口 / 打开便利贴 / 立即同步 / 退出。
+- **提醒与托盘**：`src-tauri/src/reminder/` 每 30 秒重算计划（扫描全部工作区），支持提前 N 分钟、稍后提醒（10 分钟 / 1 小时）、免打扰跨天时段结束后合并补弹、60 分钟补发窗口；Windows 直接调用 WinRT Toast 并注册 AUMID，点击通知可恢复主窗口并定位任务；关闭主窗口默认隐藏到托盘，托盘菜单可显示主窗口 / 打开便利贴 / 立即同步 / 退出。
+- **推送与剪贴板**：`src-tauri/src/dsh/` 实现设备注册、MQTT nudge、HTTP pull/ack、剪贴板双向同步与 `dsh_seen` 去重；设置页新增「推送与剪贴板」分区（状态、开关、立即拉取/重连/发送剪贴板/测试通知/打开日志）。详见 [`../docs/ime-push-client.md`](../docs/ime-push-client.md)。
 - **单实例与开机自启**：第二次启动聚焦已有窗口；设置页可切换开机自启（写注册表 Run 项）。
-- **IPC bindings**：命令注册统一由 `lib.rs` 的 `specta_builder()` 声明（49 个命令），`npm run gen:bindings` 生成 [`src/lib/ipc-bindings.generated.ts`](src/lib/ipc-bindings.generated.ts)，`npm run check:bindings` 校验生成结果与 Rust 端一致。时间戳都是 epoch 毫秒（远小于 2^53），所以开启 `dangerously_cast_bigints_to_number()` 让 `i64` 直出 TS `number`。
+- **IPC bindings**：命令注册统一由 `lib.rs` 的 `specta_builder()` 声明（55 个命令），`npm run gen:bindings` 生成 [`src/lib/ipc-bindings.generated.ts`](src/lib/ipc-bindings.generated.ts)，`npm run check:bindings` 校验生成结果与 Rust 端一致。时间戳都是 epoch 毫秒（远小于 2^53），所以开启 `dangerously_cast_bigints_to_number()` 让 `i64` 直出 TS `number`。
 - **增量投影**：`bootstrap` 与提醒循环按 workspace 缓存 reducer 状态，只应用 `rowid` 水位之后的 op；被拒 op 或换账户时整体失效，`TODO_DISABLE_PROJECTION_CACHE=1` 可回退全量重建。
 - **清单 / 标签管理**：侧栏分组标题 `+` 内联新建，右键菜单重命名/删除/标签侧栏显示；删除清单会把任务迁到 `*-today` 智能清单。
 - **多工作区**：侧栏工作区切换 popover，支持切换与新建；`bootstrap` 按 `workspace_id` 读取工作区、成员、清单、标签、任务与历史；`active_workspace_id` 存本地偏好。
@@ -102,7 +117,7 @@ npm run tauri dev
 - **日历与统计增强**：日历支持周 / 月切换与拖拽改期（只写截止时间，保留原 HH:mm，无值 09:00，不联动提醒）；统计支持本周 / 本月 / 近 30 天 / 全部。
 - **详情抽屉**：320px 固定宽、详情/历史 Tab、字段编辑、标签增删、子任务增删勾选、备注、删除确认、保存生成历史 op。
 - **历史时间线**：人工/AI/系统节点样式、全部/仅 AI/仅我筛选、diff、op_id/model/source、撤销生成反向 op（不删除原 op）。
-- **全局历史（S4）**：侧栏入口、跨任务时间线、点击任务跳转。
+- **全局历史（S4）**：侧栏入口、跨任务时间线、点击任务跳转。推送与剪贴板、
 - **设置覆盖层**：外观（浅色/暗色、密度、侧栏宽度）、任务、提醒、AI、同步与数据（账户登录/注册/同步状态/立即同步/退出）、成员、快捷键、关于；脏状态、保存/放弃。
 - **AI 助手**：API 直连兼容 OpenAI Chat Completions（DeepSeek / Ollama / LM Studio 等），密钥仅在 Rust 侧读取；模型输出**操作列表**（创建 / 修改字段 / 标签 / 子任务 / 状态 / 删除），预览后一次事务写入（`source="ai"`），toast 可批量撤销；危险操作默认关闭，需在设置中开启并二次确认；支持图片输入（≤5 张、压缩到 ≤1568px / ≤5MB、仅内存不落盘）。网页版 DeepSeek 桥接源码保留，当前通过 `SHOW_WEB_BRIDGE = false` 在界面上隐藏，改为 `true` 即可恢复。
 - **快捷添加与右键菜单**：延期、钉为便利贴、查看历史、删除。
@@ -191,6 +206,7 @@ npm run interact        # 端到端交互回归（需先启动 dev）
 npm run verify:changes  # 工作区/成员/密钥/独立便利贴专项验收（需先启动 dev）
 npm run verify:native   # 原生双窗口 + Rust 投影 DOM 自检（需先构建调试版）
 npm run verify:sync     # 同步单测 + 临时 uvicorn 端到端（无需手工启服务端）
+npm run verify:dsh      # dsh HTTP 端到端（注册/推送/pull/ack/剪贴板上行）
 
 纯逻辑单测请用 `cd src-tauri; cargo test --lib --no-default-features`：Windows GNU 下带 Tauri 的测试二进制缺少 Common-Controls v6 清单，会在启动时以 `0xc0000139` 退出。
 cd src-tauri/ai-core && cargo test   # AI 提示词/JSON 解析/schema 归一化单元测试
@@ -215,6 +231,6 @@ stickyDom=http://127.0.0.1:1420/sticky.html#STICKY_OK:4
 ## 后续工作
 
 1. `ipc.ts` 仍是手写薄封装（保留 `errorMessage` 与浏览器降级）；可逐步改为直接调用 `ipc-bindings.generated.ts` 的 `commands.*`。
-2. 增量投影已做内存缓存；剩余「持久化快照 + 冷启动直读」以及 op 数很大时的历史构建优化。
+2. Toast 已支持点击跳转；后续可补 COM 激活器，使进程退出后点击通知也能唤起应用
 3. 托盘通知的点击跳转与 Windows toast action 按钮实测；不支持时保持「通知 + 右键稍后提醒」的降级形态。
 4. Android 端按同一套 `op_log` reducer 与 `shared/testvectors/` 实现，并对齐提醒、日历、统计与 AI 意图契约（见 `docs/ai-intent-contract.md` 第九节）。

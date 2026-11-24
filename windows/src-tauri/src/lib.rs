@@ -3,6 +3,8 @@ mod ai;
 #[cfg(feature = "desktop")]
 mod commands;
 pub mod core_domain;
+pub mod dsh;
+pub mod logging;
 pub mod reminder;
 pub mod storage;
 pub mod sync;
@@ -41,6 +43,8 @@ pub struct AppState {
     pub projection_cache: Mutex<HashMap<String, core_domain::ProjectionCache>>,
     /// 托盘「退出」置位后，关闭窗口不再拦成隐藏。
     pub quitting: AtomicBool,
+    /// dsh 推送/剪贴板通道的运行时状态与唤醒信号。
+    pub dsh: dsh::DshState,
 }
 
 impl AppState {
@@ -103,6 +107,12 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::save_settings,
         commands::snooze_reminder,
         commands::set_autostart,
+        commands::dsh_status,
+        commands::dsh_sync_now,
+        commands::dsh_reconnect,
+        commands::dsh_send_clipboard,
+        commands::dsh_test_notification,
+        commands::open_logs_folder,
         commands::auth_register,
         commands::auth_login,
         commands::auth_logout,
@@ -231,6 +241,10 @@ pub fn run() {
             let data_dir = storage::resolve_data_dir(legacy_dir.as_deref());
             storage::migrate_legacy_database(&data_dir, legacy_dir.as_deref())?;
             println!("数据目录: {}", data_dir.display());
+            logging::init(&data_dir);
+            if let Err(error) = reminder::notifier::ensure_toast_aumid() {
+                logging::warn("notifier", format!("注册 Toast AUMID 失败: {error}"));
+            }
             let conn = storage::open(&data_dir.join(storage::DB_FILE))?;
             storage::seed_if_empty(&conn)?;
             let sync_state = sync::SyncState::new(&conn);
@@ -262,6 +276,7 @@ pub fn run() {
                 db: Mutex::new(conn),
                 sticky_contexts: Mutex::new(HashMap::new()),
                 data_dir: data_dir.clone(),
+                dsh: dsh::DshState::new(),
                 sync: sync_state,
                 reminder_wake: tokio::sync::Notify::new(),
                 projection_cache: Mutex::new(HashMap::new()),
@@ -274,6 +289,7 @@ pub fn run() {
 
             sync::worker::start(app.handle().clone());
             reminder::start(app.handle().clone());
+            dsh::worker::start(app.handle().clone());
 
             // 仅调试构建：设置 TODO_VERIFY_WINDOWS=1 时自动创建便利贴窗口，
             // 把实际 WebviewWindow label 写入临时文件后退出，用于验证双窗口。

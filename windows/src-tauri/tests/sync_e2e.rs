@@ -35,6 +35,10 @@ fn state_at(dir: &PathBuf) -> AppState {
         sticky_contexts: Mutex::new(HashMap::new()),
         data_dir: dir.clone(),
         sync,
+        reminder_wake: tokio::sync::Notify::new(),
+        projection_cache: Mutex::new(HashMap::new()),
+        quitting: std::sync::atomic::AtomicBool::new(false),
+        dsh: todo_windows_lib::dsh::DshState::new(),
     }
 }
 

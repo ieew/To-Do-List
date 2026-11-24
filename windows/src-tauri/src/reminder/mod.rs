@@ -3,7 +3,7 @@
 pub mod scheduler;
 
 #[cfg(feature = "desktop")]
-mod notifier;
+pub(crate) mod notifier;
 #[cfg(feature = "desktop")]
 mod runner;
 

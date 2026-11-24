@@ -596,3 +596,48 @@ cp src/lua/dsh_todo.lua /sdcard/Documents/rime/scripts/dsh_todo.lua
 - [ ] 面板添加任务后 App 内立即可见；勾选后 App 内状态变化
 - [ ] App 未安装时面板显示「未安装待办 App」而不是崩
 - [ ] 拖动面板后重开位置不变
+
+## 十九、Windows 客户端实现（2026-11）
+
+> 代码在 `windows/src-tauri/src/dsh/`，纯逻辑在 `protocol.rs`，HTTP 在 `client.rs`，
+> 后台循环/MQTT/剪贴板分别在 `worker.rs` / `mqtt.rs` / `clipboard.rs`。
+
+### 19.1 设备与票据
+
+- 登录成功后后台循环调用 `POST /v1/dsh/devices/register`（`platform="windows"`，`name` 取 `COMPUTERNAME`）；
+  同账户复用 `meta.dsh_device` 里的 `device_id`，跨账户或 `404/409` 时重新生成。
+- `ticket` **只存内存**，每 8 分钟续期；`pull` / `ack` / `clip` 全部用
+  `X-Dsh-Device-Id` + `X-Dsh-Ticket`，不占用同步循环的 access token 刷新。
+- MQTT 连接参数直接取注册返回的 `mqtt` 字段；`tls=true` 暂不支持，降级为 HTTP 轮询。
+
+### 19.2 收消息
+
+- 顺序固定为 **应用 → ack → 推进游标**；`since` 存 `meta.dsh_cursor`，ack 失败不推进。
+- `dsh_seen(msg_id, seen_at)` 防重复：ack 失败重拉时不会重复弹通知/重复写剪贴板；保留 7 天。
+- `kind=clip`：解析字符串或 `{"text","fp"}` 两种 payload，写入系统剪贴板；剪贴板开关关闭时只 ack 不应用。
+- `kind!=clip`：`payload.type="reminder"` 按 `task_id + remind_at` 与本地 `task_local.last_fired_at` 去重；
+  免打扰期间写入 `reminder_deferred`（复用本地 DND 汇总），普通通知在 DND 期间直接丢弃。
+- 提醒/通知展示成功后才写 `last_fired_at` / `dsh_seen`；失败留待下一轮重试。
+
+### 19.3 剪贴板上行
+
+- 仅 `settings.clip_enabled` + 已登录 + 票据有效时，1 秒轮询 `read_text`；开启瞬间只记录基线，不上传旧内容。
+- 与上次相同、空文本、UTF-8 >32KiB 都跳过；收到远端内容写入剪贴板后记录到 `runtime.clip_last_applied`，
+  轮询看到同一文本只更新水位，不再回传（防回流）。
+- 上行失败不重试（`401/403` 触发重新注册）；`429`/网络错误只记日志。
+
+### 19.4 Windows Toast
+
+- 未打包应用必须注册 AUMID：启动时写
+  `HKCU\Software\Classes\AppUserModelId\com.todo.windows` 的 `DisplayName` / `IconUri`。
+- 直接调用 `tauri-winrt-notification`（不用 `tauri-plugin-notification`，后者在后台线程里吞掉错误）；
+  自定义 AUMID 失败自动回落 `Toast::POWERSHELL_APP_ID`。
+- 等级映射：0–2 静音，3–5 默认声音，6–7 长时显示；点击通知恢复主窗口并 emit `open-task`。
+
+### 19.5 设置与验证
+
+- 设置新增 `pushEnabled` / `clipEnabled`（剪贴板默认关闭）；「推送与剪贴板」分区显示设备 ID、
+  实时通道、最近拉取/剪贴板时间，并提供立即拉取、重连、发送当前剪贴板、发送测试通知、打开日志目录。
+- 自动化：`cargo test --lib --no-default-features`（协议/调度单测）、
+  `npm run verify:dsh`（起临时 uvicorn + `tests/dsh_e2e.rs` 验证注册/push/pull/ack/clip）。
+- MQTT 实时链路仍需手工验证（本机登录 + 手机输入法插件或第二台设备）。
