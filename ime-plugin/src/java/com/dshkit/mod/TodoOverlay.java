@@ -1,6 +1,8 @@
 package com.dshkit.mod;
 
+import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.Intent;
 import android.graphics.PixelFormat;
@@ -37,6 +39,12 @@ public final class TodoOverlay {
     private static final int TYPE_APPLICATION_OVERLAY = 2038;
     private static final int TYPE_PHONE = 2002;
 
+    /** 进程级记号：谁拥有唯一的浮窗（跨 DexClassLoader，靠 System 属性共享）。 */
+    private static final String OWNER_KEY = "dshkit.overlay.owner";
+    /** 非 owner 的实例把 show/hide/toggle 请求发给 owner（同进程动态广播）。 */
+    public static final String ACTION_REQ = "com.dshkit.todo.OVERLAY_REQ";
+    private static final int FLAG_RECEIVER_NOT_EXPORTED = 4;
+
     private final Context ctx;
     private final TodoClient client;
     private final KitLog log;
@@ -48,12 +56,80 @@ public final class TodoOverlay {
     private TodoPanelView panel;
     private View root;
     private volatile boolean visible;
+    /** 只有第一个实例拥有窗口；后建的实例只转发请求，避免叠出好几层浮窗（要关好几次）。 */
+    private final boolean primary;
 
     public TodoOverlay(Context ctx, TodoClient client, KitLog log) {
         this.ctx = ctx.getApplicationContext() != null ? ctx.getApplicationContext() : ctx;
         this.client = client;
         this.log = log;
         this.prefs = this.ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        this.primary = System.getProperty(OWNER_KEY) == null;
+        if (this.primary) {
+            System.setProperty(OWNER_KEY, "1");
+            registerRequestReceiver();
+            log.i("todo/overlay", "本实例持有浮窗");
+        } else {
+            log.i("todo/overlay", "附加实例：浮窗请求转发给主实例");
+        }
+    }
+
+    /** 本实例是不是浮窗所有者（唯一能建窗口的那个）。 */
+    public boolean isPrimary() {
+        return primary;
+    }
+
+    private final BroadcastReceiver requestReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context c, Intent intent) {
+            try {
+                String action = intent == null ? null : intent.getStringExtra("action");
+                if (action == null) return;
+                log.i("todo/overlay", "收到请求 " + action);
+                if ("show".equals(action)) showInternal();
+                else if ("hide".equals(action)) hideInternal();
+                else toggleInternal();
+            } catch (Throwable t) {
+                log.e("todo/overlay/req", t);
+            }
+        }
+    };
+
+    /**
+     * 动态注册请求接收器。
+     *
+     * Android 13（targetSdk 33+）要求带 flags；编译目标是 android-23，没有带 flags 的重载，
+     * 所以用反射调 API 26+ 的三参方法；反射不可用时退回老接口。
+     */
+    private void registerRequestReceiver() {
+        IntentFilter filter = new IntentFilter(ACTION_REQ);
+        if (Build.VERSION.SDK_INT >= 26) {
+            try {
+                java.lang.reflect.Method m = Context.class.getMethod("registerReceiver",
+                        BroadcastReceiver.class, IntentFilter.class, int.class);
+                int flags = Build.VERSION.SDK_INT >= 33 ? FLAG_RECEIVER_NOT_EXPORTED : 0;
+                m.invoke(ctx, requestReceiver, filter, flags);
+                return;
+            } catch (Throwable ignored) {
+                // 落回老接口
+            }
+        }
+        try {
+            ctx.registerReceiver(requestReceiver, filter);
+        } catch (Throwable t) {
+            log.e("todo/overlay/register", t);
+        }
+    }
+
+    private void request(String action) {
+        try {
+            Intent i = new Intent(ACTION_REQ);
+            i.setPackage(ctx.getPackageName());
+            i.putExtra("action", action);
+            ctx.sendBroadcast(i);
+        } catch (Throwable t) {
+            log.e("todo/overlay/req-send", t);
+        }
     }
 
     /** 系统里是否已允许「显示在其他应用上层」。 */
@@ -106,16 +182,23 @@ public final class TodoOverlay {
     }
 
     public void toggle() {
+        if (!primary) {
+            request("toggle");
+            return;
+        }
         main.post(new Runnable() {
             @Override
             public void run() {
-                if (visible) hideInternal();
-                else showInternal();
+                toggleInternal();
             }
         });
     }
 
     public void show() {
+        if (!primary) {
+            request("show");
+            return;
+        }
         main.post(new Runnable() {
             @Override
             public void run() {
@@ -125,12 +208,21 @@ public final class TodoOverlay {
     }
 
     public void hide() {
+        if (!primary) {
+            request("hide");
+            return;
+        }
         main.post(new Runnable() {
             @Override
             public void run() {
                 hideInternal();
             }
         });
+    }
+
+    private void toggleInternal() {
+        if (visible) hideInternal();
+        else showInternal();
     }
 
     // ---------------------------------------------------------------- 内部

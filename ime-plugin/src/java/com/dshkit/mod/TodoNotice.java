@@ -44,6 +44,7 @@ public final class TodoNotice {
     private final KitLog log;
     private final TodoOverlay overlay;
     private final SharedPreferences prefs;
+    private final boolean primary;
     private boolean receiverRegistered;
 
     private final BroadcastReceiver toggleReceiver = new BroadcastReceiver() {
@@ -72,10 +73,16 @@ public final class TodoNotice {
         this.log = log;
         this.overlay = overlay;
         this.prefs = this.ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
-        this.receiverRegistered = registerToggleReceiver();
-        log.i("todo/notice", receiverRegistered
-                ? "切换广播已注册，通知点击不再经 Activity"
-                : "切换广播注册失败，通知点击退回 LuaActivity");
+        // 只有浮窗主实例注册切换广播。进程里可能有好几个 Kit（不同 DexClassLoader），
+        // 每个都注册的话点一次通知会触发多次 toggle（浮窗闪一下又回来），
+        // 所以额外实例不注册，只跟着主实例走。
+        this.primary = overlay != null && overlay.isPrimary();
+        this.receiverRegistered = primary && registerToggleReceiver();
+        if (receiverRegistered) System.setProperty("dshkit.toggle.registered", "1");
+        log.i("todo/notice", primary
+                ? (receiverRegistered ? "切换广播已注册，通知点击不再经 Activity"
+                        : "切换广播注册失败，通知点击退回 LuaActivity")
+                : "附加实例：不注册切换广播（主实例负责）");
     }
 
     /** 用户意图（偏好里记的开/关）。进程重启后 sync() 靠它决定要不要重新挂通知。 */
@@ -144,7 +151,8 @@ public final class TodoNotice {
     private PendingIntent pendingIntent() {
         try {
             int flags = PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE;
-            if (receiverRegistered) {
+            // 本进程里只要主实例注册了接收器，就发广播；否则退回 LuaActivity
+            if (receiverRegistered || "1".equals(System.getProperty("dshkit.toggle.registered"))) {
                 Intent intent = new Intent(ACTION_TOGGLE);
                 intent.setPackage(ctx.getPackageName());
                 return PendingIntent.getBroadcast(ctx, 0x7010, intent, flags);

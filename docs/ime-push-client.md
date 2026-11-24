@@ -555,6 +555,23 @@ ContentResolver.call(content://com.todo.android.ime/tasks, "delete_task", taskId
 - 数据：`TodoClient` 调 `content://com.todo.android.ime`（契约 17.3），所有调用在后台线程，结果回主线程；
 - 降级：provider 不存在/被拒 → 面板顶部一行提示，不崩、不阻塞输入法。
 
+#### 18.2.1 多实例保护（为什么不会叠成好几层）
+
+dsh-kit 是注入进宿主进程的，每个 Lua 入口（工具页、`dsh.lua`、主题钩子）都可能新建
+自己的 `DexClassLoader`；而 `LuaApplication.setSharedData` 只能可靠地存字符串，
+存 Java 对象（`Boot`）读回来是 `nil`——所以**进程里可能同时存在好几个 `Kit` 实例**。
+以前每个 Kit 都会建自己的悬浮窗，结果是三层叠在一起，关闭要点三次；点一次通知也会
+因为多个接收器收到多次 toggle 而「关了又开」。
+
+现在用进程级标记 `System.getProperty("dshkit.overlay.owner")` 只让**第一个**实例拥有窗口：
+
+- 其余实例的 `show/hide/toggle` 不再建窗口，而是发同进程广播
+  `com.dshkit.todo.OVERLAY_REQ`（带 `action`），由主实例的 `TodoOverlay` 执行；
+- 常驻通知的切换广播（`com.dshkit.todo.TOGGLE`）也只由主实例注册，
+  其余实例用同一个广播 PendingIntent（`System` 属性 `dshkit.toggle.registered` 判断）；
+- 效果：点一次关闭就全关，点一次通知只切换一次；不同入口（候选栏按钮 / 工具页）
+  操作的都是同一个窗口。
+
 ### 18.3 常驻通知
 
 - 渠道 `dsh_kit_todo`（LOW，静默，不响不震）；
