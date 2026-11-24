@@ -164,11 +164,6 @@ public final class TodoOverlay {
                     public void onHeightTouch(MotionEvent event) {
                         handleHeightDrag(event);
                     }
-
-                    @Override
-                    public void onSizeTouch(MotionEvent event) {
-                        handleSizeDrag(event);
-                    }
                 });
                 root = panel.build();
             }
@@ -268,25 +263,56 @@ public final class TodoOverlay {
     // ---------------------------------------------------------------- 尺寸
 
     private boolean heightDragging;
+    private float heightDownRawX;
     private float heightDownRawY;
+    private int heightDownW;
     private int heightDownH;
+    private int heightDownX;
+    private int heightMode; // 0=仅高度，1=右宽度+高度，-1=左宽度+高度
 
-    /** 底部抓手：上下拖动改高度（顶部固定）。 */
+    /**
+     * 底部抓手：
+     * - 直接上下拖 = 只调高度；
+     * - 先向左/右滑过 24dp 锁定：右滑 = 调右宽度 + 高度，左滑 = 调左宽度 + 高度。
+     */
     private void handleHeightDrag(MotionEvent event) {
         try {
             switch (event.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN:
                     if (lp == null) return;
+                    heightDownRawX = event.getRawX();
                     heightDownRawY = event.getRawY();
+                    heightDownW = lp.width;
                     heightDownH = lp.height;
+                    heightDownX = lp.x;
+                    heightMode = 0;
                     heightDragging = true;
                     break;
                 case MotionEvent.ACTION_MOVE:
                     if (!heightDragging || wm == null || root == null) return;
                     DisplayMetrics dm = ctx.getResources().getDisplayMetrics();
-                    int nh = heightDownH + (int) (event.getRawY() - heightDownRawY);
-                    nh = Math.max(dp(220), Math.min(nh, dm.heightPixels - lp.y - dp(16)));
-                    if (nh == lp.height) return;
+                    int dx = (int) (event.getRawX() - heightDownRawX);
+                    int dy = (int) (event.getRawY() - heightDownRawY);
+                    if (heightMode == 0 && Math.abs(dx) >= dp(24)) {
+                        heightMode = dx > 0 ? 1 : -1;
+                        toast(heightMode > 0 ? "已锁定：调右宽度 + 高度" : "已锁定：调左宽度 + 高度");
+                    }
+                    int nh = clamp(heightDownH + dy, dp(220), dm.heightPixels - lp.y - dp(16));
+                    if (heightMode == 0) {
+                        if (nh == lp.height) return;
+                        lp.height = nh;
+                        wm.updateViewLayout(root, lp);
+                        break;
+                    }
+                    int nw;
+                    if (heightMode > 0) {
+                        nw = clamp(heightDownW + dx, dp(260), dm.widthPixels - lp.x - dp(8));
+                    } else {
+                        nw = clamp(heightDownW - dx, dp(260), dm.widthPixels - dp(8));
+                        lp.x = clamp(heightDownX + heightDownW - nw, dp(0), dm.widthPixels - nw - dp(8));
+                    }
+                    if (nw == lp.width && nh == lp.height) return;
+                    lp.width = nw;
                     lp.height = nh;
                     wm.updateViewLayout(root, lp);
                     break;
@@ -294,7 +320,11 @@ public final class TodoOverlay {
                 case MotionEvent.ACTION_CANCEL:
                     if (!heightDragging) return;
                     heightDragging = false;
-                    prefs.edit().putInt(PREF_H, lp.height).apply();
+                    prefs.edit()
+                            .putInt(PREF_X, lp.x)
+                            .putInt(PREF_W, lp.width)
+                            .putInt(PREF_H, lp.height)
+                            .apply();
                     break;
                 default:
                     break;
@@ -304,47 +334,14 @@ public final class TodoOverlay {
         }
     }
 
-    private boolean sizeDragging;
-    private float sizeDownRawX;
-    private float sizeDownRawY;
-    private int sizeDownW;
-    private int sizeDownH;
+    private int clamp(int v, int min, int max) {
+        return Math.max(min, Math.min(v, Math.max(min, max)));
+    }
 
-    /** 右下角抓手：拖动同时改宽高。 */
-    private void handleSizeDrag(MotionEvent event) {
+    private void toast(String msg) {
         try {
-            switch (event.getActionMasked()) {
-                case MotionEvent.ACTION_DOWN:
-                    if (lp == null) return;
-                    sizeDownRawX = event.getRawX();
-                    sizeDownRawY = event.getRawY();
-                    sizeDownW = lp.width;
-                    sizeDownH = lp.height;
-                    sizeDragging = true;
-                    break;
-                case MotionEvent.ACTION_MOVE:
-                    if (!sizeDragging || wm == null || root == null) return;
-                    DisplayMetrics dm = ctx.getResources().getDisplayMetrics();
-                    int nw = sizeDownW + (int) (event.getRawX() - sizeDownRawX);
-                    int nh = sizeDownH + (int) (event.getRawY() - sizeDownRawY);
-                    nw = Math.max(dp(260), Math.min(nw, dm.widthPixels - lp.x - dp(8)));
-                    nh = Math.max(dp(220), Math.min(nh, dm.heightPixels - lp.y - dp(16)));
-                    if (nw == lp.width && nh == lp.height) return;
-                    lp.width = nw;
-                    lp.height = nh;
-                    wm.updateViewLayout(root, lp);
-                    break;
-                case MotionEvent.ACTION_UP:
-                case MotionEvent.ACTION_CANCEL:
-                    if (!sizeDragging) return;
-                    sizeDragging = false;
-                    prefs.edit().putInt(PREF_W, lp.width).putInt(PREF_H, lp.height).apply();
-                    break;
-                default:
-                    break;
-            }
-        } catch (Throwable t) {
-            log.e("todo/overlay/size", t);
+            android.widget.Toast.makeText(ctx, msg, android.widget.Toast.LENGTH_SHORT).show();
+        } catch (Throwable ignored) {
         }
     }
 

@@ -47,8 +47,6 @@ public final class TodoPanelView {
         /** 底部抓手被触摸（上下拖动改高度）。 */
         void onHeightTouch(MotionEvent event);
 
-        /** 右下角抓手被触摸（拖动改宽高）。 */
-        void onSizeTouch(MotionEvent event);
 
         /** 输入框需要/不需要键盘焦点（悬浮窗平时不可聚焦，避免抢输入法）。 */
         void onInputFocus(boolean want);
@@ -122,13 +120,8 @@ public final class TodoPanelView {
 
         root.addView(buildInputRow());
         root.addView(grip(true));
-
-        FrameLayout outer = new FrameLayout(ctx);
-        outer.addView(root, new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
-        outer.addView(cornerGrip(), cornerLp());
         refresh();
-        return outer;
+        return root;
     }
 
     /** MIUI 手势条风格抓手：一条半透明小胶囊；顶部调位置、底部调高度。 */
@@ -151,119 +144,6 @@ public final class TodoPanelView {
             }
         });
         return box;
-    }
-
-    private FrameLayout.LayoutParams cornerLp() {
-        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(dp(24), dp(24));
-        lp.gravity = Gravity.BOTTOM | Gravity.END;
-        lp.setMargins(0, 0, dp(6), dp(6));
-        return lp;
-    }
-
-    /** 右下角抓手：直角线段样式的胶囊（┘ 形，粗细/颜色与另外两个抓手一致）。 */
-    private View cornerGrip() {
-        FrameLayout box = new FrameLayout(ctx);
-
-        View hLine = new View(ctx);
-        hLine.setBackground(round(0x4D6B7280, 2));
-        FrameLayout.LayoutParams hl = new FrameLayout.LayoutParams(
-                dp(14), dp(4), Gravity.BOTTOM | Gravity.END);
-        hl.setMargins(0, 0, dp(4), dp(4));
-        hLine.setLayoutParams(hl);
-        box.addView(hLine);
-
-        View vLine = new View(ctx);
-        vLine.setBackground(round(0x4D6B7280, 2));
-        FrameLayout.LayoutParams vl = new FrameLayout.LayoutParams(
-                dp(4), dp(14), Gravity.BOTTOM | Gravity.END);
-        vl.setMargins(0, 0, dp(4), dp(4));
-        vLine.setLayoutParams(vl);
-        box.addView(vLine);
-
-        box.setOnTouchListener(new View.OnTouchListener() {
-            @Override
-            public boolean onTouch(View v, MotionEvent event) {
-                listener.onSizeTouch(event);
-                return true;
-            }
-        });
-        return box;
-    }
-
-    /** 面板可见时重新拉数据。 */
-    public void refresh() {
-        if (refreshing) return;
-        refreshing = true;
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    final List<TodoClient.Task> waiting =
-                            client.query(TodoClient.SCOPE_WAITING, TodoClient.DEFAULT_LIMIT);
-                    final List<TodoClient.Task> upcoming =
-                            client.query(TodoClient.SCOPE_UPCOMING, TodoClient.DEFAULT_LIMIT);
-                    main.post(new Runnable() {
-                        @Override
-                        public void run() {
-                            render(waiting, upcoming);
-                        }
-                    });
-                } catch (final Throwable t) {
-                    main.post(new Runnable() {
-                        @Override
-                        public void run() {
-                            showError(t);
-                        }
-                    });
-                } finally {
-                    refreshing = false;
-                }
-            }
-        }, "dsh-todo-query").start();
-    }
-
-    // ---------------------------------------------------------------- 构建
-
-    private View buildTitleBar() {
-        LinearLayout bar = new LinearLayout(ctx);
-        bar.setOrientation(LinearLayout.HORIZONTAL);
-        bar.setGravity(Gravity.CENTER_VERTICAL);
-        bar.setPadding(0, 0, 0, dp(8));
-
-        TextView title = new TextView(ctx);
-        title.setText("待办");
-        title.setTextColor(TEXT);
-        title.setTextSize(17);
-        title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        title.setPadding(dp(2), 0, 0, 0);
-        LinearLayout.LayoutParams titleLp = new LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
-        title.setLayoutParams(titleLp);
-        bar.addView(title);
-
-        bar.addView(touchButton("刷新", new Runnable() {
-            @Override
-            public void run() {
-                refresh();
-            }
-        }));
-
-        bar.addView(touchButton("关闭", new Runnable() {
-            @Override
-            public void run() {
-                listener.onClose();
-            }
-        }));
-
-        // 整个标题栏空白处拖动；按钮自己消费点击，不触发拖动
-        bar.setOnTouchListener(new View.OnTouchListener() {
-            @Override
-            public boolean onTouch(View v, MotionEvent event) {
-                listener.onTitleTouch(event);
-                return true;
-            }
-        });
-        return bar;
     }
 
     private LinearLayout section(String name) {
