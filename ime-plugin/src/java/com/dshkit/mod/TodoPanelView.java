@@ -16,6 +16,7 @@ import android.view.inputmethod.EditorInfo;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.PopupWindow;
 import android.widget.ScrollView;
@@ -165,23 +166,19 @@ public final class TodoPanelView {
         title.setLayoutParams(titleLp);
         bar.addView(title);
 
-        Button refresh = textButton("刷新");
-        refresh.setOnClickListener(new View.OnClickListener() {
+        bar.addView(touchButton("刷新", new Runnable() {
             @Override
-            public void onClick(View v) {
+            public void run() {
                 refresh();
             }
-        });
-        bar.addView(refresh);
+        }));
 
-        Button close = textButton("关闭");
-        close.setOnClickListener(new View.OnClickListener() {
+        bar.addView(touchButton("关闭", new Runnable() {
             @Override
-            public void onClick(View v) {
+            public void run() {
                 listener.onClose();
             }
-        });
-        bar.addView(close);
+        }));
 
         // 整个标题栏空白处拖动；按钮自己消费点击，不触发拖动
         bar.setOnTouchListener(new View.OnTouchListener() {
@@ -627,7 +624,41 @@ public final class TodoPanelView {
         return tv;
     }
 
-    /** 标题栏文字按钮：浅灰圆角底、13sp，比图标字符清晰。 */
+    /** 标题栏按钮：视觉 56×36 的浅灰底按钮，外套 64×48 透明触控区，点偏也能命中。 */
+    private View touchButton(String text, final Runnable action) {
+        FrameLayout wrap = new FrameLayout(ctx);
+        LinearLayout.LayoutParams wrapLp = new LinearLayout.LayoutParams(dp(64), dp(48));
+        wrapLp.setMargins(dp(9), 0, 0, 0);
+        wrap.setLayoutParams(wrapLp);
+
+        Button b = new Button(ctx);
+        b.setText(text);
+        b.setTextSize(13);
+        b.setAllCaps(false);
+        b.setTextColor(TEXT2);
+        b.setBackground(round(OVERLAY_10, 10));
+        b.setMinWidth(0);
+        b.setMinimumWidth(0);
+        b.setMinHeight(0);
+        b.setMinimumHeight(0);
+        b.setPadding(0, 0, 0, 0);
+        FrameLayout.LayoutParams lp =
+                new FrameLayout.LayoutParams(dp(56), dp(36), Gravity.CENTER);
+        b.setLayoutParams(lp);
+        wrap.addView(b);
+
+        View.OnClickListener click = new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                action.run();
+            }
+        };
+        b.setOnClickListener(click);
+        wrap.setOnClickListener(click);
+        return wrap;
+    }
+
+    /** 通用文字按钮（确认框用）：紧凑尺寸。 */
     private Button textButton(String text) {
         Button b = new Button(ctx);
         b.setText(text);
@@ -639,11 +670,7 @@ public final class TodoPanelView {
         b.setMinimumWidth(0);
         b.setMinHeight(0);
         b.setMinimumHeight(0);
-        b.setPadding(dp(10), dp(6), dp(10), dp(6));
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        lp.setMargins(dp(6), 0, 0, 0);
-        b.setLayoutParams(lp);
+        b.setPadding(dp(14), dp(8), dp(14), dp(8));
         return b;
     }
 
