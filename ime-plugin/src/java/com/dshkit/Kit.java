@@ -35,7 +35,7 @@ import java.util.Map;
  */
 public final class Kit {
 
-    public static final String VERSION = "0.3.15";
+    public static final String VERSION = "0.3.16";
 
     private static Kit INSTANCE;
 

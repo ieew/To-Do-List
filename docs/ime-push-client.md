@@ -542,7 +542,7 @@ ContentResolver.call(content://com.todo.android.ime/tasks, "delete_task", taskId
 - 可拖动：标题栏按住拖，松手把 `x/y` 存 `SharedPreferences("dsh_todo_overlay")`，下次原位弹出；
 - 尺寸：宽 `min(屏宽-32dp, 380dp)`，高 `min(屏高×58%, 520dp)`；默认位置在屏幕偏上，避开键盘；
 - 面板内容（`TodoPanelView`）：
-  - 两处 MIUI 手势条风格抓手：顶部抓手拖动移动窗口；底部抓手上下拖改高度，先在抓手上一左/右滑过 24dp 可锁定「左宽度+高度」或「右宽度+高度」联动模式；位置/宽高持久化到 SharedPreferences；
+  - 两处 MIUI 手势条风格抓手：顶部抓手拖动移动窗口；底部抓手上下拖改高度；手指停在窗口左/右边缘 24dp 内约 1 秒会锁定「该侧宽度+高度」联动模式，松手即解锁；位置/宽高持久化到 SharedPreferences；
   - 悬浮窗默认 `FLAG_NOT_FOCUSABLE`：弹出面板不抢输入焦点、不会收掉已弹出的输入法；点快速添加输入框时才临时切可聚焦并唤起键盘；
   - 视觉与待办 App 一致（`core/designsystem` 的 `Tokens.light`）：白卡片底、1dp 描边、20dp 圆角、蓝主色（#3B82F6）、灰阶文字；任务行间 1dp 淡分割线；
   - 标题栏（拖动区）+ 文字按钮「刷新」「关闭」（浅灰圆角底，13sp，触控区 34dp 高）；

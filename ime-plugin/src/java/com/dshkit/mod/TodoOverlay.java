@@ -269,11 +269,47 @@ public final class TodoOverlay {
     private int heightDownH;
     private int heightDownX;
     private int heightMode; // 0=仅高度，1=右宽度+高度，-1=左宽度+高度
+    private float lastLockRawX;
+    private float lastLockRawY;
+
+    /** 手指停在窗口左/右边缘 24dp 内约 1 秒触发锁定；松手即解锁。 */
+    private final Runnable lockRunnable = new Runnable() {
+        @Override
+        public void run() {
+            try {
+                if (!heightDragging || lp == null || heightMode != 0) return;
+                float rel = lastLockRawX - lp.x;
+                if (rel <= dp(24)) {
+                    lockMode(-1);
+                } else if (lp.width - rel <= dp(24)) {
+                    lockMode(1);
+                }
+            } catch (Throwable t) {
+                log.e("todo/overlay/lock", t);
+            }
+        }
+    };
+
+    private void lockMode(int mode) {
+        heightMode = mode;
+        // 锁定后从当前位置重新起算，避免宽度跳变
+        heightDownW = lp.width;
+        heightDownH = lp.height;
+        heightDownX = lp.x;
+        heightDownRawX = lastLockRawX;
+        heightDownRawY = lastLockRawY;
+        toast(mode > 0 ? "已锁定：调右宽度 + 高度（松手解锁）" : "已锁定：调左宽度 + 高度（松手解锁）");
+    }
+
+    private boolean nearEdge(float rawX) {
+        float rel = rawX - lp.x;
+        return rel <= dp(24) || lp.width - rel <= dp(24);
+    }
 
     /**
      * 底部抓手：
      * - 直接上下拖 = 只调高度；
-     * - 先向左/右滑过 24dp 锁定：右滑 = 调右宽度 + 高度，左滑 = 调左宽度 + 高度。
+     * - 手指停在窗口左/右边缘 24dp 内约 1 秒 = 锁定调该侧宽度 + 高度；松手即解锁。
      */
     private void handleHeightDrag(MotionEvent event) {
         try {
@@ -286,17 +322,26 @@ public final class TodoOverlay {
                     heightDownH = lp.height;
                     heightDownX = lp.x;
                     heightMode = 0;
+                    lastLockRawX = event.getRawX();
+                    lastLockRawY = event.getRawY();
                     heightDragging = true;
+                    main.removeCallbacks(lockRunnable);
+                    if (nearEdge(event.getRawX())) main.postDelayed(lockRunnable, 1000);
                     break;
                 case MotionEvent.ACTION_MOVE:
                     if (!heightDragging || wm == null || root == null) return;
                     DisplayMetrics dm = ctx.getResources().getDisplayMetrics();
-                    int dx = (int) (event.getRawX() - heightDownRawX);
-                    int dy = (int) (event.getRawY() - heightDownRawY);
-                    if (heightMode == 0 && Math.abs(dx) >= dp(24)) {
-                        heightMode = dx > 0 ? 1 : -1;
-                        toast(heightMode > 0 ? "已锁定：调右宽度 + 高度" : "已锁定：调左宽度 + 高度");
+                    float rx = event.getRawX();
+                    float ry = event.getRawY();
+                    // 手指停住 1 秒才锁定：明显移动就重置计时；小于 4dp 的抖动忽略
+                    if (Math.abs(rx - lastLockRawX) + Math.abs(ry - lastLockRawY) > dp(4)) {
+                        lastLockRawX = rx;
+                        lastLockRawY = ry;
+                        main.removeCallbacks(lockRunnable);
+                        if (heightMode == 0 && nearEdge(rx)) main.postDelayed(lockRunnable, 1000);
                     }
+                    int dx = (int) (rx - heightDownRawX);
+                    int dy = (int) (ry - heightDownRawY);
                     int nh = clamp(heightDownH + dy, dp(220), dm.heightPixels - lp.y - dp(16));
                     if (heightMode == 0) {
                         if (nh == lp.height) return;
@@ -320,6 +365,8 @@ public final class TodoOverlay {
                 case MotionEvent.ACTION_CANCEL:
                     if (!heightDragging) return;
                     heightDragging = false;
+                    main.removeCallbacks(lockRunnable);
+                    heightMode = 0; // 松手即解锁
                     prefs.edit()
                             .putInt(PREF_X, lp.x)
                             .putInt(PREF_W, lp.width)
