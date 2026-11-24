@@ -532,11 +532,12 @@ ContentResolver.call(content://com.todo.android.ime/tasks, "set_done", taskId, {
 - 可拖动：标题栏按住拖，松手把 `x/y` 存 `SharedPreferences("dsh_todo_overlay")`，下次原位弹出；
 - 尺寸：宽 `min(屏宽-32dp, 380dp)`，高 `min(屏高×58%, 520dp)`；默认位置在屏幕偏上，避开键盘；
 - 面板内容（`TodoPanelView`）：
-  - 标题栏（拖动区）+ 刷新 + 关闭；
+  - 标题栏（拖动区）+ 刷新 + 关闭（图标按钮 46dp 触控目标，避免点不准变成拖动）；
   - 「等待完成」列表（逾期优先，红字标逾期）；
   - 「即将开始 · 36 小时」列表；
   - 每区最多 8 行，多的显示「还有 N 条，去 App 里看」；
   - 底部快速添加输入框 + 「添加」按钮（键盘回车也提交）；
+  - 刷新失败只提示、保留旧列表，不清空（「一点刷新任务全没了」的修复）；
 - 数据：`TodoClient` 调 `content://com.todo.android.ime`（契约 17.3），所有调用在后台线程，结果回主线程；
 - 降级：provider 不存在/被拒 → 面板顶部一行提示，不崩、不阻塞输入法。
 

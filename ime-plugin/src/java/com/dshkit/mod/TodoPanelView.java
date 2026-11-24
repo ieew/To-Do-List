@@ -19,6 +19,7 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
@@ -59,6 +60,9 @@ public final class TodoPanelView {
     private EditText input;
     private Button addButton;
     private volatile boolean refreshing;
+    /** 最近一次成功渲染的数据；刷新失败时用它们占住列表，不把内容清空。 */
+    private List<TodoClient.Task> lastWaiting = new ArrayList<TodoClient.Task>();
+    private List<TodoClient.Task> lastUpcoming = new ArrayList<TodoClient.Task>();
 
     public TodoPanelView(Context ctx, TodoClient client, Listener listener) {
         this.ctx = ctx;
@@ -246,6 +250,8 @@ public final class TodoPanelView {
 
     private void render(List<TodoClient.Task> waiting, List<TodoClient.Task> upcoming) {
         if (root == null) return;
+        lastWaiting = waiting;
+        lastUpcoming = upcoming;
         status.setVisibility(View.GONE);
         waitingBox.removeViews(1, Math.max(0, waitingBox.getChildCount() - 1));
         upcomingBox.removeViews(1, Math.max(0, upcomingBox.getChildCount() - 1));
@@ -395,7 +401,7 @@ public final class TodoPanelView {
     }
 
     private void showError(Throwable t) {
-        if (status == null) return;
+        if (root == null) return;
         String msg;
         if (t instanceof SecurityException) {
             msg = "待办 App 拒绝调用（先装新版待办 App）";
@@ -404,14 +410,10 @@ public final class TodoPanelView {
         } else {
             msg = "待办不可用：" + t.getClass().getSimpleName();
         }
+        // 保留最近一次成功的数据：刷新失败只提示、不清空，避免"一点刷新任务全没了"。
+        render(lastWaiting, lastUpcoming);
         status.setText(msg);
         status.setVisibility(View.VISIBLE);
-        if (waitingBox != null && waitingBox.getChildCount() > 1) {
-            waitingBox.removeViews(1, waitingBox.getChildCount() - 1);
-        }
-        if (upcomingBox != null && upcomingBox.getChildCount() > 1) {
-            upcomingBox.removeViews(1, upcomingBox.getChildCount() - 1);
-        }
     }
 
     // ---------------------------------------------------------------- 小工具
@@ -434,18 +436,19 @@ public final class TodoPanelView {
         return tv;
     }
 
+    /** 标题栏图标按钮：触控目标至少 46dp，带浅色底，避免「点不准就变成拖动」。 */
     private Button iconButton(String text) {
         Button b = new Button(ctx);
         b.setText(text);
-        b.setTextSize(14);
+        b.setTextSize(17);
         b.setAllCaps(false);
         b.setTextColor(TEXT);
-        b.setBackground(round(0x00000000, 20));
-        b.setMinWidth(0);
-        b.setMinimumWidth(0);
-        b.setMinHeight(0);
-        b.setMinimumHeight(0);
-        b.setPadding(dp(10), 0, dp(10), 0);
+        b.setBackground(round(0x22FFFFFF, 20));
+        b.setMinWidth(dp(46));
+        b.setMinimumWidth(dp(46));
+        b.setMinHeight(dp(46));
+        b.setMinimumHeight(dp(46));
+        b.setPadding(dp(12), 0, dp(12), 0);
         return b;
     }
 

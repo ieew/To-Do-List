@@ -69,7 +69,7 @@ public final class TodoClient {
         Cursor c = null;
         try {
             c = ctx.getContentResolver().query(uri, null, null, null, null);
-            if (c == null) return out;
+            if (c == null) throw new IllegalStateException("待办 App 没有返回数据");
             int iId = c.getColumnIndex(COL_TASK_ID);
             int iTitle = c.getColumnIndex(COL_TITLE);
             int iStart = c.getColumnIndex(COL_START_AT);
