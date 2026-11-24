@@ -78,6 +78,8 @@ public final class TodoPanelView {
     private EditText input;
     private Button addButton;
     private volatile boolean refreshing;
+    private View gripBar;
+    private boolean gripDot;
     /** 最近一次成功渲染的数据；刷新失败时用它们占住列表，不把内容清空。 */
     private List<TodoClient.Task> lastWaiting = new ArrayList<TodoClient.Task>();
     private List<TodoClient.Task> lastUpcoming = new ArrayList<TodoClient.Task>();
@@ -134,6 +136,7 @@ public final class TodoPanelView {
         bar.setBackground(round(0x4D6B7280, 2));
         bar.setLayoutParams(new FrameLayout.LayoutParams(dp(36), dp(4), Gravity.CENTER));
         box.addView(bar);
+        if (bottom) gripBar = bar;
 
         box.setOnTouchListener(new View.OnTouchListener() {
             @Override
@@ -220,6 +223,43 @@ public final class TodoPanelView {
             }
         });
         return bar;
+    }
+
+    /**
+     * 底部胶囊水平拖动时聚成圆点并跟随手指；active=false 恢复胶囊。
+     * fingerX 是相对抓手容器的 x。
+     */
+    public void updateGripDot(boolean active, float fingerX) {
+        try {
+            final View bar = gripBar;
+            if (bar == null) return;
+            if (active) {
+                if (!gripDot) {
+                    gripDot = true;
+                    FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) bar.getLayoutParams();
+                    lp.width = dp(10);
+                    lp.height = dp(10);
+                    bar.setLayoutParams(lp);
+                    bar.setBackground(round(0x8C6B7280, 5));
+                }
+                View parent = (View) bar.getParent();
+                if (parent == null || parent.getWidth() <= 0) return;
+                float center = parent.getWidth() / 2f;
+                float tx = fingerX - center;
+                float max = Math.max(0f, center - dp(8));
+                tx = Math.max(-max, Math.min(max, tx));
+                bar.setTranslationX(tx);
+            } else if (gripDot) {
+                gripDot = false;
+                FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) bar.getLayoutParams();
+                lp.width = dp(36);
+                lp.height = dp(4);
+                bar.setLayoutParams(lp);
+                bar.setBackground(round(0x4D6B7280, 2));
+                bar.setTranslationX(0);
+            }
+        } catch (Throwable ignored) {
+        }
     }
 
     private LinearLayout section(String name) {

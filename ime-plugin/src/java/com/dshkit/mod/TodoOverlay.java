@@ -271,6 +271,7 @@ public final class TodoOverlay {
     private int heightMode; // 0=仅高度，1=右宽度+高度，-1=左宽度+高度
     private float lastLockRawX;
     private float lastLockRawY;
+    private boolean gripDotActive;
 
     /** 手指停在窗口左/右边缘 24dp 内约 1 秒触发锁定；松手即解锁。 */
     private final Runnable lockRunnable = new Runnable() {
@@ -326,7 +327,7 @@ public final class TodoOverlay {
                     lastLockRawY = event.getRawY();
                     heightDragging = true;
                     main.removeCallbacks(lockRunnable);
-                    if (nearEdge(event.getRawX())) main.postDelayed(lockRunnable, 1000);
+                    if (nearEdge(event.getRawX())) main.postDelayed(lockRunnable, 500);
                     break;
                 case MotionEvent.ACTION_MOVE:
                     if (!heightDragging || wm == null || root == null) return;
@@ -338,7 +339,17 @@ public final class TodoOverlay {
                         lastLockRawX = rx;
                         lastLockRawY = ry;
                         main.removeCallbacks(lockRunnable);
-                        if (heightMode == 0 && nearEdge(rx)) main.postDelayed(lockRunnable, 1000);
+                        if (heightMode == 0 && nearEdge(rx)) main.postDelayed(lockRunnable, 500);
+                    }
+                    // 水平拖动时底部胶囊聚成圆点并跟随手指
+                    boolean wantDot = Math.abs(rx - heightDownRawX) >= dp(12);
+                    if (panel != null) {
+                        if (wantDot != gripDotActive) {
+                            gripDotActive = wantDot;
+                            panel.updateGripDot(wantDot, rx - lp.x - dp(16));
+                        } else if (wantDot) {
+                            panel.updateGripDot(true, rx - lp.x - dp(16));
+                        }
                     }
                     int dx = (int) (rx - heightDownRawX);
                     int dy = (int) (ry - heightDownRawY);
@@ -367,6 +378,10 @@ public final class TodoOverlay {
                     heightDragging = false;
                     main.removeCallbacks(lockRunnable);
                     heightMode = 0; // 松手即解锁
+                    if (gripDotActive && panel != null) {
+                        panel.updateGripDot(false, 0f);
+                        gripDotActive = false;
+                    }
                     prefs.edit()
                             .putInt(PREF_X, lp.x)
                             .putInt(PREF_W, lp.width)
