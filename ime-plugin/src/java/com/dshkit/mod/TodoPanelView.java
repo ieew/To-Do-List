@@ -1,5 +1,7 @@
 package com.dshkit.mod;
 
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.Context;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
@@ -15,8 +17,10 @@ import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.PopupWindow;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -161,7 +165,7 @@ public final class TodoPanelView {
         title.setLayoutParams(titleLp);
         bar.addView(title);
 
-        Button refresh = iconButton("⟳");
+        Button refresh = textButton("刷新");
         refresh.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -170,8 +174,7 @@ public final class TodoPanelView {
         });
         bar.addView(refresh);
 
-        Button close = iconButton("×");
-        close.setTextSize(20);
+        Button close = textButton("关闭");
         close.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -323,8 +326,88 @@ public final class TodoPanelView {
             sub.setTextSize(11);
             texts.addView(sub);
         }
+        row.setOnLongClickListener(new View.OnLongClickListener() {
+            @Override
+            public boolean onLongClick(View v) {
+                showTaskMenu(v, task);
+                return true;
+            }
+        });
         row.addView(texts);
         return row;
+    }
+
+    /**
+     * 长按任务：弹快捷操作（完成 / 复制标题 / 取消）。
+     * 只用现有 provider 能力（set_done），不需要 App 端改接口。
+     */
+    private void showTaskMenu(View anchor, final TodoClient.Task task) {
+        try {
+            final LinearLayout menu = new LinearLayout(ctx);
+            menu.setOrientation(LinearLayout.VERTICAL);
+            menu.setBackground(round(0xFFFFFFFF, 12));
+            menu.setPadding(dp(4), dp(4), dp(4), dp(4));
+            menu.setElevation(dp(10));
+
+            final PopupWindow popup = new PopupWindow(menu, dp(170),
+                    LinearLayout.LayoutParams.WRAP_CONTENT, true);
+            popup.setBackgroundDrawable(round(0x00000000, 0));
+            popup.setOutsideTouchable(true);
+            popup.setElevation(dp(10));
+
+            TextView done = menuItem("完成");
+            done.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    popup.dismiss();
+                    markDone(task.id, true);
+                }
+            });
+            menu.addView(done);
+
+            TextView copy = menuItem("复制标题");
+            copy.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    popup.dismiss();
+                    copyText(task.title);
+                }
+            });
+            menu.addView(copy);
+
+            TextView cancel = menuItem("取消");
+            cancel.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    popup.dismiss();
+                }
+            });
+            menu.addView(cancel);
+
+            popup.showAsDropDown(anchor, dp(8), -anchor.getHeight());
+        } catch (Throwable t) {
+            showError(t);
+        }
+    }
+
+    private TextView menuItem(String text) {
+        TextView tv = new TextView(ctx);
+        tv.setText(text);
+        tv.setTextSize(14);
+        tv.setTextColor(TEXT);
+        tv.setPadding(dp(14), dp(10), dp(14), dp(10));
+        tv.setBackground(round(0x00000000, 8));
+        return tv;
+    }
+
+    private void copyText(String text) {
+        try {
+            ClipboardManager cm = (ClipboardManager) ctx.getSystemService(Context.CLIPBOARD_SERVICE);
+            cm.setPrimaryClip(ClipData.newPlainText("dsh-todo", text == null ? "" : text));
+            Toast.makeText(ctx, "已复制", Toast.LENGTH_SHORT).show();
+        } catch (Throwable t) {
+            Toast.makeText(ctx, "复制失败", Toast.LENGTH_SHORT).show();
+        }
     }
 
     private String metaLine(TodoClient.Task task) {
@@ -448,19 +531,23 @@ public final class TodoPanelView {
         return tv;
     }
 
-    /** 标题栏图标按钮：触控目标至少 46dp，带浅色底，避免「点不准就变成拖动」。 */
-    private Button iconButton(String text) {
+    /** 标题栏文字按钮：浅灰圆角底、13sp，比图标字符清晰。 */
+    private Button textButton(String text) {
         Button b = new Button(ctx);
         b.setText(text);
-        b.setTextSize(16);
+        b.setTextSize(13);
         b.setAllCaps(false);
         b.setTextColor(TEXT2);
-        b.setBackground(round(OVERLAY_10, 999));
-        b.setMinWidth(dp(46));
-        b.setMinimumWidth(dp(46));
-        b.setMinHeight(dp(46));
-        b.setMinimumHeight(dp(46));
-        b.setPadding(dp(12), 0, dp(12), 0);
+        b.setBackground(round(OVERLAY_10, 10));
+        b.setMinWidth(0);
+        b.setMinimumWidth(0);
+        b.setMinHeight(0);
+        b.setMinimumHeight(0);
+        b.setPadding(dp(10), dp(6), dp(10), dp(6));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp.setMargins(dp(6), 0, 0, 0);
+        b.setLayoutParams(lp);
         return b;
     }
 
