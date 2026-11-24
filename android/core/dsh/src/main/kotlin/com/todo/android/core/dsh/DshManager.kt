@@ -28,6 +28,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -63,6 +65,8 @@ class DshManager @Inject constructor(
 
     private var started = false
     private var pollJob: Job? = null
+    /** boot() 可能被多处并发触发；注册/签凭证串行化，避免一次启动注册出两个设备。 */
+    private val deviceLock = Mutex()
     private var appTicket: String = ""
     private var appTicketExpiresAt: Long = 0L
 
@@ -168,11 +172,10 @@ class DshManager @Inject constructor(
         metaDao.put(
             MetaEntity(IME_STATUS, json.encodeToString(ImeStatus.serializer(), ImeStatus(connected, error))),
         )
-        if (connected) {
-            _status.value = _status.value.copy(connected = true, lastError = "")
-        } else if (error.isNotBlank()) {
-            _status.value = _status.value.copy(connected = false, lastError = error)
-        }
+        _status.value = _status.value.copy(
+            connected = connected,
+            lastError = if (connected) "" else error,
+        )
     }
 
     // ------------------------------------------------------------ 内部
@@ -199,6 +202,13 @@ class DshManager @Inject constructor(
         if (imeMode) {
             // 输入法负责实时推送；App 仍保留 60s 安全轮询，防止插件被系统冻结。
             mqtt.disconnect()
+            // IME 模式下 App 自己不建长连接，connected 只由插件回写（dsh_status）而来；
+            // 进程重启后先恢复最后已知状态，否则界面会一直显示「未连接」。
+            val known = lastImeStatus()
+            _status.value = _status.value.copy(
+                connected = known?.connected == true,
+                lastError = known?.error.orEmpty(),
+            )
             runGuarded { ensureImeDevice() }
         } else if (forceReconnect || !mqtt.connected) {
             connectMqtt()
@@ -218,41 +228,43 @@ class DshManager @Inject constructor(
     }
 
     private suspend fun ensureAppDevice() {
-        val storedId = metaDao.get(APP_DEVICE_ID)
-        val deviceId = storedId ?: "dsh-app-" + randomSuffix()
-        val result = apiCall(json) {
-            api.register(
-                DshRegisterRequest(name = androidDeviceName(), platform = "android", deviceId = deviceId),
-            )
-        }
-        when (result) {
-            is ApiResult.Success -> {
-                metaDao.put(MetaEntity(APP_DEVICE_ID, result.value.deviceId))
-                metaDao.put(
-                    MetaEntity(
-                        APP_MQTT,
-                        json.encodeToString(
-                            com.todo.android.core.network.wire.DshMqttEndpoint.serializer(),
-                            result.value.mqtt,
-                        ),
-                    ),
+        deviceLock.withLock {
+            val storedId = metaDao.get(APP_DEVICE_ID)
+            val deviceId = storedId ?: "dsh-app-" + randomSuffix()
+            val result = apiCall(json) {
+                api.register(
+                    DshRegisterRequest(name = androidDeviceName(), platform = "android", deviceId = deviceId),
                 )
-                appTicket = result.value.ticket
-                appTicketExpiresAt = result.value.ticketExpiresAt
-                _status.value = _status.value.copy(appDeviceId = result.value.deviceId)
             }
+            when (result) {
+                is ApiResult.Success -> {
+                    metaDao.put(MetaEntity(APP_DEVICE_ID, result.value.deviceId))
+                    metaDao.put(
+                        MetaEntity(
+                            APP_MQTT,
+                            json.encodeToString(
+                                com.todo.android.core.network.wire.DshMqttEndpoint.serializer(),
+                                result.value.mqtt,
+                            ),
+                        ),
+                    )
+                    appTicket = result.value.ticket
+                    appTicketExpiresAt = result.value.ticketExpiresAt
+                    _status.value = _status.value.copy(appDeviceId = result.value.deviceId)
+                }
 
-            is ApiResult.Failure -> {
-                _status.value = _status.value.copy(lastError = result.failure.message)
+                is ApiResult.Failure -> {
+                    _status.value = _status.value.copy(lastError = result.failure.message)
+                }
             }
         }
     }
 
     /** 输入法设备：App 首次注册 + 签发凭证；之后插件自主续期，App 只在过期时补签。 */
-    private suspend fun ensureImeDevice() {
-        val storedId = metaDao.get(IME_DEVICE_ID)
+    private suspend fun ensureImeDevice() = deviceLock.withLock {
+        val storedId = metaDao.get(IME_DEVICE_ID)?.takeIf { it.isNotBlank() }
         val deviceId = storedId ?: "dsh-ime-" + randomSuffix()
-        val session = sessionManager.load() ?: return
+        val session = sessionManager.load() ?: return@withLock
         if (storedId == null) {
             when (val registered = apiCall(json) {
                 api.register(
@@ -262,7 +274,7 @@ class DshManager @Inject constructor(
                 is ApiResult.Success -> metaDao.put(MetaEntity(IME_DEVICE_ID, registered.value.deviceId))
                 is ApiResult.Failure -> {
                     _status.value = _status.value.copy(lastError = registered.failure.message)
-                    return
+                    return@withLock
                 }
             }
         }
@@ -354,6 +366,10 @@ class DshManager @Inject constructor(
             if (!page.hasMore) break
         }
     }
+
+    private fun lastImeStatus() = runCatching {
+        metaDao.get(IME_STATUS)?.let { json.decodeFromString(ImeStatus.serializer(), it) }
+    }.getOrNull()
 
     private suspend fun lastEndpoint() = runCatching {
         metaDao.get(APP_MQTT)?.let {
