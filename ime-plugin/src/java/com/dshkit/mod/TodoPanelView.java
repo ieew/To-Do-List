@@ -160,22 +160,22 @@ public final class TodoPanelView {
         return lp;
     }
 
-    /** 右下角抓手：两条直角线段（┘ 形），拖动同时改宽高。 */
+    /** 右下角抓手：直角线段样式的胶囊（┘ 形，粗细/颜色与另外两个抓手一致）。 */
     private View cornerGrip() {
         FrameLayout box = new FrameLayout(ctx);
 
         View hLine = new View(ctx);
-        hLine.setBackground(round(0x8C6B7280, 1));
+        hLine.setBackground(round(0x4D6B7280, 2));
         FrameLayout.LayoutParams hl = new FrameLayout.LayoutParams(
-                dp(14), dp(2), Gravity.BOTTOM | Gravity.END);
+                dp(14), dp(4), Gravity.BOTTOM | Gravity.END);
         hl.setMargins(0, 0, dp(4), dp(4));
         hLine.setLayoutParams(hl);
         box.addView(hLine);
 
         View vLine = new View(ctx);
-        vLine.setBackground(round(0x8C6B7280, 1));
+        vLine.setBackground(round(0x4D6B7280, 2));
         FrameLayout.LayoutParams vl = new FrameLayout.LayoutParams(
-                dp(2), dp(14), Gravity.BOTTOM | Gravity.END);
+                dp(4), dp(14), Gravity.BOTTOM | Gravity.END);
         vl.setMargins(0, 0, dp(4), dp(4));
         vLine.setLayoutParams(vl);
         box.addView(vLine);
