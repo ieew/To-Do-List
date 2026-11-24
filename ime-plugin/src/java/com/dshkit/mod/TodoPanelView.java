@@ -43,6 +43,9 @@ public final class TodoPanelView {
 
         /** 标题栏被触摸（交给外层做拖动）。 */
         void onTitleTouch(MotionEvent event);
+
+        /** 输入框需要/不需要键盘焦点（悬浮窗平时不可聚焦，避免抢输入法）。 */
+        void onInputFocus(boolean want);
     }
 
     private static final int MAX_ROWS = 8;
@@ -205,6 +208,16 @@ public final class TodoPanelView {
         return box;
     }
 
+    private void showKeyboard() {
+        try {
+            android.view.inputmethod.InputMethodManager imm =
+                    (android.view.inputmethod.InputMethodManager)
+                            ctx.getSystemService(Context.INPUT_METHOD_SERVICE);
+            if (imm != null) imm.showSoftInput(input, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);
+        } catch (Throwable ignored) {
+        }
+    }
+
     private View buildInputRow() {
         LinearLayout row = new LinearLayout(ctx);
         row.setOrientation(LinearLayout.HORIZONTAL);
@@ -232,6 +245,29 @@ public final class TodoPanelView {
                     return true;
                 }
                 return false;
+            }
+        });
+        // 平时窗口不可聚焦（弹面板不抢输入法）；点输入框才临时切可聚焦并唤键盘。
+        input.setOnTouchListener(new View.OnTouchListener() {
+            @Override
+            public boolean onTouch(View v, MotionEvent event) {
+                if (event.getAction() == MotionEvent.ACTION_DOWN) {
+                    listener.onInputFocus(true);
+                    v.postDelayed(new Runnable() {
+                        @Override
+                        public void run() {
+                            input.requestFocus();
+                            showKeyboard();
+                        }
+                    }, 80);
+                }
+                return false;
+            }
+        });
+        input.setOnFocusChangeListener(new View.OnFocusChangeListener() {
+            @Override
+            public void onFocusChange(View v, boolean hasFocus) {
+                if (!hasFocus) listener.onInputFocus(false);
             }
         });
         row.addView(input);
@@ -545,6 +581,7 @@ public final class TodoPanelView {
                         @Override
                         public void run() {
                             addButton.setEnabled(true);
+                            if (input != null) input.clearFocus();
                             refresh();
                         }
                     });

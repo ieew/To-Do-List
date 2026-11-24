@@ -80,6 +80,29 @@ public final class TodoOverlay {
         return visible;
     }
 
+    /**
+     * 面板内的输入框要键盘时才临时去掉 NOT_FOCUSABLE。
+     * 平时保持不可聚焦：弹出面板不会抢走输入焦点、不会收掉已经弹出的输入法。
+     */
+    public void setInputFocus(final boolean want) {
+        main.post(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    if (wm == null || root == null || lp == null) return;
+                    int flags = want
+                            ? (lp.flags & ~WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE)
+                            : (lp.flags | WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE);
+                    if (flags == lp.flags) return;
+                    lp.flags = flags;
+                    wm.updateViewLayout(root, lp);
+                } catch (Throwable t) {
+                    log.e("todo/overlay/focus", t);
+                }
+            }
+        });
+    }
+
     public void toggle() {
         main.post(new Runnable() {
             @Override
@@ -129,6 +152,11 @@ public final class TodoOverlay {
                     public void onTitleTouch(MotionEvent event) {
                         handleDrag(event);
                     }
+
+                    @Override
+                    public void onInputFocus(boolean want) {
+                        setInputFocus(want);
+                    }
                 });
                 root = panel.build();
             }
@@ -168,7 +196,8 @@ public final class TodoOverlay {
                         ? TYPE_APPLICATION_OVERLAY
                         : TYPE_PHONE,
                 WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
-                        | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                        | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+                        | WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
                 PixelFormat.TRANSLUCENT);
         p.gravity = Gravity.TOP | Gravity.START;
         p.x = prefs.getInt(PREF_X, (dm.widthPixels - width) / 2);
