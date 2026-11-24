@@ -21,6 +21,8 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
+            // 本地自用：沿用 debug keystore，保证与已装版本签名一致、可覆盖升级（换签名必须卸载清数据）。
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
 
