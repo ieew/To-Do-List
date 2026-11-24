@@ -158,6 +158,7 @@ public final class Kit {
             public void onSessionChanged(Map<String, Object> status) {
                 // 面板自己会定期刷；这里只落一条状态日志，避免刷屏。
                 log.i("session", "状态 " + Json.write(status));
+                if (primary) cachePrimaryStatus(status);
             }
         });
         this.ui = new Ui(this);
@@ -166,6 +167,12 @@ public final class Kit {
 
     /** 面板广播的 action：Lua 入口没有 Kit 时（已有主实例）用它让主实例出面板。 */
     public static final String ACTION_PANEL = "com.dshkit.ui.PANEL";
+    /** 附加实例把网络命令（重连/同步）转发给主实例。 */
+    public static final String ACTION_CMD = "com.dshkit.CMD";
+    private static final String STATUS_PREFS = "dsh_kit_primary";
+    private static final String STATUS_JSON = "status";
+    private static final String STATUS_CLIP = "clip";
+    private static final String STATUS_AT = "at";
 
     /** 主实例注册一个命令接收器：别的 Lua 入口发广播就能操作这个唯一实例。 */
     private void registerCmdReceiver() {
@@ -176,12 +183,19 @@ public final class Kit {
                     if (intent == null) return;
                     log.i("web/cmd", "收到 " + intent.getAction());
                     if (ACTION_PANEL.equals(intent.getAction())) ui.panel();
+                    if (ACTION_CMD.equals(intent.getAction())) {
+                        String cmd = intent.getStringExtra("action");
+                        log.i("web/cmd", "附加实例转发命令 " + cmd);
+                        if ("dsh.sync".equals(cmd)) session.syncNow();
+                        else if ("dsh.reconnect".equals(cmd) || "dsh.login".equals(cmd)) session.kick();
+                    }
                 } catch (Throwable t) {
                     log.e("cmd/recv", t);
                 }
             }
         };
         IntentFilter filter = new IntentFilter(ACTION_PANEL);
+        filter.addAction(ACTION_CMD);
         try {
             if (Build.VERSION.SDK_INT >= 26) {
                 java.lang.reflect.Method m = Context.class.getMethod("registerReceiver",
@@ -472,12 +486,14 @@ public final class Kit {
                 return Json.write(session.status());
             }
             if (action.equals("dsh.sync")) {
-                // 附加实例不碰网络：syncNow 会顺手把没启动的会话拉起来
+                // 附加实例不碰网络：转发给主实例执行
                 if (primary) session.syncNow();
+                else forwardCmd("dsh.sync");
                 return null;
             }
             if (action.equals("dsh.reconnect") || action.equals("dsh.login")) {
                 if (primary) session.kick();
+                else forwardCmd(action);
                 return null;
             }
             if (action.equals("dsh.stop")) {
@@ -578,22 +594,34 @@ public final class Kit {
 
     public String statusText() {
         Context c = host.context();
-        Map<String, Object> st = session.status();
+        boolean fromPrimary = true;
+        Map<String, Object> st;
+        if (primary) {
+            st = session.status();
+        } else {
+            // 工具页是额外的 Kit 实例：自己没连网，显示主实例最后上报的状态，
+            // 不然会出现「传输 已停止 / 剪贴板 未启动」这种误导。
+            st = cachedStatus();
+            fromPrimary = st != null;
+            if (st == null) st = new java.util.LinkedHashMap<String, Object>();
+        }
         StringBuilder sb = new StringBuilder();
         sb.append("版本 ").append(VERSION).append("  SDK ").append(Build.VERSION.SDK_INT).append('\n');
         if (!primary) sb.append("附加实例：网络/剪贴板/通知由主实例负责\n");
         sb.append("进程 ").append(c.getPackageName()).append('\n');
         sb.append("宿主 ").append(shorten(host.probe(), 60)).append('\n');
-        sb.append("传输 ").append(stateCn(Json.str(st, "state", "?")))
+        sb.append("传输 ").append(fromPrimary ? stateCn(Json.str(st, "state", "?")) : "等主实例上报")
                 .append("  设备 ").append(orDash(Json.str(st, "device_id", ""))).append('\n');
         sb.append("服务端 ").append(orDash(Json.str(st, "server", ""))).append('\n');
         sb.append("Broker ").append(orDash(Json.str(st, "broker", ""))).append('\n');
         sb.append("游标 ").append(Json.lng(st, "cursor", 0))
                 .append("  拉了 ").append(Json.lng(st, "pulled", 0))
                 .append("  确认 ").append(Json.lng(st, "acked", 0)).append('\n');
+        boolean clipStarted = primary ? clipSource.isStarted() : cachedClipStarted();
         Map<String, Object> lastClip = clipModule.last();
         sb.append("剪贴板 ").append(config.clipEnabled
-                        ? (clipSource.isStarted() ? "同步中" : "未启动") : "已关闭")
+                        ? (clipStarted ? "同步中" : (primary ? "未启动" : "由主实例负责"))
+                        : "已关闭")
                 .append(!lastClip.isEmpty()
                         ? ("  最近 " + Json.str(lastClip, "dir", "") + " "
                         + Json.lng(lastClip, "len", 0) + "字") : "")
@@ -608,8 +636,70 @@ public final class Kit {
         }
         String err = Json.str(st, "last_error", "");
         if (!err.isEmpty()) sb.append("最近错误 ").append(shorten(err, 80)).append('\n');
-        sb.append("启动 ").append(System.currentTimeMillis() - bootAt).append("ms 前");
+        if (primary) {
+            sb.append("启动 ").append(System.currentTimeMillis() - bootAt).append("ms 前");
+        } else {
+            long age = cachedStatusAgeMs();
+            sb.append(age >= 0 ? "主实例状态 " + (age / 1000) + "s 前上报" : "主实例状态 未上报");
+        }
         return sb.toString();
+    }
+
+    /** 主实例把最新状态写进 prefs，供工具页（附加实例）显示真实连接状态。 */
+    private void cachePrimaryStatus(Map<String, Object> status) {
+        try {
+            host.context().getSharedPreferences(STATUS_PREFS, Context.MODE_PRIVATE).edit()
+                    .putString(STATUS_JSON, Json.write(status))
+                    .putBoolean(STATUS_CLIP, clipSource != null && clipSource.isStarted())
+                    .putLong(STATUS_AT, System.currentTimeMillis())
+                    .apply();
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** 附加实例读主实例最后上报的状态；没有则返回 null。 */
+    private Map<String, Object> cachedStatus() {
+        try {
+            String raw = host.context().getSharedPreferences(STATUS_PREFS, Context.MODE_PRIVATE)
+                    .getString(STATUS_JSON, null);
+            if (raw == null || raw.isEmpty()) return null;
+            Map<String, Object> map = Json.asObject(Json.parse(raw));
+            return map.isEmpty() ? null : map;
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private boolean cachedClipStarted() {
+        try {
+            return host.context().getSharedPreferences(STATUS_PREFS, Context.MODE_PRIVATE)
+                    .getBoolean(STATUS_CLIP, false);
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    private long cachedStatusAgeMs() {
+        try {
+            long at = host.context().getSharedPreferences(STATUS_PREFS, Context.MODE_PRIVATE)
+                    .getLong(STATUS_AT, 0L);
+            return at <= 0 ? -1 : System.currentTimeMillis() - at;
+        } catch (Throwable ignored) {
+            return -1;
+        }
+    }
+
+    /** 附加实例把网络命令转给主实例执行。 */
+    private void forwardCmd(String action) {
+        try {
+            Intent i = new Intent(ACTION_CMD);
+            i.setPackage(host.context().getPackageName());
+            i.putExtra("action", action);
+            host.context().sendBroadcast(i);
+            log.i("web/cmd", "附加实例转发 " + action);
+        } catch (Throwable t) {
+            log.e("cmd/forward", t);
+        }
     }
 
     private static String stateCn(String state) {
