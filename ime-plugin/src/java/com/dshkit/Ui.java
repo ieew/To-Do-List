@@ -200,6 +200,37 @@ public final class Ui {
         });
         box.addView(notice);
 
+        // 给当前主题写 onStartInput 钩子：换人用/换主题时不用手动改 main.lua
+        final CheckBox autoStart = new CheckBox(activity);
+        final String theme = kit.themeHook().currentTheme();
+        autoStart.setText(theme == null
+                ? "输入法启动时自动拉起（读不到当前主题）"
+                : "输入法启动时自动拉起（主题 " + theme + " 加钩子）");
+        autoStart.setTextColor(Color.parseColor("#FFE8E8E8"));
+        autoStart.setTextSize(13);
+        autoStart.setEnabled(theme != null);
+        autoStart.setChecked(kit.themeHook().isInstalled());
+        autoStart.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                boolean want = autoStart.isChecked();
+                boolean ok = want ? kit.themeHook().install() : kit.themeHook().uninstall();
+                if (!ok) {
+                    kit.host().toast(want ? "钩子没装上，看日志 theme/hook" : "钩子没删掉，看日志 theme/hook");
+                } else {
+                    kit.host().toast(want ? "已写入主题，下次进程重启生效" : "已从主题移除");
+                }
+                final CheckBox box2 = autoStart;
+                box2.postDelayed(new Runnable() {
+                    @Override
+                    public void run() {
+                        box2.setChecked(kit.themeHook().isInstalled());
+                    }
+                }, 300);
+            }
+        });
+        box.addView(autoStart);
+
         final CheckBox enabled = new CheckBox(activity);
         enabled.setText("启用待办面板（候选栏按钮 / 通知入口）");
         enabled.setTextColor(Color.parseColor("#FFE8E8E8"));

@@ -570,13 +570,15 @@ ContentResolver.call(content://com.todo.android.ime/tasks, "delete_task", taskId
   `main.lua` 里挂了 `onStartInput` 钩子 → `dofile rime/scripts/dsh_boot.lua`
   → 把 Kit 拉起来（`todoNotice.sync()` 重新挂通知、MQTT 重连），用户弹一次键盘就恢复。
   钩子幂等：Kit 已存在、或 `sharedData` 里有同 stamp 的 Boot 时直接复用，不会多开连接。
-  换主题后钩子失效，需要给新主题也加同样三行（默认只改当前在用的主题）。
+- 钩子由工具页的「自启动」开关自动管理（`ThemeHook`：写/删主题 `main.lua.dsh-bak` 旁边
+  带备份），换主题后在工具页重新勾一下即可，不用手改文件。
 
 ### 18.4 工具页开关
 
 | 开关 | 对应 action | 说明 |
 | --- | --- | --- |
 | 常驻通知 | `todo.notice on/off` | 创建/取消 ongoing 通知；权限被关时 toast 提示。开关勾选状态取 `TodoNotice.isActive()`（偏好开着 **且** 通知此刻真在通知栏），开不起来会回滚勾选 |
+| 输入法启动时自动拉起 | `theme.hook on/off` | 给**当前主题**的 `main.lua` 写/删 `onStartInput` 钩子（标记块 `dsh-kit auto-boot begin/end`）；状态只看主题文件里有没有标记块，换主题后以新主题为准 |
 | 启用待办面板 | `todo.enable` / `todo.disable` | 总开关；关掉后候选栏/通知入口被拒 |
 | 悬浮窗权限（行） | — | 未授予时点击跳系统设置 `ACTION_MANAGE_OVERLAY_PERMISSION` |
 | 复制候选栏配置 | — | 把 `preset_keys` 片段送到剪贴板，**不改主题** |
@@ -594,8 +596,8 @@ DshTodo = { label = "待办", command = "dsh_todo.lua" },
 
 ### 18.6 状态与日志
 
-- `kit.call("todo.status")` 返回 JSON：`{enabled, overlay, canDraw, notice, provider}`；
-- 日志 tag：`todo/overlay`、`todo/notice`、`todo/add`、`todo`，都进 `dsh.log` 与 `kit-*.log`。
+- `kit.call("todo.status")` 返回 JSON：`{enabled, overlay, canDraw, notice, autoStart, provider}`；
+- 日志 tag：`todo/overlay`、`todo/notice`、`todo/add`、`todo`、`theme/hook`，都进 `dsh.log` 与 `kit-*.log`。
 
 ### 18.7 构建与部署
 
@@ -608,23 +610,28 @@ cp src/lua/dsh_todo.lua /sdcard/Documents/rime/scripts/dsh_todo.lua
 # 升级 dex 后强制停止输入法一次（旧 Boot 会留在 sharedData）
 ```
 
-自动启动钩子写在**当前主题**的 `main.lua` 末尾（示例）：
+自动启动钩子**不用手改**：装好 dex/Lua 后打开工具页，勾上「输入法启动时自动拉起」，
+`ThemeHook` 会把下面这个标记块追加到当前主题 `main.lua` 末尾（再勾一次取消就删掉）：
 
 ```lua
+-- dsh-kit auto-boot begin
 function onStartInput()
     if dshkit ~= nil then return end
     pcall(dofile, "/sdcard/Documents/rime/scripts/dsh_boot.lua")
 end
+-- dsh-kit auto-boot end
 ```
 
 注意 `dsh_boot.lua` 里的路径与 stamp 缓存要和 `dsh.lua` / 工具页保持一致；
-主题脚本里没有 `service` 时会静默跳过（只记一行日志）。
+主题脚本里没有 `service` 时会静默跳过（只记一行日志）。给别人用时，只要 dex、
+`dsh.lua`、`dsh_boot.lua` 都拷到位，再在工具页勾一下自启动就行。
 
 ### 18.8 验收
 
 - [ ] 工具页两个开关状态正确，切换后杀进程重开仍保持
 - [ ] 常驻通知开关与通知栏真实状态一致：关掉开关通知立即消失，打开后通知回来
 - [ ] 强停输入法后弹一次键盘：常驻通知自动恢复、MQTT 只有一条连接（不重复订阅）
+- [ ] 工具页勾上/取消「自启动」后，当前主题 main.lua 里出现/消失 auto-boot 标记块，`luac -p` 通过
 - [ ] 悬浮窗权限未授予时，工具页点权限行能跳到系统设置
 - [ ] 候选栏「待办」能唤出/收起悬浮窗（不经过 Activity）
 - [ ] 点常驻通知能唤出/收起悬浮窗

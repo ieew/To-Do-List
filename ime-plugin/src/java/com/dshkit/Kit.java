@@ -20,6 +20,7 @@ import com.dshkit.mod.ClipSource;
 import com.dshkit.mod.NetWatcher;
 import com.dshkit.mod.NotifyModule;
 import com.dshkit.mod.NotifySink;
+import com.dshkit.mod.ThemeHook;
 import com.dshkit.mod.TodoClient;
 import com.dshkit.mod.TodoNotice;
 import com.dshkit.mod.TodoOverlay;
@@ -35,7 +36,7 @@ import java.util.Map;
  */
 public final class Kit {
 
-    public static final String VERSION = "0.3.18";
+    public static final String VERSION = "0.3.19";
 
     private static Kit INSTANCE;
 
@@ -56,6 +57,7 @@ public final class Kit {
     private final TodoClient todoClient;
     private final TodoOverlay todoOverlay;
     private final TodoNotice todoNotice;
+    private final ThemeHook themeHook;
     private final SharedPreferences todoPrefs;
     private final long bootAt = System.currentTimeMillis();
     private Ui ui;
@@ -107,6 +109,7 @@ public final class Kit {
         this.todoClient = new TodoClient(ctx);
         this.todoOverlay = new TodoOverlay(ctx, todoClient, log);
         this.todoNotice = new TodoNotice(ctx, notifySink, log, todoOverlay);
+        this.themeHook = new ThemeHook(ctx, log);
         this.todoPrefs = ctx.getSharedPreferences("dsh_todo", Context.MODE_PRIVATE);
         this.session.setListener(new Session.Listener() {
             @Override
@@ -222,6 +225,11 @@ public final class Kit {
         return todoNotice;
     }
 
+    /** 主题自启动钩子（工具页「自启动」开关）。 */
+    public ThemeHook themeHook() {
+        return themeHook;
+    }
+
     public boolean todoEnabled() {
         return todoPrefs.getBoolean("enabled", false);
     }
@@ -237,6 +245,7 @@ public final class Kit {
                 "overlay", Boolean.valueOf(todoOverlay.isVisible()),
                 "canDraw", Boolean.valueOf(todoOverlay.canDraw()),
                 "notice", Boolean.valueOf(todoNotice.isActive()),
+                "autoStart", Boolean.valueOf(themeHook.isInstalled()),
                 "provider", Boolean.valueOf(todoClient.available()));
     }
 
@@ -339,6 +348,13 @@ public final class Kit {
                 todoOverlay.hide();
                 host.toast("待办面板已停用");
                 return null;
+            }
+            if (action.equals("theme.hook")) {
+                boolean on = !"off".equalsIgnoreCase(args == null ? "" : args.trim());
+                boolean ok = on ? themeHook.install() : themeHook.uninstall();
+                if (on) host.toast(ok ? "自启动钩子已写入主题" : "写主题失败：看日志 theme/hook");
+                else host.toast(ok ? "自启动钩子已移除" : "删主题钩子失败：看日志 theme/hook");
+                return Boolean.valueOf(ok);
             }
             if (action.equals("todo.notice")) {
                 boolean on = !"off".equalsIgnoreCase(args == null ? "" : args.trim());
