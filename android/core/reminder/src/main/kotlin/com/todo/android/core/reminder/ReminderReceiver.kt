@@ -39,11 +39,16 @@ class ReminderReceiver : BroadcastReceiver() {
             try {
                 val settings = settingsStore.current()
                 val task = projectionHolder.projection.value.tasks.firstOrNull { it.id == taskId }
+                val title = intent.getStringExtra(EXTRA_TITLE) ?: task?.title
                 val inDnd = settings.dndEnabled &&
                     ReminderScheduler.isInDnd(System.currentTimeMillis(), settings.dndStart, settings.dndEnd)
 
-                if (task != null && !task.done && !inDnd && scheduler.canPostNotifications()) {
-                    notifier.notifyReminder(taskId, task.title)
+                // 冷启动时投影可能还没加载（task==null）：用 PendingIntent 里带的标题兜底，
+                // 否则会出现「闹钟触发了、进程也起来了，但通知没弹、还记了已触发」的丢提醒。
+                val shouldNotify = (task == null || !task.done) &&
+                    title != null && !inDnd && scheduler.canPostNotifications()
+                if (shouldNotify) {
+                    notifier.notifyReminder(taskId, title!!)
                 }
                 // 免打扰时段内静默，但仍记录 last_fired_at，避免重复补发。
                 taskLocalDao.put(
@@ -60,6 +65,7 @@ class ReminderReceiver : BroadcastReceiver() {
     companion object {
         const val EXTRA_TASK_ID = "task_id"
         const val EXTRA_REMIND_AT = "remind_at"
+        const val EXTRA_TITLE = "title"
         const val CHANNEL_REMINDER = "reminder"
     }
 }

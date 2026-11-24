@@ -16,6 +16,9 @@
 - 每条提醒使用唯一 data URI 的 `PendingIntent`，避免互相覆盖。
 - 处理 `BOOT_COMPLETED`：从本地 SQLite 读取未来 `remind_at` 并重建 Alarm。
 - 调度前检查 `canScheduleExactAlarms()`，不可用时降级为非精确提醒并提示用户。
+- **冷启动兜底**：闹钟把进程拉起来时投影还没加载，`ReminderReceiver` 不能拿「投影里找不到任务」
+  当任务不存在。`PendingIntent` 里随身带 `title`，找不到投影任务时按「未完成」处理并用快照标题
+  弹通知；否则会「闹钟响了、进程也起了，但通知没弹，还记了 last_fired_at」→ 永久丢一条提醒。
 
 ### Windows 调度（已实现）
 

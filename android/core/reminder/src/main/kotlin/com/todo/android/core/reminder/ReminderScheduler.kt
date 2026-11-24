@@ -117,7 +117,7 @@ class ReminderScheduler @Inject constructor(
         preferExact: Boolean,
     ) {
         val manager = context.getSystemService(AlarmManager::class.java) ?: return
-        val pending = pendingIntent(taskId, remindAtMs)
+        val pending = pendingIntent(taskId, title, remindAtMs)
         val canExact = Build.VERSION.SDK_INT < Build.VERSION_CODES.S || manager.canScheduleExactAlarms()
         try {
             when {
@@ -131,7 +131,7 @@ class ReminderScheduler @Inject constructor(
     }
 
     fun cancel(taskId: String, remindAtMs: Long) {
-        context.getSystemService(AlarmManager::class.java)?.cancel(pendingIntent(taskId, remindAtMs))
+        context.getSystemService(AlarmManager::class.java)?.cancel(pendingIntent(taskId, "", remindAtMs))
     }
 
     /** PendingIntent 的 data URI 带 remindAt，取消失败往往是因为没带上真实时间。 */
@@ -139,7 +139,7 @@ class ReminderScheduler @Inject constructor(
         val manager = context.getSystemService(AlarmManager::class.java) ?: return
         tasks.forEach { task ->
             val remindAt = task.remindAtMs ?: return@forEach
-            manager.cancel(pendingIntent(task.id, remindAt))
+            manager.cancel(pendingIntent(task.id, task.title, remindAt))
         }
     }
 
@@ -154,12 +154,18 @@ class ReminderScheduler @Inject constructor(
             PackageManager.PERMISSION_GRANTED
     }
 
-    /** PendingIntent 必须带唯一 data URI，否则同 requestCode 的提醒会互相覆盖。 */
-    private fun pendingIntent(taskId: String, remindAtMs: Long): PendingIntent {
+    /**
+     * PendingIntent 必须带唯一 data URI，否则同 requestCode 的提醒会互相覆盖。
+     *
+     * title 也一起带过去：闹钟冷启动进程时投影还没加载，接收器拿不到任务标题，
+     * 只能靠这里落的快照兜底（否则会「静默记账、不弹通知」）。
+     */
+    private fun pendingIntent(taskId: String, title: String, remindAtMs: Long): PendingIntent {
         val intent = Intent(context, ReminderReceiver::class.java).apply {
             data = Uri.parse("todo://reminder/$taskId/$remindAtMs")
             putExtra(ReminderReceiver.EXTRA_TASK_ID, taskId)
             putExtra(ReminderReceiver.EXTRA_REMIND_AT, remindAtMs)
+            putExtra(ReminderReceiver.EXTRA_TITLE, title)
         }
         return PendingIntent.getBroadcast(
             context,
