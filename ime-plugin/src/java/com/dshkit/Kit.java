@@ -62,6 +62,7 @@ public final class Kit {
     private final TodoNotice todoNotice;
     private final ThemeHook themeHook;
     private final SharedPreferences todoPrefs;
+    private volatile boolean clipOn = true;
     private final long bootAt = System.currentTimeMillis();
     /** 进程级主实例：每个 Lua 入口会新建 DexClassLoader，宿主缓存又存不了 Java 对象，
      *  所以同时可能有几个 Kit。只让第一个启动网络/剪贴板/通知，其余当空壳。 */
@@ -188,6 +189,7 @@ public final class Kit {
                         log.i("web/cmd", "附加实例转发命令 " + cmd);
                         if ("dsh.sync".equals(cmd)) session.syncNow();
                         else if ("dsh.reconnect".equals(cmd) || "dsh.login".equals(cmd)) session.kick();
+                        else if (cmd != null && cmd.startsWith("clip.set:")) setClipOn(cmd.endsWith(":on"));
                     }
                 } catch (Throwable t) {
                     log.e("cmd/recv", t);
@@ -250,7 +252,10 @@ public final class Kit {
                 + " server=" + INSTANCE.config.server + " user=" + INSTANCE.config.username);
         if (INSTANCE.primary) {
             INSTANCE.session.start();
-            if (INSTANCE.config.clipEnabled) INSTANCE.clipSource.start();
+            // 剪贴板：config.json 的 clip_enabled 与工具页开关取交（默认开）
+            INSTANCE.clipOn = INSTANCE.config.clipEnabled
+                    && INSTANCE.todoPrefs.getBoolean("clip_on", true);
+            if (INSTANCE.clipOn) INSTANCE.clipSource.start();
             INSTANCE.netWatcher.start();
             INSTANCE.todoNotice.sync();
         } else {
@@ -287,7 +292,8 @@ public final class Kit {
             api.setServer(fresh.server);
             session.setConfig(fresh);
             if (primary) {
-                if (fresh.clipEnabled) {
+                clipOn = fresh.clipEnabled && todoPrefs.getBoolean("clip_on", true);
+                if (clipOn) {
                     if (!clipSource.isStarted()) clipSource.start();
                 } else {
                     clipSource.stop();
@@ -485,6 +491,14 @@ public final class Kit {
             if (action.equals("dsh.status")) {
                 return Json.write(session.status());
             }
+            if (action.equals("clip.set")) {
+                boolean on = args != null && !args.trim().isEmpty()
+                        ? "on".equalsIgnoreCase(args.trim())
+                        : !clipOn();
+                if (primary) setClipOn(on);
+                else forwardCmd("clip.set:" + (on ? "on" : "off"));
+                return null;
+            }
             if (action.equals("dsh.sync")) {
                 // 附加实例不碰网络：转发给主实例执行
                 if (primary) session.syncNow();
@@ -646,6 +660,22 @@ public final class Kit {
     }
 
     /** 主实例把最新状态写进 prefs，供工具页（附加实例）显示真实连接状态。 */
+    /** 剪贴板同步是否真的在跑（config 开关 + 工具页开关）。附加实例读偏好。 */
+    public boolean clipOn() {
+        if (!primary) return config.clipEnabled && todoPrefs.getBoolean("clip_on", true);
+        return clipOn && clipSource.isStarted();
+    }
+
+    /** 工具页「剪贴板同步」开关：写偏好并立即启停监听（主实例才真正启停）。 */
+    public void setClipOn(boolean on) {
+        clipOn = on;
+        todoPrefs.edit().putBoolean("clip_on", on).apply();
+        if (!primary) return;
+        if (on) clipSource.start();
+        else clipSource.stop();
+        log.i("clip", on ? "已开启剪贴板同步" : "已关闭剪贴板同步");
+    }
+
     private void cachePrimaryStatus(Map<String, Object> status) {
         try {
             host.context().getSharedPreferences(STATUS_PREFS, Context.MODE_PRIVATE).edit()

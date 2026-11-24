@@ -200,6 +200,26 @@ public final class Ui {
         });
         box.addView(notice);
 
+        final CheckBox clip = new CheckBox(activity);
+        clip.setText("剪贴板同步（复制内容同步到其他设备）");
+        clip.setTextColor(Color.parseColor("#FFE8E8E8"));
+        clip.setTextSize(13);
+        clip.setChecked(kit.clipOn());
+        clip.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                kit.call("clip.set", clip.isChecked() ? "on" : "off");
+                final CheckBox box = clip;
+                box.postDelayed(new Runnable() {
+                    @Override
+                    public void run() {
+                        box.setChecked(kit.clipOn());
+                    }
+                }, 300);
+            }
+        });
+        box.addView(clip);
+
         // 给当前主题写 onStartInput 钩子：换人用/换主题时不用手动改 main.lua
         final CheckBox autoStart = new CheckBox(activity);
         final String theme = kit.themeHook().currentTheme();
