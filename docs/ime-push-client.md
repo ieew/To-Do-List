@@ -542,6 +542,7 @@ ContentResolver.call(content://com.todo.android.ime/tasks, "delete_task", taskId
 - 可拖动：标题栏按住拖，松手把 `x/y` 存 `SharedPreferences("dsh_todo_overlay")`，下次原位弹出；
 - 尺寸：宽 `min(屏宽-32dp, 380dp)`，高 `min(屏高×58%, 520dp)`；默认位置在屏幕偏上，避开键盘；
 - 面板内容（`TodoPanelView`）：
+  - 高度动态：键盘收起 58% 屏高；键盘展开或点输入框时按「屏幕高 - 顶部位置 - 键盘高度 - 16dp」压缩，保证面板完整显示且与键盘留空；拖动后按新位置重算；
   - 悬浮窗默认 `FLAG_NOT_FOCUSABLE`：弹出面板不抢输入焦点、不会收掉已弹出的输入法；点快速添加输入框时才临时切可聚焦并唤起键盘；
   - 视觉与待办 App 一致（`core/designsystem` 的 `Tokens.light`）：白卡片底、1dp 描边、20dp 圆角、蓝主色（#3B82F6）、灰阶文字；任务行间 1dp 淡分割线；
   - 标题栏（拖动区）+ 文字按钮「刷新」「关闭」（浅灰圆角底，13sp，触控区 34dp 高）；
