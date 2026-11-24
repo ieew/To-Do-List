@@ -750,3 +750,27 @@ end
 - **剪贴板逻辑全部留在插件**：App 后台权限无法持续监听剪贴板；插件未运行时剪贴板同步不可用；
 - App → 插件新增设置变更广播（带 `channel_token`），供输入法兜底时读取 DND/提前量；
 - 去重键统一为 `(workspace_id, task_id, remind_at_ms)`，消息级用 `msg_id`。
+## 二十一、网络与凭证自愈（2026-11 修订）
+
+### 21.1 MQTT 双栈
+
+`todo.ieew.cc` 同时有 A/AAAA 记录。只连一种地址会踩两种坑：只连 IPv6 时服务端
+没监听 IPv6 → `ECONNREFUSED`（Paho 报 `code=32103`、message 为空）；只连 IPv4 时
+IPv6-only 客户端连不上。现在的约定：
+
+- **服务端**：`TODO_SERVER_DSH_MQTT_BIND` 默认 `[::]`，Linux 上双栈；没有 IPv6 栈时
+  broker 启动失败自动回退 `0.0.0.0` 并记 warning。裸 IPv6 自动补方括号。
+- **插件**：`DualStackNetworkModule` 替换 Paho 的 TCP network module，按 IPv6 优先、
+  逐地址尝试（每个最多 3 秒），任一可用即用；全部失败抛最后一个异常。
+- **App**：`DshMqtt.connect` 先做 TCP 探活（1.5 秒），把可达地址写字面量进 MQTT URI
+  （IPv6 带方括号），避免 Paho 再次解析出不可用地址。
+
+### 21.2 凭证失效自愈
+
+插件 `refresh` 返回 401 `invalid_credential` / 409 `device_revoked` 时：
+
+1. 插件清本地凭证，并通过 provider `dsh_credential_update` 回写**空凭证**；
+2. App 的 `updateImeCredential("")` 删除 `dsh_ime_credential` / `_exp` 映射；
+3. 插件下一次 `dsh_authorize` 时 App 发现无凭证，用自身 Bearer 重新签发。
+
+这样凭证轮换/吊销后不会卡在「旧凭证 → 401 → 重试」死循环。

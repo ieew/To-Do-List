@@ -100,8 +100,6 @@ public final class MqttTransport implements Transport {
             options.setUserName(c.username());
             options.setPassword(c.password() == null ? new char[0] : c.password().toCharArray());
             options.setMqttVersion(MqttConnectOptions.MQTT_VERSION_3_1_1);
-            // 服务端 broker 只在 IPv4 上监听；Android 默认先解析 IPv6，连 240e:...:1883 会 ECONNREFUSED。
-            options.setSocketFactory(new Ipv4SocketFactory());
             mqtt.connect(options, null, new IMqttActionListener() {
                 @Override
                 public void onSuccess(IMqttToken asyncActionToken) {

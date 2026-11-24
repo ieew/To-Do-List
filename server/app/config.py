@@ -43,7 +43,8 @@ class ServerSettings(BaseSettings):
 
     # ---- dsh-kit 推送通道（设计见 dsh-ime/doc/SERVER-INTEGRATION.md §8）----
     dsh_mqtt_enabled: bool = True
-    dsh_mqtt_bind: str = "0.0.0.0"  # noqa: S104 - broker 要能被手机连上，默认监听全部网卡
+    # 默认双栈（Linux 上 [::] 同时收 IPv4/IPv6）；某些环境没有 IPv6 栈时 broker 会自动回退 0.0.0.0。
+    dsh_mqtt_bind: str = "[::]"  # noqa: S104 - broker 要能被手机连上，默认监听全部网卡
     dsh_mqtt_port: int = 1883
     dsh_mqtt_public_host: str = ""
     dsh_mqtt_tls_cert: str = ""

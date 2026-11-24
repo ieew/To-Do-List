@@ -38,6 +38,21 @@ _REVOKED_REFRESH_S = 60
 _CLEANUP_MAX_ROUNDS = 20
 
 
+def _format_bind(host: str, port: int) -> str:
+    """把配置里的监听地址拼成 amqtt 能解析的 host:port。
+
+    - 空值 → [::]（双栈）
+    - 裸 IPv6（含冒号）自动加方括号：`::` → `[::]:1883`
+    - 已经是 [..] 的保持原样
+    """
+    host = (host or "").strip()
+    if not host:
+        host = "::"
+    if ":" in host and not (host.startswith("[") and host.endswith("]")):
+        host = f"[{host}]"
+    return f"{host}:{port}"
+
+
 def topic_in(user_id: str, device_id: str) -> str:
     return f"{TOPIC_PREFIX}/{user_id}/dev/{device_id}/in"
 
@@ -118,7 +133,17 @@ class DshRuntime:
         broker = Broker(config)
         # 先挂上句柄：start 半途失败时 stop() 还能去关监听。
         self._broker = broker
-        await broker.start()
+        try:
+            await broker.start()
+        except Exception as exc:  # noqa: BLE001 - 没有 IPv6 栈的环境回退到只监听 IPv4
+            bind = str(config["listeners"]["default"]["bind"])
+            if not bind.startswith("["):
+                raise
+            logger.warning("dsh broker 绑定 %s 失败（%s），回退到 0.0.0.0", bind, exc)
+            config = self._broker_config("0.0.0.0")
+            broker = Broker(config)
+            self._broker = broker
+            await broker.start()
         self._started = True
         self._error = None
         _ACTIVE_RUNTIME = self
@@ -176,11 +201,12 @@ class DshRuntime:
             _ACTIVE_RUNTIME = None
         logger.info("dsh broker 已停止")
 
-    def _broker_config(self) -> dict[str, Any]:
+    def _broker_config(self, bind: str | None = None) -> dict[str, Any]:
         settings = self._settings
         listener: dict[str, Any] = {
             "type": "tcp",
-            "bind": f"{settings.dsh_mqtt_bind}:{settings.dsh_mqtt_port}",
+            "bind": _format_bind(bind if bind is not None else settings.dsh_mqtt_bind,
+                                 settings.dsh_mqtt_port),
             "max_connections": 0,
         }
         if settings.dsh_mqtt_tls_cert and settings.dsh_mqtt_tls_key:

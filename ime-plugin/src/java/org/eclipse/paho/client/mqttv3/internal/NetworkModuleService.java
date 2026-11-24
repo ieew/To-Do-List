@@ -5,6 +5,7 @@ import java.net.URISyntaxException;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import com.dshkit.core.DualStackNetworkModule;
 import org.eclipse.paho.client.mqttv3.MqttConnectOptions;
 import org.eclipse.paho.client.mqttv3.MqttException;
 
@@ -58,7 +59,10 @@ public class NetworkModuleService {
             }
             scheme = scheme.toLowerCase();
             if ("tcp".equals(scheme)) {
-                return new TCPNetworkModuleFactory().createNetworkModule(uri, options, clientId);
+                // 双栈（IPv6 优先、失败回落 IPv4），见 DualStackNetworkModule。
+                String host = uri.getHost();
+                int port = uri.getPort() > 0 ? uri.getPort() : 1883;
+                return new DualStackNetworkModule(options, host, port, address);
             }
             if ("ssl".equals(scheme)) {
                 return new SSLNetworkModuleFactory().createNetworkModule(uri, options, clientId);

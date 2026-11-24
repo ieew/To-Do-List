@@ -1,6 +1,10 @@
 package com.todo.android.core.dsh
 
 import com.todo.android.core.network.wire.DshMqttEndpoint
+import java.net.Inet6Address
+import java.net.InetAddress
+import java.net.InetSocketAddress
+import java.net.Socket
 import javax.inject.Inject
 import javax.inject.Singleton
 import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken
@@ -18,6 +22,10 @@ import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence
  */
 @Singleton
 class DshMqtt @Inject constructor() {
+
+    private companion object {
+        const val PROBE_TIMEOUT_MS = 1500
+    }
 
     private var client: MqttAsyncClient? = null
 
@@ -40,7 +48,9 @@ class DshMqtt @Inject constructor() {
             return
         }
         val scheme = if (endpoint.tls) "ssl" else "tcp"
-        val uri = "$scheme://${endpoint.host}:${endpoint.port}"
+        // 双栈：IPv6 优先，连不上回落到 IPv4；Paho 只接受字面量 IP 时不用再解析。
+        val host = reachableHost(endpoint.host, endpoint.port)
+        val uri = "$scheme://${literalHost(host)}:${endpoint.port}"
         runCatching {
             val mqtt = MqttAsyncClient(uri, clientId, MemoryPersistence())
             mqtt.setCallback(object : MqttCallback {
@@ -63,8 +73,6 @@ class DshMqtt @Inject constructor() {
                 keepAliveInterval = keepAliveSeconds.coerceIn(15, 600)
                 userName = endpoint.username
                 password = ticket.toCharArray()
-                // 服务端 broker 只监听 IPv4；Android 默认先解析 IPv6，连 240e:...:1883 会 ECONNREFUSED。
-                socketFactory = Ipv4SocketFactory()
             }
             mqtt.connect(options, null, object : org.eclipse.paho.client.mqttv3.IMqttActionListener {
                 override fun onSuccess(asyncActionToken: org.eclipse.paho.client.mqttv3.IMqttToken?) {
@@ -86,6 +94,27 @@ class DshMqtt @Inject constructor() {
             client = mqtt
         }.onFailure { onState(false, it.message ?: "MQTT 初始化失败") }
     }
+
+    /**
+     * 双栈地址选择：IPv6 优先，TCP 探活不通再回落 IPv4；全部失败返回原 host 让 Paho 自己解析。
+     * 探测只是 TCP 握手，连上立刻关掉，不算一次 MQTT 会话。
+     */
+    private fun reachableHost(host: String, port: Int): String = runCatching {
+        val addresses = InetAddress.getAllByName(host)
+            .sortedByDescending { it is Inet6Address }
+        for (address in addresses) {
+            val reachable = try {
+                Socket().use { it.connect(InetSocketAddress(address, port), PROBE_TIMEOUT_MS) }
+                true
+            } catch (_: Exception) {
+                false
+            }
+            if (reachable) return@runCatching address.hostAddress ?: host
+        }
+        host
+    }.getOrDefault(host)
+
+    private fun literalHost(host: String): String = if (':' in host) "[$host]" else host
 
     @Synchronized
     fun disconnect() {
