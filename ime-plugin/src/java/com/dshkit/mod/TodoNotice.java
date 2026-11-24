@@ -1,5 +1,6 @@
 package com.dshkit.mod;
 
+import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -8,6 +9,7 @@ import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.net.Uri;
 import android.os.Build;
+import android.service.notification.StatusBarNotification;
 import android.widget.Toast;
 
 import com.dshkit.KitLog;
@@ -76,8 +78,38 @@ public final class TodoNotice {
                 : "切换广播注册失败，通知点击退回 LuaActivity");
     }
 
+    /** 用户意图（偏好里记的开/关）。进程重启后 sync() 靠它决定要不要重新挂通知。 */
     public boolean isEnabled() {
         return prefs.getBoolean(PREF_ON, false);
+    }
+
+    /**
+     * 真实状态：偏好开着 **且** 通知此刻确实挂在通知栏里。
+     *
+     * 工具页的开关必须看这个。进程被杀后系统会把通知一起收走，而偏好还在，
+     * 只看偏好就会出现「通知没了、开关还勾着」。
+     */
+    public boolean isActive() {
+        return isEnabled() && isShowing();
+    }
+
+    /** 查通知栏里有没有我们的常驻通知。查不到（老系统/异常）就当开着，避免误报关。 */
+    private boolean isShowing() {
+        if (Build.VERSION.SDK_INT < 23) return true;
+        try {
+            NotificationManager nm = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm == null) return true;
+            StatusBarNotification[] list = nm.getActiveNotifications();
+            if (list == null) return false;
+            String pkg = ctx.getPackageName();
+            for (StatusBarNotification sbn : list) {
+                if (TAG.equals(sbn.getTag()) && pkg.equals(sbn.getPackageName())) return true;
+            }
+            return false;
+        } catch (Throwable t) {
+            log.e("todo/notice/check", t);
+            return true;
+        }
     }
 
     /** 返回是否成功落地（权限被关时 false，但偏好照记，下次启动再试）。 */

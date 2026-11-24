@@ -566,12 +566,17 @@ ContentResolver.call(content://com.todo.android.ime/tasks, "delete_task", taskId
   传 `RECEIVER_NOT_EXPORTED`（发送方是宿主自己，同 uid 可收到），失败退回老接口；
 - 已知代价：进程被系统杀掉后点击通知无反应（广播不会拉起进程）；输入法常驻，
   下次启动注入时重新注册。动态注册失败时自动退回 `LuaActivity` 兜底（会闪一下，但可用）。
+- **进程复活自动恢复**：进程被杀时系统会把 ongoing 通知一起收走。现在主题
+  `main.lua` 里挂了 `onStartInput` 钩子 → `dofile rime/scripts/dsh_boot.lua`
+  → 把 Kit 拉起来（`todoNotice.sync()` 重新挂通知、MQTT 重连），用户弹一次键盘就恢复。
+  钩子幂等：Kit 已存在、或 `sharedData` 里有同 stamp 的 Boot 时直接复用，不会多开连接。
+  换主题后钩子失效，需要给新主题也加同样三行（默认只改当前在用的主题）。
 
 ### 18.4 工具页开关
 
 | 开关 | 对应 action | 说明 |
 | --- | --- | --- |
-| 常驻通知 | `todo.notice on/off` | 创建/取消 ongoing 通知；权限被关时 toast 提示 |
+| 常驻通知 | `todo.notice on/off` | 创建/取消 ongoing 通知；权限被关时 toast 提示。开关勾选状态取 `TodoNotice.isActive()`（偏好开着 **且** 通知此刻真在通知栏），开不起来会回滚勾选 |
 | 启用待办面板 | `todo.enable` / `todo.disable` | 总开关；关掉后候选栏/通知入口被拒 |
 | 悬浮窗权限（行） | — | 未授予时点击跳系统设置 `ACTION_MANAGE_OVERLAY_PERMISSION` |
 | 复制候选栏配置 | — | 把 `preset_keys` 片段送到剪贴板，**不改主题** |
@@ -597,13 +602,29 @@ DshTodo = { label = "待办", command = "dsh_todo.lua" },
 ```
 tools/build.sh                       # 出 out/dsh-kit.dex
 cp out/dsh-kit.dex /sdcard/Documents/rime/scripts/dsh-kit.dex
+cp src/lua/dsh.lua /sdcard/Documents/rime/scripts/dsh.lua
+cp src/lua/dsh_boot.lua /sdcard/Documents/rime/scripts/dsh_boot.lua
 cp src/lua/dsh_todo.lua /sdcard/Documents/rime/scripts/dsh_todo.lua
 # 升级 dex 后强制停止输入法一次（旧 Boot 会留在 sharedData）
 ```
 
+自动启动钩子写在**当前主题**的 `main.lua` 末尾（示例）：
+
+```lua
+function onStartInput()
+    if dshkit ~= nil then return end
+    pcall(dofile, "/sdcard/Documents/rime/scripts/dsh_boot.lua")
+end
+```
+
+注意 `dsh_boot.lua` 里的路径与 stamp 缓存要和 `dsh.lua` / 工具页保持一致；
+主题脚本里没有 `service` 时会静默跳过（只记一行日志）。
+
 ### 18.8 验收
 
 - [ ] 工具页两个开关状态正确，切换后杀进程重开仍保持
+- [ ] 常驻通知开关与通知栏真实状态一致：关掉开关通知立即消失，打开后通知回来
+- [ ] 强停输入法后弹一次键盘：常驻通知自动恢复、MQTT 只有一条连接（不重复订阅）
 - [ ] 悬浮窗权限未授予时，工具页点权限行能跳到系统设置
 - [ ] 候选栏「待办」能唤出/收起悬浮窗（不经过 Activity）
 - [ ] 点常驻通知能唤出/收起悬浮窗

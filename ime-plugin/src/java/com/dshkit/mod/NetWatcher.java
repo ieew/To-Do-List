@@ -27,6 +27,8 @@ public final class NetWatcher {
     private android.app.PendingIntent pending;
     private boolean registered;
     private volatile long lastKickAt;
+    /** 注册回调会立刻把「当前已有网络」回调一次，启动那一下别把正常连接打断。 */
+    private volatile long startedAt;
 
     public NetWatcher(Context ctx, Log log, Session session) {
         this.ctx = ctx;
@@ -37,10 +39,12 @@ public final class NetWatcher {
     public synchronized void start() {
         if (registered) return;
         try {
+            startedAt = System.currentTimeMillis();
             receiver = new BroadcastReceiver() {
                 @Override
                 public void onReceive(Context context, Intent intent) {
                     long now = System.currentTimeMillis();
+                    if (now - startedAt < 3000) return; // 启动瞬间的回调：连接正在建立，别踢它
                     if (now - lastKickAt < 5000) return; // 连续广播别把重连打爆（Session 里还会再合并一次）
                     lastKickAt = now;
                     log.i("net", "网络可用，触发重连");

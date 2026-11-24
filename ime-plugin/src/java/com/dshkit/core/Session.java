@@ -362,6 +362,11 @@ public final class Session {
 
     private void onOnline() {
         if (!running) return;
+        if (online) {
+            // connect/disconnect 交错时 Paho 可能回调两次，第二次只记一行，别重复订阅/拉取
+            log.i("session", "忽略重复的 MQTT 连接回调");
+            return;
+        }
         online = true;
         reconnectDelay = 2000L;
         lastError = "";

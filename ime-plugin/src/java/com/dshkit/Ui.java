@@ -181,11 +181,21 @@ public final class Ui {
         notice.setText("常驻通知（点通知唤出/收起待办面板）");
         notice.setTextColor(Color.parseColor("#FFE8E8E8"));
         notice.setTextSize(13);
-        notice.setChecked(kit.todoNotice().isEnabled());
+        // 看真实状态：进程被杀后通知已经被系统收走，偏好却还是「开」，
+        // 只看偏好就会出现「通知没了、开关还勾着」。
+        notice.setChecked(kit.todoNotice().isActive());
         notice.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 kit.call("todo.notice", notice.isChecked() ? "on" : "off");
+                // 开不起来（通知权限被关等）时把勾回滚到真实状态
+                final CheckBox box = notice;
+                box.postDelayed(new Runnable() {
+                    @Override
+                    public void run() {
+                        box.setChecked(kit.todoNotice().isActive());
+                    }
+                }, 300);
             }
         });
         box.addView(notice);
