@@ -465,7 +465,17 @@ ContentResolver.call(content://com.todo.android.ime/tasks, "set_done", taskId, {
 - 内部调 `TaskCommands.setDone(taskId, activeWorkspaceId, done)`；
 - 返回 `Bundle{ok=true}`。
 
-其它方法（`update` / `delete` / 未知 `call`）一律抛 `UnsupportedOperationException`，插件按「不可用」处理。
+删除任务：
+
+```
+ContentResolver.call(content://com.todo.android.ime/tasks, "delete_task", taskId, {})
+```
+
+- 与 App 内删除同一条管道：`TaskCommands.updateField(taskId, activeWorkspaceId, __deleted, true)`（写墓碑，不做物理删除）；
+- 返回 `Bundle{ok=true}`；
+- **插件侧在调用前必须弹二次确认**（取消 / 删除），避免误触删除。
+
+其它方法（`update` / 未知 `call`）一律抛 `UnsupportedOperationException`，插件按「不可用」处理。
 
 ### 17.4 两类任务
 
@@ -537,7 +547,7 @@ ContentResolver.call(content://com.todo.android.ime/tasks, "set_done", taskId, {
   - 「等待完成」列表（逾期优先，红字标逾期）；
   - 「即将开始 · 36 小时」列表；
   - 每区最多 8 行，多的显示「还有 N 条，去 App 里看」；
-  - 长按任务弹快捷菜单：完成 / 复制标题 / 取消（只用现有 `set_done`，不需要 App 改接口）；
+  - 长按任务弹快捷菜单：完成 / 复制标题 / 删除（删除前弹二次确认）/ 取消；
   - 底部快速添加输入框 + 「添加」按钮（键盘回车也提交）；
   - 刷新失败只提示、保留旧列表，不清空（「一点刷新任务全没了」的修复）；
 - 数据：`TodoClient` 调 `content://com.todo.android.ime`（契约 17.3），所有调用在后台线程，结果回主线程；

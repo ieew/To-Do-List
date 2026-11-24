@@ -12,7 +12,8 @@ import android.net.Uri
  *
  * 安全边界：
  * - provider `exported=true`，App 端在每次调用校验 `Binder.getCallingUid()` 的包名；
- * - 只暴露「两类任务的只读视图 + 快速添加 + 勾选完成」，不暴露删除/编辑/成员/历史；
+ * - 只暴露「两类任务的只读视图 + 快速添加 + 勾选完成 + 删除（墓碑）」，不暴露编辑/成员/历史；
+ * - 删除必须由插件先弹二次确认再调用；
  * - 任何未识别调用抛异常，插件侧按「不可用」降级。
  */
 object ImeContract {
@@ -41,6 +42,10 @@ object ImeContract {
 
     /** `call` 方法：勾选/取消完成。 */
     const val METHOD_SET_DONE = "set_done"
+
+    /** `call` 方法：删除任务（写 `__deleted` 墓碑；插件侧已做二次确认）。 */
+    const val METHOD_DELETE = "delete_task"
+
     const val ARG_TASK_ID = "task_id"
     const val EXTRA_DONE = "done"
     const val EXTRA_OK = "ok"

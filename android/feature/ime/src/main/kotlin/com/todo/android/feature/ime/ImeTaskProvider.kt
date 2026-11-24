@@ -11,6 +11,7 @@ import android.os.Process
 import com.todo.android.core.data.repository.OpRepository
 import com.todo.android.core.data.repository.TaskCommands
 import com.todo.android.core.data.time.IsoTime
+import com.todo.android.core.domain.Fields
 import com.todo.android.core.domain.TaskItem
 import com.todo.android.core.domain.WorkspaceProjection
 import dagger.hilt.EntryPoint
@@ -19,6 +20,7 @@ import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.JsonPrimitive
 
 /**
  * 给输入法插件（dsh-kit）的桥。
@@ -111,17 +113,35 @@ class ImeTaskProvider : ContentProvider() {
 
     override fun call(method: String, arg: String?, extras: Bundle?): Bundle {
         ensureCallerAllowed()
-        require(method == ImeContract.METHOD_SET_DONE) { "unsupported method: $method" }
 
         val taskId = arg?.trim()?.takeIf { it.isNotEmpty() }
             ?: extras?.getString(ImeContract.ARG_TASK_ID)?.trim()?.takeIf { it.isNotEmpty() }
             ?: throw IllegalArgumentException("task_id required")
-        val done = extras?.getBoolean(ImeContract.EXTRA_DONE, true) ?: true
 
         val state = projection()
         check(state.activeWorkspaceId.isNotEmpty()) { "not_logged_in" }
-        runBlocking {
-            entryPoint().taskCommands().setDone(taskId, state.activeWorkspaceId, done)
+
+        when (method) {
+            ImeContract.METHOD_SET_DONE -> {
+                val done = extras?.getBoolean(ImeContract.EXTRA_DONE, true) ?: true
+                runBlocking {
+                    entryPoint().taskCommands().setDone(taskId, state.activeWorkspaceId, done)
+                }
+            }
+
+            ImeContract.METHOD_DELETE -> {
+                // 删除 = 写 `__deleted` 墓碑，与 App 内删除同一套 op 管道；撤销由 App 内恢复逻辑负责。
+                runBlocking {
+                    entryPoint().taskCommands().updateField(
+                        taskId,
+                        state.activeWorkspaceId,
+                        Fields.DELETED,
+                        JsonPrimitive(true),
+                    )
+                }
+            }
+
+            else -> throw IllegalArgumentException("unsupported method: $method")
         }
         return Bundle().apply { putBoolean(ImeContract.EXTRA_OK, true) }
     }

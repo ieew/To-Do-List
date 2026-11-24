@@ -108,6 +108,14 @@ public final class TodoClient {
         return out != null && out.getBoolean("ok", false);
     }
 
+    /** 删除任务（App 端写 `__deleted` 墓碑）。插件侧调用前必须二次确认。 */
+    public boolean delete(String taskId) {
+        ContentResolver cr = ctx.getContentResolver();
+        Bundle input = new Bundle();
+        Bundle out = cr.call(TASKS_URI, "delete_task", taskId, input);
+        return out != null && out.getBoolean("ok", false);
+    }
+
     /** 探测 App 是否提供了这个 provider（供面板提示用）。 */
     public boolean available() {
         try {

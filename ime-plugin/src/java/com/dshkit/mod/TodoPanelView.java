@@ -375,6 +375,17 @@ public final class TodoPanelView {
             });
             menu.addView(copy);
 
+            TextView del = menuItem("删除");
+            del.setTextColor(DANGER);
+            del.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    popup.dismiss();
+                    confirmDelete(anchor, task);
+                }
+            });
+            menu.addView(del);
+
             TextView cancel = menuItem("取消");
             cancel.setOnClickListener(new View.OnClickListener() {
                 @Override
@@ -408,6 +419,91 @@ public final class TodoPanelView {
         } catch (Throwable t) {
             Toast.makeText(ctx, "复制失败", Toast.LENGTH_SHORT).show();
         }
+    }
+
+    /** 删除前二次确认：居中白卡片，取消 / 红色删除。 */
+    private void confirmDelete(final View anchor, final TodoClient.Task task) {
+        try {
+            final LinearLayout box = new LinearLayout(ctx);
+            box.setOrientation(LinearLayout.VERTICAL);
+            box.setBackground(round(0xFFFFFFFF, 16));
+            box.setPadding(dp(18), dp(16), dp(18), dp(12));
+            box.setElevation(dp(12));
+
+            TextView title = new TextView(ctx);
+            title.setText("删除任务？");
+            title.setTextColor(TEXT);
+            title.setTextSize(16);
+            title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+            box.addView(title);
+
+            TextView body = new TextView(ctx);
+            body.setText("「" + task.title + "」删除后会从待办里消失。");
+            body.setTextColor(TEXT2);
+            body.setTextSize(13);
+            body.setPadding(0, dp(8), 0, dp(12));
+            box.addView(body);
+
+            LinearLayout btns = new LinearLayout(ctx);
+            btns.setOrientation(LinearLayout.HORIZONTAL);
+            btns.setGravity(Gravity.END);
+
+            final PopupWindow popup = new PopupWindow(box, dp(280),
+                    LinearLayout.LayoutParams.WRAP_CONTENT, true);
+            popup.setBackgroundDrawable(round(0x00000000, 0));
+            popup.setOutsideTouchable(true);
+            popup.setElevation(dp(12));
+
+            Button cancel = textButton("取消");
+            cancel.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    popup.dismiss();
+                }
+            });
+            btns.addView(cancel);
+
+            Button del = textButton("删除");
+            del.setTextColor(0xFFFFFFFF);
+            del.setBackground(round(DANGER, 10));
+            del.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    popup.dismiss();
+                    doDelete(task);
+                }
+            });
+            btns.addView(del);
+            box.addView(btns);
+
+            popup.showAtLocation(anchor, Gravity.CENTER, 0, 0);
+        } catch (Throwable t) {
+            showError(t);
+        }
+    }
+
+    private void doDelete(final TodoClient.Task task) {
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    client.delete(task.id);
+                    main.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            refresh();
+                        }
+                    });
+                } catch (final Throwable t) {
+                    main.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            showError(t);
+                        }
+                    });
+                }
+            }
+        }, "dsh-todo-delete").start();
     }
 
     private String metaLine(TodoClient.Task task) {
