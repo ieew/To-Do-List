@@ -119,6 +119,18 @@ flowchart TD
 | 三 | 客户端有实时通道时不轮询，无通道时回退轮询（双模并存） |
 | 四 | 若需「别人改了我立刻知道」，才由 Writer 追加 op 后主动 nudge |
 
+**Android 通道委托（2026-11-24 补充）**：同一台手机上，Android App 与输入法 dsh-kit
+各注册自己的 `device_id`。**账号与登录态只属于 App**：插件不保存账号密码/refresh token，
+由 App 通过 `dsh_authorize` 代为注册 `android-ime` 设备，并下发 10 分钟票据 + **设备级凭证**；
+插件保存加密后的 `device_id`/`credential`，用 `POST /v1/dsh/devices/refresh` 自主续期（见
+`server-protocol.md` §15.12），App 退出/切换账号时吊销设备。**通知/提醒由 App 自己 pull/ack/管理游标**；
+输入法只提供 MQTT nudge，通道可用时 App 不维持第二条 MQTT 长连接，通道不可用时 App 自建 Paho MQTT / 回退轮询。
+提醒采用「单一展示者」：App 可用时由 App 展示，输入法只 ack 不弹；App 不可用时输入法兜底。
+**剪贴板逻辑全部留在插件**（`ClipSource`、上行、下行应用、防回流），因为 App 后台权限无法持续监听剪贴板；
+插件未运行时剪贴板同步不可用。去重键统一为 `(workspace_id, task_id, remind_at_ms)`，消息级用 `msg_id`。
+设置变更由 App 显式广播给插件（带 `channel_token`），用于输入法兜底时读取 DND/提前量。详见
+[`docs/android-ime-dsh-channel.md`](../docs/android-ime-dsh-channel.md)。
+
 ## 5. Windows 端
 
 ```

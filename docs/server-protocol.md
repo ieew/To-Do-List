@@ -900,4 +900,79 @@ dsh/v1/{user_id}/dev/{device_id}/out   设备上报：设备 → 服务端（心
 2. 连 broker（`username`/`password` 用返回值），订阅 `topic_in`；
 3. 连上后先 `pull`（`since=本地游标`）把所有未确认消息取回来；
 4. 收到 `nudge`/`clip` → `pull` → 应用 → `ack` → 推进本地游标并存盘；
-5. 断线重连后重复 3；票据过期（401）就重新 `register` 续期。
+5. 断线重连后重复 3；票据过期（401）时：
+   - 持有账号 Bearer 的客户端重新 `devices/register`；
+   - 只有设备级凭证的客户端（如输入法插件）调 `devices/refresh`。
+
+### 15.12 设备级凭证（自主续期）
+
+目的：让设备在**不持有账号密码/账号 refresh token** 的前提下自主续期短票据。
+适用于无法长期运行 App 账号逻辑、但需要独立维持通道的宿主（如输入法插件）。
+
+#### 签发（App，Bearer）
+
+```http
+POST /v1/dsh/devices/{device_id}/credential
+Authorization: Bearer <access_token>
+```
+
+```json
+{"device_id":"dsh-…","credential":"dshcred-…","credential_expires_at":1767225600000}
+```
+
+- 只有设备所属用户可签发；`404 device_not_found` / `409 device_revoked`。
+- 重复签发会**轮换**：旧凭证立即失效。
+- 服务端只保存 `sha256(credential)`，不保存明文，也不写日志。
+- 凭证 TTL 由 `TODO_SERVER_DSH_DEVICE_CREDENTIAL_DAYS` 控制（默认 30 天，允许 1–365）。
+
+#### 续期（设备，凭 credential）
+
+```http
+POST /v1/dsh/devices/refresh
+Content-Type: application/json
+```
+
+```json
+{"device_id":"dsh-…","credential":"dshcred-…"}
+```
+
+成功 `200`：
+
+```json
+{"device_id":"dsh-…","ticket":"eyJ2IjoxLC…", "ticket_expires_at":1730000000000,
+ "credential":"dshcred-…<新>", "credential_expires_at":1767225600000,
+ "mqtt":{"enabled":true,"online":true,"host":"…","port":1883,"tls":false,
+         "username":"dsh-…","topic_in":"dsh/v1/u-…/dev/dsh-…/in",
+         "topic_out":"dsh/v1/u-…/dev/dsh-…/out"}}
+```
+
+- **不需要 Authorization 头**；只校验 `device_id + credential` 哈希、未吊销、未过期。
+- 成功后**轮换凭证**，旧值立即失效；客户端必须保存新值。
+- 错误：`401 invalid_credential`（凭证错误/过期/已轮换）、`403 forbidden`、`409 device_revoked`。
+- 限流：每设备 10 次/分钟；超限 `429 rate_limited`。
+- 凭证**只能**调用本端点；不能用于设备管理、push、state 或任何账号级接口。
+
+#### 吊销
+
+现有 `POST /v1/dsh/devices/{device_id}/revoke`（Bearer）同时：
+
+- 清空 `credential_hash` / `credential_expires_at`；
+- 踢掉 MQTT 连接；
+- 后续 `refresh` 返回 `409 device_revoked`。
+
+#### 存储与配置
+
+`dsh_devices` 增加列：
+
+- `credential_hash TEXT`（`sha256` hex）
+- `credential_expires_at INTEGER`
+- `credential_rotated_at INTEGER`
+
+配置：
+
+- `TODO_SERVER_DSH_DEVICE_CREDENTIAL_DAYS`（默认 30）
+- `TODO_SERVER_DSH_DEVICE_REFRESH_RATE`（默认 10 次/分钟/设备）
+
+> 设计取舍：设备凭证仍是 bearer 语义，泄露后可读取该设备的 pull 结果（广播通知/提醒、剪贴板），
+> 但**不能**修改账号、不能代表用户调用业务接口，且可随时吊销、每次续期轮换。
+> 不要把它与账号 refresh token 混用。

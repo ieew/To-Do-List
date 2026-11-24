@@ -302,6 +302,13 @@ kit.call(action: string, argsJson: string) -> string   // 返回 JSON 或纯文�
 4. 多设备：同一账号可注册多台（手机、CLI、网页），push 不带 `device_id` = 广播全部设备，各自 ack。
 5. 吊销：立即踢线 + 票据失效，设备不能再用。
 6. 服务端提醒（P4）的收件人 = 工作区成员，走同一套账号；`dsh_reminder_fires` 只保证不重复推。
+7. **Android 插件不保存账号密码**：账号只由待办 App 持有；App 通过 `dsh_authorize` 代为注册
+   `platform="android-ime"` 设备并下发 10 分钟票据 + **设备级凭证**；插件只持久化
+   `device_id`、加密后的 `credential`、游标与 `notify_seen`，不保存账号密码/账号 refresh token。
+8. **App 与插件是两个设备**：App 注册 `dsh-app-*`（通知/提醒 pull），插件注册 `dsh-ime-*`
+   （剪贴板 pull/上行）；不共用 `device_id`，避免 ack/游标互相覆盖。
+9. **设备级凭证自主续期**：插件用 `POST /v1/dsh/devices/refresh` 换新票据并轮换凭证
+   （见 `server-protocol.md` §15.12）；App 吊销设备后凭证立即失效。
 
 ## 十一、界面
 
@@ -714,3 +721,18 @@ end
 - 自动化：`cargo test --lib --no-default-features`（协议/调度单测）、
   `npm run verify:dsh`（起临时 uvicorn + `tests/dsh_e2e.rs` 验证注册/push/pull/ack/clip）。
 - MQTT 实时链路仍需手工验证（本机登录 + 手机输入法插件或第二台设备）。
+
+## 二十、Android App 通道委托（设计稿）
+
+当前 Android App **尚未接入 dsh**（无 `/v1/dsh/*`、无 MQTT），提醒仍是纯本地 AlarmManager；
+输入法 dsh-kit 收到服务端提醒时会自己弹通知，因此两者会双弹。
+
+目标设计与契约见 [`android-ime-dsh-channel.md`](./android-ime-dsh-channel.md)：
+
+- 输入法通道可用时，App 依赖它的 nudge，**自己 pull/ack 并管理通知/提醒游标**；
+- 输入法通道不可用时，App 自建 Paho MQTT / 回退轮询；
+- App 是单一提醒展示者，输入法只 ack 不弹；App 不可用时输入法兜底；
+- **插件不保存账号密码**：App 通过 `dsh_authorize` 代为注册 `android-ime` 设备并下发短票据；
+- **剪贴板逻辑全部留在插件**：App 后台权限无法持续监听剪贴板；插件未运行时剪贴板同步不可用；
+- App → 插件新增设置变更广播（带 `channel_token`），供输入法兜底时读取 DND/提前量；
+- 去重键统一为 `(workspace_id, task_id, remind_at_ms)`，消息级用 `msg_id`。

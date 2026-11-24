@@ -55,7 +55,11 @@ dsh_seen(msg_id PRIMARY KEY, seen_at INTEGER)   -- dsh 消息去重，7 天清�
 ## 一之二、服务端提醒推送（dsh 通道，2026-11 新增）
 
 > 这是后来加的：用户要求「待办提醒也能推到手机」，所以服务器从「完全不介入」变成
-> 「可选的第二通道」。客户端本地调度不变，两者互不依赖，可能重复提醒一次（可接受）。
+> 「可选的第二通道」。客户端本地调度不变，两者互不依赖。
+> **目标口径是「单一展示者 + 去重」而不是接受重复**：Windows 已按
+> `task_id + remind_at` 与本地 `last_fired_at` 去重；Android 的设计见
+> [`android-ime-dsh-channel.md`](./android-ime-dsh-channel.md)（App 为单一展示者，
+> 输入法通道只提供 nudge；实现前仍可能有短暂的重复提醒）。
 
 - **账号体系不另起一套**：提醒只认待办自己的 `users` / `memberships`。没有 dsh 账号，
   也没有第二套登录；推送设备必须先在该账号下用待办 JWT 注册。
