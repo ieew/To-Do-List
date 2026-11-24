@@ -367,7 +367,7 @@ class DshManager @Inject constructor(
         }
     }
 
-    private fun lastImeStatus() = runCatching {
+    private suspend fun lastImeStatus() = runCatching {
         metaDao.get(IME_STATUS)?.let { json.decodeFromString(ImeStatus.serializer(), it) }
     }.getOrNull()
 
