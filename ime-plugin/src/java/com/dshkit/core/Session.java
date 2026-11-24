@@ -638,9 +638,13 @@ public final class Session {
                     + c.endpoint.host + ":" + c.endpoint.port);
             return true;
         } catch (HttpApi.ApiException e) {
-            if (e.status == 401 || "invalid_credential".equals(e.code)) clearCredential();
+            if (e.status == 401 || "invalid_credential".equals(e.code)) {
+                clearCredential();
+                notifyCredentialInvalid();
+            }
             if (e.status == 409 || "device_revoked".equals(e.code)) {
                 clearCredential();
+                notifyCredentialInvalid();
                 device = null;
                 store.put(K_DEVICE_ID, null);
                 store.saveIfDirty();
@@ -652,6 +656,18 @@ public final class Session {
             lastError = "设备续期异常：" + t.getMessage();
             log.e("session/credential", t);
             return false;
+        }
+    }
+
+    /** 告诉 App 本机凭证已失效：App 清掉映射，下次 dsh_authorize 重新签发。 */
+    private void notifyCredentialInvalid() {
+        Authorizer a = authorizer;
+        if (a == null) return;
+        try {
+            a.update("", 0L);
+            log.i("session", "已通知 App 凭证失效，等待重新授权");
+        } catch (Throwable t) {
+            log.w("session", "通知 App 凭证失效失败：" + t.getMessage());
         }
     }
 

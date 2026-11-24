@@ -63,6 +63,8 @@ class DshMqtt @Inject constructor() {
                 keepAliveInterval = keepAliveSeconds.coerceIn(15, 600)
                 userName = endpoint.username
                 password = ticket.toCharArray()
+                // 服务端 broker 只监听 IPv4；Android 默认先解析 IPv6，连 240e:...:1883 会 ECONNREFUSED。
+                socketFactory = Ipv4SocketFactory()
             }
             mqtt.connect(options, null, object : org.eclipse.paho.client.mqttv3.IMqttActionListener {
                 override fun onSuccess(asyncActionToken: org.eclipse.paho.client.mqttv3.IMqttToken?) {

@@ -1,6 +1,7 @@
 package com.dshkit.core;
 
 import org.eclipse.paho.client.mqttv3.IMqttActionListener;
+import org.eclipse.paho.client.mqttv3.MqttException;
 import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken;
 import org.eclipse.paho.client.mqttv3.IMqttToken;
 import org.eclipse.paho.client.mqttv3.MqttAsyncClient;
@@ -69,8 +70,8 @@ public final class MqttTransport implements Transport {
 
                 @Override
                 public void connectionLost(Throwable cause) {
-                    lastError = cause == null ? "连接断开" : String.valueOf(cause.getMessage());
-                    setState(State.OFFLINE, lastError);
+                    lastError = cause == null ? "连接断开" : describe(cause);
+                    setState(State.OFFLINE, "连接断开: " + lastError);
                 }
 
                 @Override
@@ -99,6 +100,8 @@ public final class MqttTransport implements Transport {
             options.setUserName(c.username());
             options.setPassword(c.password() == null ? new char[0] : c.password().toCharArray());
             options.setMqttVersion(MqttConnectOptions.MQTT_VERSION_3_1_1);
+            // 服务端 broker 只在 IPv4 上监听；Android 默认先解析 IPv6，连 240e:...:1883 会 ECONNREFUSED。
+            options.setSocketFactory(new Ipv4SocketFactory());
             mqtt.connect(options, null, new IMqttActionListener() {
                 @Override
                 public void onSuccess(IMqttToken asyncActionToken) {
@@ -107,7 +110,7 @@ public final class MqttTransport implements Transport {
 
                 @Override
                 public void onFailure(IMqttToken asyncActionToken, Throwable exception) {
-                    lastError = "连接失败: " + (exception == null ? "?" : exception.getMessage());
+                    lastError = "连接失败: " + describe(exception);
                     setState(State.OFFLINE, lastError);
                 }
             });
@@ -175,6 +178,24 @@ public final class MqttTransport implements Transport {
     public void disconnect() {
         disconnectQuietly();
         setState(State.OFFLINE, "已断开");
+    }
+
+    /** 把 Paho 异常拆开打全：message 常见为空，reasonCode/cause 才是真因。 */
+    private static String describe(Throwable t) {
+        if (t == null) return "?";
+        StringBuilder sb = new StringBuilder();
+        sb.append(t.getClass().getName());
+        if (t.getMessage() != null) sb.append(": ").append(t.getMessage());
+        if (t instanceof MqttException) {
+            sb.append(" code=").append(((MqttException) t).getReasonCode());
+        }
+        Throwable cause = t.getCause();
+        for (int i = 0; cause != null && i < 4; i++) {
+            sb.append(" <- ").append(cause.getClass().getName());
+            if (cause.getMessage() != null) sb.append(": ").append(cause.getMessage());
+            cause = cause.getCause();
+        }
+        return sb.toString();
     }
 
     private void disconnectQuietly() {

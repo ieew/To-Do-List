@@ -158,9 +158,14 @@ class DshManager @Inject constructor(
         )
     }
 
-    /** 插件续期后回写轮换后的凭证；只接受更晚的过期时间，避免旧请求覆盖新值。 */
+    /** 插件续期后回写轮换后的凭证；只接受更晚的过期时间，避免旧请求覆盖新值。
+     *  空凭证表示「插件明确报告失效」，此时清掉映射，下次 authorize 会重新签发。 */
     suspend fun updateImeCredential(credential: String, expiresAt: Long) {
-        if (credential.isBlank()) return
+        if (credential.isBlank()) {
+            metaDao.delete(IME_CREDENTIAL)
+            metaDao.delete(IME_CREDENTIAL_EXP)
+            return
+        }
         val currentExp = metaDao.get(IME_CREDENTIAL_EXP)?.toLongOrNull() ?: 0L
         if (expiresAt in 1 until currentExp) return
         metaDao.put(MetaEntity(IME_CREDENTIAL, credential))
