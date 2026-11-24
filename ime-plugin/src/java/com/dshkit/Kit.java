@@ -1,7 +1,10 @@
 package com.dshkit;
 
 import android.app.Activity;
+import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.os.Build;
 
@@ -36,7 +39,7 @@ import java.util.Map;
  */
 public final class Kit {
 
-    public static final String VERSION = "0.3.20";
+    public static final String VERSION = "0.3.21";
 
     private static Kit INSTANCE;
 
@@ -60,9 +63,25 @@ public final class Kit {
     private final ThemeHook themeHook;
     private final SharedPreferences todoPrefs;
     private final long bootAt = System.currentTimeMillis();
+    /** 进程级主实例：每个 Lua 入口会新建 DexClassLoader，宿主缓存又存不了 Java 对象，
+     *  所以同时可能有几个 Kit。只让第一个启动网络/剪贴板/通知，其余当空壳。 */
+    private final boolean primary;
+    private BroadcastReceiver cmdReceiver;
     private Ui ui;
 
     private Kit(TrimeHost host, File base) {
+        String booted = null;
+        try {
+            booted = System.getProperty("dshkit.kit.primary");
+        } catch (Throwable ignored) {
+        }
+        this.primary = booted == null;
+        if (this.primary) {
+            try {
+                System.setProperty("dshkit.kit.primary", "1");
+            } catch (Throwable ignored) {
+            }
+        }
         this.host = host;
         this.log = new KitLog(host.context());
         this.store = new Store(new File(base, "prefs.json"));
@@ -119,6 +138,46 @@ public final class Kit {
             }
         });
         this.ui = new Ui(this);
+        if (this.primary) registerCmdReceiver();
+    }
+
+    /** 面板广播的 action：Lua 入口没有 Kit 时（已有主实例）用它让主实例出面板。 */
+    public static final String ACTION_PANEL = "com.dshkit.ui.PANEL";
+
+    /** 主实例注册一个命令接收器：别的 Lua 入口发广播就能操作这个唯一实例。 */
+    private void registerCmdReceiver() {
+        cmdReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context c, Intent intent) {
+                try {
+                    if (intent == null) return;
+                    log.i("web/cmd", "收到 " + intent.getAction());
+                    if (ACTION_PANEL.equals(intent.getAction())) ui.panel();
+                } catch (Throwable t) {
+                    log.e("cmd/recv", t);
+                }
+            }
+        };
+        IntentFilter filter = new IntentFilter(ACTION_PANEL);
+        try {
+            if (Build.VERSION.SDK_INT >= 26) {
+                java.lang.reflect.Method m = Context.class.getMethod("registerReceiver",
+                        BroadcastReceiver.class, IntentFilter.class, int.class);
+                int flags = Build.VERSION.SDK_INT >= 33 ? 4 : 0;
+                m.invoke(host.context(), cmdReceiver, filter, flags);
+                return;
+            }
+        } catch (Throwable ignored) {
+        }
+        try {
+            host.context().registerReceiver(cmdReceiver, filter);
+        } catch (Throwable t) {
+            log.e("cmd/register", t);
+        }
+    }
+
+    public boolean isPrimary() {
+        return primary;
     }
 
     /** IME 脚本入口：通过 Class.forName(...,loader).boot() 调用，自己找 TrimeService。 */
@@ -152,10 +211,14 @@ public final class Kit {
         INSTANCE.log.i("probe", h.probe());
         INSTANCE.log.i("config", "source=" + INSTANCE.config.source
                 + " server=" + INSTANCE.config.server + " user=" + INSTANCE.config.username);
-        INSTANCE.session.start();
-        if (INSTANCE.config.clipEnabled) INSTANCE.clipSource.start();
-        INSTANCE.netWatcher.start();
-        INSTANCE.todoNotice.sync();
+        if (INSTANCE.primary) {
+            INSTANCE.session.start();
+            if (INSTANCE.config.clipEnabled) INSTANCE.clipSource.start();
+            INSTANCE.netWatcher.start();
+            INSTANCE.todoNotice.sync();
+        } else {
+            INSTANCE.log.i("boot", "附加实例：不启动网络/剪贴板/通知（由主实例负责）");
+        }
         return INSTANCE;
     }
 
@@ -186,15 +249,21 @@ public final class Kit {
             this.config = fresh;
             api.setServer(fresh.server);
             session.setConfig(fresh);
-            if (fresh.clipEnabled) {
-                if (!clipSource.isStarted()) clipSource.start();
-            } else {
-                clipSource.stop();
+            if (primary) {
+                if (fresh.clipEnabled) {
+                    if (!clipSource.isStarted()) clipSource.start();
+                } else {
+                    clipSource.stop();
+                }
             }
             log.i("config", "重载：source=" + fresh.source
                     + " server=" + fresh.server + " user=" + fresh.username);
             if (!fresh.hasServer()) {
                 host.toast("配置已重载，但 server 没填（dsh.d/config.json）");
+                return;
+            }
+            if (!primary) {
+                host.toast("配置已重载（附加实例不重连，主实例下次启动生效）");
                 return;
             }
             host.toast("配置已重载：" + fresh.server + "，正在重连");
@@ -380,11 +449,12 @@ public final class Kit {
                 return Json.write(session.status());
             }
             if (action.equals("dsh.sync")) {
-                session.syncNow();
+                // 附加实例不碰网络：syncNow 会顺手把没启动的会话拉起来
+                if (primary) session.syncNow();
                 return null;
             }
             if (action.equals("dsh.reconnect") || action.equals("dsh.login")) {
-                session.kick();
+                if (primary) session.kick();
                 return null;
             }
             if (action.equals("dsh.stop")) {
@@ -488,6 +558,7 @@ public final class Kit {
         Map<String, Object> st = session.status();
         StringBuilder sb = new StringBuilder();
         sb.append("版本 ").append(VERSION).append("  SDK ").append(Build.VERSION.SDK_INT).append('\n');
+        if (!primary) sb.append("附加实例：网络/剪贴板/通知由主实例负责\n");
         sb.append("进程 ").append(c.getPackageName()).append('\n');
         sb.append("宿主 ").append(shorten(host.probe(), 60)).append('\n');
         sb.append("传输 ").append(stateCn(Json.str(st, "state", "?")))

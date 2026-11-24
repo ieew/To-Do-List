@@ -40,6 +40,16 @@ if dshkit ~= nil then
     return nil
 end
 
+-- 进程里已经有主实例（别的入口建的）：直接返回，不再新建一套 DexClassLoader
+-- （宿主 LuaApplication 的共享缓存存不了 Java 对象，只能靠这个字符串标记去重）
+local okPrimary, primary = pcall(function()
+    return luajava.bindClass("java.lang.System").getProperty("dshkit.kit.primary")
+end)
+if okPrimary and primary ~= nil then
+    log("已有主实例，跳过")
+    return nil
+end
+
 local svc = service
 if svc == nil then
     -- 主题脚本 / 工具 Activity 环境可能拿不到 service；没有 service 就不自动启动

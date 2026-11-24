@@ -27,7 +27,14 @@ end
 pcall(dofile, SCRIPTS .. "/dsh_boot.lua")
 
 if dshkit == nil then
-    log("dsh_boot 没起来，不出面板")
+    -- 进程里已有主实例：让它出面板，别再新建一套
+    local sent = pcall(function()
+        local Intent = luajava.bindClass("android.content.Intent")
+        local i = Intent("com.dshkit.ui.PANEL")
+        i.setPackage(service.getPackageName())
+        service.sendBroadcast(i)
+    end)
+    log(sent and "已请求主实例出面板" or "没有 service，出不了面板")
     return nil
 end
 

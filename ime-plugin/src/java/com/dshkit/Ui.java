@@ -107,7 +107,7 @@ public final class Ui {
                     bar.addView(actButton(activity, "重连", new Runnable() {
                         @Override
                         public void run() {
-                            kit.session().kick();
+                            kit.call("dsh.reconnect");
                         }
                     }));
                     bar.addView(actButton(activity, "测试通知", new Runnable() {
@@ -390,7 +390,7 @@ public final class Ui {
             bar.addView(button("重连", new Runnable() {
                 @Override
                 public void run() {
-                    kit.session().kick();
+                    kit.call("dsh.reconnect");
                     render();
                 }
             }));

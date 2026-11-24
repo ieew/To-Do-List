@@ -44,6 +44,25 @@ if svc == nil and act == nil then
     return nil
 end
 
+-- 进程里已经有主实例：发广播让它切换，别再新建一套
+local okPrimary, primary = pcall(function()
+    return luajava.bindClass("java.lang.System").getProperty("dshkit.kit.primary")
+end)
+if okPrimary and primary ~= nil then
+    local anchor = svc or act
+    pcall(function()
+        local Intent = luajava.bindClass("android.content.Intent")
+        local i = Intent("com.dshkit.todo.TOGGLE")
+        i.setPackage(anchor.getPackageName())
+        anchor.sendBroadcast(i)
+    end)
+    if act ~= nil then
+        pcall(function() act.finish() end)
+    end
+    log("已有主实例，广播切换")
+    return nil
+end
+
 local ok, err = pcall(function()
     local File = luajava.bindClass("java.io.File")
     local anchor = svc or act
