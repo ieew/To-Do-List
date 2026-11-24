@@ -14,12 +14,17 @@ import com.todo.android.core.domain.TaskItem
  */
 object ImeQueries {
 
-    fun isOverdue(task: TaskItem, nowMs: Long): Boolean =
-        !task.done && task.dueAtMs != null && task.dueAtMs < nowMs
+    fun isOverdue(task: TaskItem, nowMs: Long): Boolean {
+        val dueAtMs = task.dueAtMs
+        return !task.done && dueAtMs != null && dueAtMs < nowMs
+    }
 
     fun waiting(tasks: List<TaskItem>, nowMs: Long, limit: Int): List<TaskItem> =
         tasks.asSequence()
-            .filter { !it.done && (it.startAtMs == null || it.startAtMs <= nowMs) }
+            .filter {
+                val startAtMs = it.startAtMs
+                !it.done && (startAtMs == null || startAtMs <= nowMs)
+            }
             .sortedWith(
                 compareBy<TaskItem> { if (isOverdue(it, nowMs)) 0 else 1 }
                     .thenBy { it.dueAtMs ?: Long.MAX_VALUE }
@@ -32,7 +37,10 @@ object ImeQueries {
 
     fun upcoming(tasks: List<TaskItem>, nowMs: Long, limit: Int): List<TaskItem> =
         tasks.asSequence()
-            .filter { !it.done && it.startAtMs != null && it.startAtMs > nowMs && it.startAtMs <= nowMs + ImeContract.UPCOMING_WINDOW_MS }
+            .filter {
+                val startAtMs = it.startAtMs
+                !it.done && startAtMs != null && startAtMs > nowMs && startAtMs <= nowMs + ImeContract.UPCOMING_WINDOW_MS
+            }
             .sortedWith(compareBy<TaskItem> { it.startAtMs }.thenBy { it.order }.thenBy { it.id })
             .take(clampLimit(limit))
             .toList()

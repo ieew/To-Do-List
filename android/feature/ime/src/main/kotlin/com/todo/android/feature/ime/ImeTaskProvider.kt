@@ -80,7 +80,7 @@ class ImeTaskProvider : ContentProvider() {
 
     override fun insert(uri: Uri, values: ContentValues?): Uri {
         ensureCallerAllowed()
-        requirement(uri.pathSegments.firstOrNull() == SEGMENT_TASKS) { "unknown uri: $uri" }
+        require(uri.pathSegments.firstOrNull() == SEGMENT_TASKS) { "unknown uri: $uri" }
 
         val title = values?.getAsString(ImeContract.COL_TITLE)?.trim().orEmpty()
         require(title.isNotEmpty()) { "title required" }
