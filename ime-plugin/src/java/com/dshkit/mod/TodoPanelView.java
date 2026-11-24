@@ -41,12 +41,18 @@ public final class TodoPanelView {
     }
 
     private static final int MAX_ROWS = 8;
-    private static final int BG = 0xF2202024;
-    private static final int PANEL_BG = 0xFF1B1B1F;
-    private static final int TEXT = 0xFFE8E8E8;
-    private static final int MUTED = 0xFF9E9E9E;
-    private static final int ACCENT = 0xFF80CBC4;
-    private static final int OVERDUE = 0xFFEF5350;
+    // 与待办 App（core/designsystem Tokens.light）同一套令牌：白卡片、蓝主色、灰阶文字。
+    private static final int PANEL_BG = 0xFFFFFFFF;
+    private static final int TEXT = 0xFF1F2937;
+    private static final int TEXT2 = 0xFF6B7280;
+    private static final int TEXT3 = 0xFF9CA3AF;
+    private static final int PRIMARY = 0xFF3B82F6;
+    private static final int BORDER = 0xFFE5E7EB;
+    private static final int BORDER2 = 0xFFF1F5F9;
+    private static final int INPUT_BG = 0xFFF8FAFC;
+    private static final int DANGER = 0xFFEF4444;
+    private static final int DANGER_SOFT = 0xFFFEF2F2;
+    private static final int OVERLAY_10 = 0x0F0F172A;
 
     private final Context ctx;
     private final TodoClient client;
@@ -73,16 +79,16 @@ public final class TodoPanelView {
     public View build() {
         root = new LinearLayout(ctx);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackground(round(BG, 18));
-        int pad = dp(12);
-        root.setPadding(pad, dp(10), pad, pad);
+        root.setBackground(panelBg());
+        int pad = dp(16);
+        root.setPadding(pad, dp(14), pad, dp(12));
 
         root.addView(buildTitleBar());
 
         status = new TextView(ctx);
-        status.setTextColor(MUTED);
-        status.setTextSize(11);
-        status.setPadding(0, dp(2), 0, dp(4));
+        status.setTextColor(TEXT2);
+        status.setTextSize(12);
+        status.setPadding(dp(10), dp(6), dp(10), dp(6));
         status.setVisibility(View.GONE);
         root.addView(status);
 
@@ -146,8 +152,9 @@ public final class TodoPanelView {
 
         TextView title = new TextView(ctx);
         title.setText("待办");
-        title.setTextColor(ACCENT);
-        title.setTextSize(16);
+        title.setTextColor(TEXT);
+        title.setTextSize(17);
+        title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         title.setPadding(dp(2), 0, 0, 0);
         LinearLayout.LayoutParams titleLp = new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
@@ -191,9 +198,9 @@ public final class TodoPanelView {
 
         TextView head = new TextView(ctx);
         head.setText(name);
-        head.setTextColor(MUTED);
-        head.setTextSize(11);
-        head.setPadding(dp(2), dp(4), 0, dp(2));
+        head.setTextColor(TEXT3);
+        head.setTextSize(12);
+        head.setPadding(dp(2), dp(6), 0, dp(3));
         box.addView(head);
         return box;
     }
@@ -206,14 +213,14 @@ public final class TodoPanelView {
 
         input = new EditText(ctx);
         input.setHint("快速添加任务");
-        input.setHintTextColor(0xFF777777);
+        input.setHintTextColor(TEXT3);
         input.setTextColor(TEXT);
-        input.setTextSize(14);
+        input.setTextSize(15);
         input.setSingleLine(true);
         input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
         input.setImeOptions(EditorInfo.IME_ACTION_DONE);
-        input.setBackground(round(0x33FFFFFF, 20));
-        input.setPadding(dp(12), dp(6), dp(12), dp(6));
+        input.setBackground(round(INPUT_BG, 12));
+        input.setPadding(dp(12), dp(9), dp(12), dp(9));
         LinearLayout.LayoutParams inputLp = new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
         input.setLayoutParams(inputLp);
@@ -233,9 +240,9 @@ public final class TodoPanelView {
         addButton.setText("添加");
         addButton.setTextSize(13);
         addButton.setAllCaps(false);
-        addButton.setTextColor(Color.parseColor("#FF1B1B1F"));
-        addButton.setBackground(round(ACCENT, 20));
-        addButton.setPadding(dp(16), 0, dp(16), 0);
+        addButton.setTextColor(0xFFFFFFFF);
+        addButton.setBackground(round(PRIMARY, 12));
+        addButton.setPadding(dp(20), dp(9), dp(20), dp(9));
         addButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -261,6 +268,7 @@ public final class TodoPanelView {
         } else {
             for (int i = 0; i < waiting.size() && i < MAX_ROWS; i++) {
                 waitingBox.addView(taskRow(waiting.get(i)));
+                if (i < waiting.size() - 1 && i < MAX_ROWS - 1) waitingBox.addView(divider());
             }
             if (waiting.size() > MAX_ROWS) waitingBox.addView(moreLine(waiting.size() - MAX_ROWS));
         }
@@ -270,6 +278,7 @@ public final class TodoPanelView {
         } else {
             for (int i = 0; i < upcoming.size() && i < MAX_ROWS; i++) {
                 upcomingBox.addView(taskRow(upcoming.get(i)));
+                if (i < upcoming.size() - 1 && i < MAX_ROWS - 1) upcomingBox.addView(divider());
             }
             if (upcoming.size() > MAX_ROWS) upcomingBox.addView(moreLine(upcoming.size() - MAX_ROWS));
         }
@@ -279,11 +288,11 @@ public final class TodoPanelView {
         LinearLayout row = new LinearLayout(ctx);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(0, dp(3), dp(6), dp(3));
+        row.setPadding(0, dp(7), dp(6), dp(7));
 
         CheckBox check = new CheckBox(ctx);
         check.setChecked(false);
-        check.setButtonTintList(android.content.res.ColorStateList.valueOf(ACCENT));
+        check.setButtonTintList(android.content.res.ColorStateList.valueOf(PRIMARY));
         check.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -301,7 +310,7 @@ public final class TodoPanelView {
         TextView title = new TextView(ctx);
         title.setText(task.title);
         title.setTextColor(TEXT);
-        title.setTextSize(14);
+        title.setTextSize(15);
         title.setSingleLine(true);
         title.setEllipsize(android.text.TextUtils.TruncateAt.END);
         texts.addView(title);
@@ -310,8 +319,8 @@ public final class TodoPanelView {
         if (!meta.isEmpty()) {
             TextView sub = new TextView(ctx);
             sub.setText(meta);
-            sub.setTextColor(task.overdue ? OVERDUE : MUTED);
-            sub.setTextSize(10);
+            sub.setTextColor(task.overdue ? DANGER : TEXT2);
+            sub.setTextSize(11);
             texts.addView(sub);
         }
         row.addView(texts);
@@ -413,6 +422,9 @@ public final class TodoPanelView {
         // 保留最近一次成功的数据：刷新失败只提示、不清空，避免"一点刷新任务全没了"。
         render(lastWaiting, lastUpcoming);
         status.setText(msg);
+        status.setTextColor(DANGER);
+        status.setBackground(round(DANGER_SOFT, 8));
+        status.setPadding(dp(10), dp(6), dp(10), dp(6));
         status.setVisibility(View.VISIBLE);
     }
 
@@ -421,7 +433,7 @@ public final class TodoPanelView {
     private TextView emptyLine(String text) {
         TextView tv = new TextView(ctx);
         tv.setText(text);
-        tv.setTextColor(0xFF777777);
+        tv.setTextColor(TEXT3);
         tv.setTextSize(12);
         tv.setPadding(dp(28), dp(4), 0, dp(4));
         return tv;
@@ -430,7 +442,7 @@ public final class TodoPanelView {
     private TextView moreLine(int more) {
         TextView tv = new TextView(ctx);
         tv.setText("还有 " + more + " 条，去 App 里看");
-        tv.setTextColor(0xFF777777);
+        tv.setTextColor(TEXT3);
         tv.setTextSize(11);
         tv.setPadding(dp(28), dp(2), 0, dp(2));
         return tv;
@@ -440,16 +452,35 @@ public final class TodoPanelView {
     private Button iconButton(String text) {
         Button b = new Button(ctx);
         b.setText(text);
-        b.setTextSize(17);
+        b.setTextSize(16);
         b.setAllCaps(false);
-        b.setTextColor(TEXT);
-        b.setBackground(round(0x22FFFFFF, 20));
+        b.setTextColor(TEXT2);
+        b.setBackground(round(OVERLAY_10, 999));
         b.setMinWidth(dp(46));
         b.setMinimumWidth(dp(46));
         b.setMinHeight(dp(46));
         b.setMinimumHeight(dp(46));
         b.setPadding(dp(12), 0, dp(12), 0);
         return b;
+    }
+
+    /** 卡片底：白底 + 1dp 描边，对应 App 的 card + border。 */
+    private GradientDrawable panelBg() {
+        GradientDrawable d = new GradientDrawable();
+        d.setColor(PANEL_BG);
+        d.setCornerRadius(dp(20));
+        d.setStroke(dp(1), BORDER);
+        return d;
+    }
+
+    private View divider() {
+        View v = new View(ctx);
+        v.setBackgroundColor(BORDER2);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(1));
+        lp.setMargins(dp(10), 0, dp(10), 0);
+        v.setLayoutParams(lp);
+        return v;
     }
 
     private GradientDrawable round(int color, int radiusDp) {

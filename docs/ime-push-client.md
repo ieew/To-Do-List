@@ -532,6 +532,7 @@ ContentResolver.call(content://com.todo.android.ime/tasks, "set_done", taskId, {
 - 可拖动：标题栏按住拖，松手把 `x/y` 存 `SharedPreferences("dsh_todo_overlay")`，下次原位弹出；
 - 尺寸：宽 `min(屏宽-32dp, 380dp)`，高 `min(屏高×58%, 520dp)`；默认位置在屏幕偏上，避开键盘；
 - 面板内容（`TodoPanelView`）：
+  - 视觉与待办 App 一致（`core/designsystem` 的 `Tokens.light`）：白卡片底、1dp 描边、20dp 圆角、蓝主色（#3B82F6）、灰阶文字；任务行间 1dp 淡分割线；
   - 标题栏（拖动区）+ 刷新 + 关闭（图标按钮 46dp 触控目标，避免点不准变成拖动）；
   - 「等待完成」列表（逾期优先，红字标逾期）；
   - 「即将开始 · 36 小时」列表；
