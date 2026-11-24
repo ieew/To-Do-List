@@ -44,6 +44,20 @@ public final class Scheduler {
         }
     }
 
+    /** 同 {@link #delay}，但返回句柄，便于取消（例如手动重连时作废旧的退避任务）。 */
+    public ScheduledFuture<?> delayFuture(Runnable task, long delayMs) {
+        if (delayMs <= 0) {
+            run(task);
+            return null;
+        }
+        try {
+            return pool.schedule(guarded(task), delayMs, TimeUnit.MILLISECONDS);
+        } catch (Throwable t) {
+            if (log != null) log.e("sched", t);
+            return null;
+        }
+    }
+
     public void every(Runnable task, long initialMs, final long periodMs) {
         try {
             pool.scheduleWithFixedDelay(guarded(task), initialMs, periodMs, TimeUnit.MILLISECONDS);

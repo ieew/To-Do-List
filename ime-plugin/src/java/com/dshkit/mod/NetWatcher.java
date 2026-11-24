@@ -41,7 +41,7 @@ public final class NetWatcher {
                 @Override
                 public void onReceive(Context context, Intent intent) {
                     long now = System.currentTimeMillis();
-                    if (now - lastKickAt < 3000) return; // 连续广播别把重连打爆
+                    if (now - lastKickAt < 5000) return; // 连续广播别把重连打爆（Session 里还会再合并一次）
                     lastKickAt = now;
                     log.i("net", "网络可用，触发重连");
                     try {

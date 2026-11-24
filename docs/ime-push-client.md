@@ -226,6 +226,8 @@ kit.call(action: string, argsJson: string) -> string   // 返回 JSON 或纯文�
 | 连上先 pull | 一次 | 覆盖离线期间的消息 |
 | 定时兜底 pull | 120s | 防 nudge 丢失/漏收 |
 | 断线重连 | 2s 起，×2，上限 60s | 每次重连前重新注册设备拿新票 |
+| 重连单飞 | — | 同一时刻只挂一个退避任务；手动重连/网络回调的重复触发合并成一次；`kick` 会作废排队的旧退避 |
+| HTTP 超时 | 连接 6s / 读 10s | 服务端不可达时快速失败、快速退避，不会一次卡 20s |
 | MQTT keepalive | `config.keep_alive`（默认 60s，限 15–600） | 与 Paho 的 ping 对应 |
 
 ### 7.3 凭据生命周期

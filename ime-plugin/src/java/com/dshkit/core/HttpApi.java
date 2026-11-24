@@ -245,8 +245,8 @@ public final class HttpApi {
         try {
             conn = (HttpURLConnection) new URL(server + path).openConnection();
             conn.setRequestMethod(method);
-            conn.setConnectTimeout(10_000);
-            conn.setReadTimeout(20_000);
+            conn.setConnectTimeout(6_000);
+            conn.setReadTimeout(10_000);
             conn.setRequestProperty("Accept", "application/json");
             if (token != null && !token.isEmpty()) {
                 conn.setRequestProperty("Authorization", "Bearer " + token);

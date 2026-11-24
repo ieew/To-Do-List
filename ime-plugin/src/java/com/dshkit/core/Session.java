@@ -4,6 +4,8 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * L3 业务会话：把「nudge → pull → 应用 → ack」串起来，并负责票据/令牌与重连。
@@ -48,7 +50,13 @@ public final class Session {
     private volatile boolean running;
     private volatile boolean pulling;
     private volatile boolean online;
-    private volatile boolean attemptScheduled;
+    /** 防重入：同一时刻只允许一个 attempt（ensureToken 里是阻塞网络调用）。 */
+    private final AtomicBoolean attempting = new AtomicBoolean(false);
+    /** 同一时刻只挂一个退避重连任务。 */
+    private final AtomicBoolean reconnectPending = new AtomicBoolean(false);
+    /** 手动重连合并：连点多下只算一次。 */
+    private final AtomicBoolean kickPending = new AtomicBoolean(false);
+    private volatile ScheduledFuture<?> reconnectFuture;
 
     private volatile String access;
     private volatile long accessExp;
@@ -159,6 +167,7 @@ public final class Session {
     public void stop() {
         running = false;
         online = false;
+        cancelReconnect();
         try {
             transport.disconnect();
         } catch (Throwable ignored) {
@@ -183,22 +192,24 @@ public final class Session {
         });
     }
 
-    /** 立刻重连（切网、手动重连、面板按钮）。 */
+    /** 立刻重连（切网、手动重连、面板按钮）；多次触发合并成一次。 */
     public void kick() {
         if (!running) {
             running = true;
         }
         reconnectDelay = 2000L;
+        if (!kickPending.compareAndSet(false, true)) return;
         log.i("session", "手动重连");
         sched.run(new Runnable() {
             @Override
             public void run() {
+                kickPending.set(false);
                 try {
                     transport.disconnect();
                 } catch (Throwable ignored) {
                 }
                 online = false;
-                attemptScheduled = false;
+                cancelReconnect();
                 attempt();
             }
         });
@@ -281,8 +292,8 @@ public final class Session {
     // ------------------------------------------------------------ 连接
 
     private void attempt() {
-        attemptScheduled = false;
         if (!running || online) return;
+        if (!attempting.compareAndSet(false, true)) return;
         try {
             if (!ensureToken()) {
                 scheduleReconnect();
@@ -344,6 +355,8 @@ public final class Session {
             lastError = t.getClass().getSimpleName() + ": " + t.getMessage();
             log.e("session/attempt", t);
             scheduleReconnect();
+        } finally {
+            attempting.set(false);
         }
     }
 
@@ -367,17 +380,26 @@ public final class Session {
     }
 
     private void scheduleReconnect() {
-        if (!running || attemptScheduled) return;
-        attemptScheduled = true;
+        if (!running || online) return;
+        if (!reconnectPending.compareAndSet(false, true)) return;
         long delay = reconnectDelay;
         reconnectDelay = Math.min(reconnectDelay * 2, 60_000L);
         log.i("session", "将在 " + delay + "ms 后重连");
-        sched.delay(new Runnable() {
+        reconnectFuture = sched.delayFuture(new Runnable() {
             @Override
             public void run() {
+                reconnectPending.set(false);
                 attempt();
             }
         }, delay);
+    }
+
+    /** 作废排队中的退避重连（手动重连、停止时调用）。 */
+    private void cancelReconnect() {
+        ScheduledFuture<?> f = reconnectFuture;
+        reconnectFuture = null;
+        if (f != null) f.cancel(false);
+        reconnectPending.set(false);
     }
 
     private boolean ensureToken() {
