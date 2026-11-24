@@ -558,6 +558,7 @@ ContentResolver.call(content://com.todo.android.ime/tasks, "set_done", taskId, {
 | 启用待办面板 | `todo.enable` / `todo.disable` | 总开关；关掉后候选栏/通知入口被拒 |
 | 悬浮窗权限（行） | — | 未授予时点击跳系统设置 `ACTION_MANAGE_OVERLAY_PERMISSION` |
 | 复制候选栏配置 | — | 把 `preset_keys` 片段送到剪贴板，**不改主题** |
+| 重载配置（按钮） | — | 重新读 `dsh.d/config.json`，换配置对象并自动重连；改服务器地址/账号后不用强停输入法 |
 
 ### 18.5 候选栏按钮
 

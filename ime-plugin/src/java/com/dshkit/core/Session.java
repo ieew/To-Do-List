@@ -37,7 +37,7 @@ public final class Session {
     private static final String K_REFRESH = "refresh";
     private static final String K_REFRESH_EXP = "refresh_exp";
 
-    private final Config cfg;
+    private volatile Config cfg;
     private final HttpApi api;
     private final Transport transport;
     private final Store store;
@@ -119,6 +119,11 @@ public final class Session {
 
     public void setListener(Listener listener) {
         this.listener = listener;
+    }
+
+    /** 配置重载：只换配置对象，连接由调用方 kick() 重新建立。 */
+    public void setConfig(Config cfg) {
+        this.cfg = cfg;
     }
 
     // ------------------------------------------------------------ 生命周期
