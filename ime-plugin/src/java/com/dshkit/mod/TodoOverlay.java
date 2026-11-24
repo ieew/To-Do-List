@@ -31,6 +31,8 @@ public final class TodoOverlay {
     private static final String PREFS = "dsh_todo_overlay";
     private static final String PREF_X = "x";
     private static final String PREF_Y = "y";
+    private static final String PREF_W = "w";
+    private static final String PREF_H = "h";
     /** 编译目标是 android-23，没有这两个常量；值取自 WindowManager.LayoutParams。 */
     private static final int TYPE_APPLICATION_OVERLAY = 2038;
     private static final int TYPE_PHONE = 2002;
@@ -46,11 +48,6 @@ public final class TodoOverlay {
     private TodoPanelView panel;
     private View root;
     private volatile boolean visible;
-    /** 我们的输入框是否在要键盘（此时按键盘高度压缩面板）。 */
-    private volatile boolean inputFocus;
-    /** 探测到的键盘高度（px），0 表示键盘不可见；探测不到时用输入框聚焦估算。 */
-    private volatile int keyboardHeight;
-    private boolean heightWatched;
 
     public TodoOverlay(Context ctx, TodoClient client, KitLog log) {
         this.ctx = ctx.getApplicationContext() != null ? ctx.getApplicationContext() : ctx;
@@ -160,13 +157,20 @@ public final class TodoOverlay {
 
                     @Override
                     public void onInputFocus(boolean want) {
-                        inputFocus = want;
                         setInputFocus(want);
-                        recomputeHeight();
+                    }
+
+                    @Override
+                    public void onHeightTouch(MotionEvent event) {
+                        handleHeightDrag(event);
+                    }
+
+                    @Override
+                    public void onSizeTouch(MotionEvent event) {
+                        handleSizeDrag(event);
                     }
                 });
                 root = panel.build();
-                watchKeyboardOnce();
             }
             if (visible) {
                 panel.refresh();
@@ -196,7 +200,11 @@ public final class TodoOverlay {
     private WindowManager.LayoutParams layoutParams() {
         DisplayMetrics dm = ctx.getResources().getDisplayMetrics();
         int width = Math.min(dm.widthPixels - dp(32), dp(380));
-        int height = heightFor(dm);
+        int height = Math.min((int) (dm.heightPixels * 0.58f), dp(520));
+        width = prefs.getInt(PREF_W, width);
+        height = prefs.getInt(PREF_H, height);
+        width = Math.max(dp(240), Math.min(width, dm.widthPixels - dp(16)));
+        height = Math.max(dp(220), Math.min(height, dm.heightPixels - dp(56)));
 
         WindowManager.LayoutParams p = new WindowManager.LayoutParams(
                 width, height,
@@ -212,70 +220,6 @@ public final class TodoOverlay {
         p.y = prefs.getInt(PREF_Y, Math.max(dp(56), dm.heightPixels / 7));
         p.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE;
         return p;
-    }
-
-    // ---------------------------------------------------------------- 高度
-
-    /**
-     * 面板高度：键盘收起时 58% 屏高；键盘展开/我们的输入框聚焦时压缩，
-     * 保证面板底部与键盘顶部留 16dp 空隙。
-     */
-    private int heightFor(DisplayMetrics dm) {
-        int screenH = dm.heightPixels;
-        int top = prefs.getInt(PREF_Y, Math.max(dp(56), screenH / 7));
-        int kbd = keyboardHeight > 0
-                ? keyboardHeight
-                : (inputFocus ? (int) (screenH * 0.40f) : 0);
-        int avail = screenH - top - kbd - dp(16);
-        int max = Math.min((int) (screenH * 0.58f), dp(520));
-        return Math.max(dp(220), Math.min(max, avail));
-    }
-
-    private void recomputeHeight() {
-        main.post(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    if (wm == null || root == null || lp == null) return;
-                    int h = heightFor(ctx.getResources().getDisplayMetrics());
-                    if (h == lp.height) return;
-                    lp.height = h;
-                    wm.updateViewLayout(root, lp);
-                    log.i("todo/overlay", "高度调整为 " + h + "px（键盘=" + keyboardHeight + "）");
-                } catch (Throwable t) {
-                    log.e("todo/overlay/height", t);
-                }
-            }
-        });
-    }
-
-    /** 监听布局：从可见区域差值探测键盘高度；探测不到时靠输入框聚焦估算。 */
-    private void watchKeyboardOnce() {
-        if (heightWatched || root == null) return;
-        heightWatched = true;
-        try {
-            root.getViewTreeObserver().addOnGlobalLayoutListener(
-                    new android.view.ViewTreeObserver.OnGlobalLayoutListener() {
-                        @Override
-                        public void onGlobalLayout() {
-                            try {
-                                DisplayMetrics dm = ctx.getResources().getDisplayMetrics();
-                                android.graphics.Rect r = new android.graphics.Rect();
-                                root.getWindowVisibleDisplayFrame(r);
-                                int diff = dm.heightPixels - r.bottom;
-                                int next = diff > dm.heightPixels / 5 ? diff : 0;
-                                if (next != keyboardHeight) {
-                                    keyboardHeight = next;
-                                    log.i("todo/overlay", "键盘高度=" + next);
-                                    recomputeHeight();
-                                }
-                            } catch (Throwable ignored) {
-                            }
-                        }
-                    });
-        } catch (Throwable t) {
-            log.e("todo/overlay/kbd", t);
-        }
     }
 
     // ---------------------------------------------------------------- 拖动
@@ -312,13 +256,95 @@ public final class TodoOverlay {
                     if (!dragging) return;
                     dragging = false;
                     prefs.edit().putInt(PREF_X, lp.x).putInt(PREF_Y, lp.y).apply();
-                    recomputeHeight();
                     break;
                 default:
                     break;
             }
         } catch (Throwable t) {
             log.e("todo/overlay/drag", t);
+        }
+    }
+
+    // ---------------------------------------------------------------- 尺寸
+
+    private boolean heightDragging;
+    private float heightDownRawY;
+    private int heightDownH;
+
+    /** 底部抓手：上下拖动改高度（顶部固定）。 */
+    private void handleHeightDrag(MotionEvent event) {
+        try {
+            switch (event.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN:
+                    if (lp == null) return;
+                    heightDownRawY = event.getRawY();
+                    heightDownH = lp.height;
+                    heightDragging = true;
+                    break;
+                case MotionEvent.ACTION_MOVE:
+                    if (!heightDragging || wm == null || root == null) return;
+                    DisplayMetrics dm = ctx.getResources().getDisplayMetrics();
+                    int nh = heightDownH + (int) (event.getRawY() - heightDownRawY);
+                    nh = Math.max(dp(220), Math.min(nh, dm.heightPixels - lp.y - dp(16)));
+                    if (nh == lp.height) return;
+                    lp.height = nh;
+                    wm.updateViewLayout(root, lp);
+                    break;
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_CANCEL:
+                    if (!heightDragging) return;
+                    heightDragging = false;
+                    prefs.edit().putInt(PREF_H, lp.height).apply();
+                    break;
+                default:
+                    break;
+            }
+        } catch (Throwable t) {
+            log.e("todo/overlay/height", t);
+        }
+    }
+
+    private boolean sizeDragging;
+    private float sizeDownRawX;
+    private float sizeDownRawY;
+    private int sizeDownW;
+    private int sizeDownH;
+
+    /** 右下角抓手：拖动同时改宽高。 */
+    private void handleSizeDrag(MotionEvent event) {
+        try {
+            switch (event.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN:
+                    if (lp == null) return;
+                    sizeDownRawX = event.getRawX();
+                    sizeDownRawY = event.getRawY();
+                    sizeDownW = lp.width;
+                    sizeDownH = lp.height;
+                    sizeDragging = true;
+                    break;
+                case MotionEvent.ACTION_MOVE:
+                    if (!sizeDragging || wm == null || root == null) return;
+                    DisplayMetrics dm = ctx.getResources().getDisplayMetrics();
+                    int nw = sizeDownW + (int) (event.getRawX() - sizeDownRawX);
+                    int nh = sizeDownH + (int) (event.getRawY() - sizeDownRawY);
+                    nw = Math.max(dp(260), Math.min(nw, dm.widthPixels - lp.x - dp(8)));
+                    nh = Math.max(dp(220), Math.min(nh, dm.heightPixels - lp.y - dp(16)));
+                    if (nw == lp.width && nh == lp.height) return;
+                    lp.width = nw;
+                    lp.height = nh;
+                    wm.updateViewLayout(root, lp);
+                    break;
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_CANCEL:
+                    if (!sizeDragging) return;
+                    sizeDragging = false;
+                    prefs.edit().putInt(PREF_W, lp.width).putInt(PREF_H, lp.height).apply();
+                    break;
+                default:
+                    break;
+            }
+        } catch (Throwable t) {
+            log.e("todo/overlay/size", t);
         }
     }
 

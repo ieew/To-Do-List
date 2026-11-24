@@ -44,6 +44,12 @@ public final class TodoPanelView {
         /** 标题栏被触摸（交给外层做拖动）。 */
         void onTitleTouch(MotionEvent event);
 
+        /** 底部抓手被触摸（上下拖动改高度）。 */
+        void onHeightTouch(MotionEvent event);
+
+        /** 右下角抓手被触摸（拖动改宽高）。 */
+        void onSizeTouch(MotionEvent event);
+
         /** 输入框需要/不需要键盘焦点（悬浮窗平时不可聚焦，避免抢输入法）。 */
         void onInputFocus(boolean want);
     }
@@ -89,8 +95,9 @@ public final class TodoPanelView {
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackground(panelBg());
         int pad = dp(16);
-        root.setPadding(pad, dp(14), pad, dp(12));
+        root.setPadding(pad, dp(6), pad, dp(8));
 
+        root.addView(grip(false));
         root.addView(buildTitleBar());
 
         status = new TextView(ctx);
@@ -114,8 +121,60 @@ public final class TodoPanelView {
         root.addView(scroll);
 
         root.addView(buildInputRow());
+        root.addView(grip(true));
+
+        FrameLayout outer = new FrameLayout(ctx);
+        outer.addView(root, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        outer.addView(cornerGrip(), cornerLp());
         refresh();
-        return root;
+        return outer;
+    }
+
+    /** MIUI 手势条风格抓手：一条半透明小胶囊；顶部调位置、底部调高度。 */
+    private View grip(final boolean bottom) {
+        FrameLayout box = new FrameLayout(ctx);
+        box.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(18)));
+
+        View bar = new View(ctx);
+        bar.setBackground(round(0x4D6B7280, 2));
+        bar.setLayoutParams(new FrameLayout.LayoutParams(dp(36), dp(4), Gravity.CENTER));
+        box.addView(bar);
+
+        box.setOnTouchListener(new View.OnTouchListener() {
+            @Override
+            public boolean onTouch(View v, MotionEvent event) {
+                if (bottom) listener.onHeightTouch(event);
+                else listener.onTitleTouch(event);
+                return true;
+            }
+        });
+        return box;
+    }
+
+    private FrameLayout.LayoutParams cornerLp() {
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(dp(24), dp(24));
+        lp.gravity = Gravity.BOTTOM | Gravity.END;
+        lp.setMargins(0, 0, dp(6), dp(6));
+        return lp;
+    }
+
+    /** 右下角抓手：小胶囊，拖动同时改宽高。 */
+    private View cornerGrip() {
+        FrameLayout box = new FrameLayout(ctx);
+        View bar = new View(ctx);
+        bar.setBackground(round(0x4D6B7280, 2));
+        bar.setLayoutParams(new FrameLayout.LayoutParams(dp(16), dp(4), Gravity.CENTER));
+        box.addView(bar);
+        box.setOnTouchListener(new View.OnTouchListener() {
+            @Override
+            public boolean onTouch(View v, MotionEvent event) {
+                listener.onSizeTouch(event);
+                return true;
+            }
+        });
+        return box;
     }
 
     /** 面板可见时重新拉数据。 */
