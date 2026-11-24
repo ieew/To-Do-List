@@ -76,6 +76,23 @@ data class TaskLocalEntity(
     @PrimaryKey @ColumnInfo(name = "task_id") val taskId: String,
     @ColumnInfo(name = "last_fired_at") val lastFiredAt: Long? = null,
     @ColumnInfo(name = "snooze_until") val snoozeUntil: Long? = null,
+    /** 最近一次真正展示提醒的一方：app / ime / server。 */
+    @ColumnInfo(name = "fired_source") val firedSource: String? = null,
+    /** 最近一次展示的时刻（毫秒），与 last_fired_at（幂等键）区分。 */
+    @ColumnInfo(name = "fired_at") val firedAt: Long? = null,
+)
+
+/**
+ * 跨进程提醒认领表：App 与输入法插件可能同时收到同一条提醒，
+ * 只有 `INSERT OR IGNORE` 成功（返回 rowId > 0）的一方可以展示。
+ *
+ * dedupe_key = `workspace_id|task_id|remind_at`，与 Windows / 服务端口径一致。
+ */
+@Entity(tableName = "dsh_claim")
+data class DshClaimEntity(
+    @PrimaryKey @ColumnInfo(name = "dedupe_key") val dedupeKey: String,
+    @ColumnInfo(name = "claimed_at") val claimedAt: Long,
+    @ColumnInfo(name = "source") val source: String,
 )
 
 /** 本地 HLC 单行表（id 固定为 1）。 */

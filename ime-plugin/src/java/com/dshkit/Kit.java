@@ -126,6 +126,29 @@ public final class Kit {
         this.clipModule.setSession(session);
         this.netWatcher = new NetWatcher(ctx, log, session);
         this.todoClient = new TodoClient(ctx);
+        // dsh 通道：插件不保存账号密码，凭证与状态都通过 provider 与 App 交换。
+        this.session.setAuthorizer(new Session.Authorizer() {
+            @Override
+            public Map<String, Object> fetch() {
+                return todoClient.dshAuthorize();
+            }
+
+            @Override
+            public void update(String credential, long expiresAt) {
+                todoClient.dshUpdateCredential(credential, expiresAt);
+            }
+
+            @Override
+            public void report(boolean connected, String error) {
+                todoClient.dshReport(connected, error);
+            }
+
+            @Override
+            public void nudge() {
+                todoClient.dshNudge();
+            }
+        });
+        this.notifyModule.setTodoClient(todoClient);
         this.todoOverlay = new TodoOverlay(ctx, todoClient, log);
         this.todoNotice = new TodoNotice(ctx, notifySink, log, todoOverlay);
         this.themeHook = new ThemeHook(ctx, log);

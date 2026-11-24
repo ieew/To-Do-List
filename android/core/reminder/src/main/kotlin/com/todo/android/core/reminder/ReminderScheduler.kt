@@ -14,6 +14,7 @@ import com.todo.android.core.data.db.TaskLocalDao
 import com.todo.android.core.data.db.TaskLocalEntity
 import com.todo.android.core.data.settings.SettingsStore
 import com.todo.android.core.domain.TaskItem
+import com.todo.android.core.dsh.DshManager
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.time.Instant
 import java.time.ZoneId
@@ -28,6 +29,7 @@ class ReminderScheduler @Inject constructor(
     private val settingsStore: SettingsStore,
     private val taskLocalDao: TaskLocalDao,
     private val notifier: ReminderNotifier,
+    private val dsh: DshManager,
 ) {
     /**
      * 重建全部提醒。已过点但从未发出过的提醒会在窗口期内补发一条，
@@ -69,14 +71,18 @@ class ReminderScheduler @Inject constructor(
             }
             val lateBy = nowMs - fireAt
             if (lateBy <= CATCH_UP_WINDOW_MS && canNotify && !inDnd) {
-                // 部分 ROM 会直接抛 SecurityException，不影响记账。
-                runCatching {
-                    notifier.notifyReminder(
-                        taskId = task.id,
-                        title = task.title,
-                        catchUp = true,
-                        overdueLabel = notifier.overdueLabel(lateBy),
-                    )
+                // 先认领，抢不到说明输入法已经弹过 / 另一路径已处理。
+                val claimed = dsh.claimReminder(projection.activeWorkspaceId, task.id, remindAt, "app")
+                if (claimed) {
+                    // 部分 ROM 会直接抛 SecurityException，不影响记账。
+                    runCatching {
+                        notifier.notifyReminder(
+                            taskId = task.id,
+                            title = task.title,
+                            catchUp = true,
+                            overdueLabel = notifier.overdueLabel(lateBy),
+                        )
+                    }
                 }
             }
             markFired(task.id, remindAt)
@@ -102,7 +108,14 @@ class ReminderScheduler @Inject constructor(
     /** 幂等键：同一 remindAt 只处理一次。 */
     private suspend fun markFired(taskId: String, remindAt: Long) {
         val current = taskLocalDao.get(taskId) ?: TaskLocalEntity(taskId)
-        taskLocalDao.put(current.copy(lastFiredAt = remindAt, snoozeUntil = null))
+        taskLocalDao.put(
+            current.copy(
+                lastFiredAt = remindAt,
+                snoozeUntil = null,
+                firedSource = "app",
+                firedAt = System.currentTimeMillis(),
+            ),
+        )
     }
 
     /**

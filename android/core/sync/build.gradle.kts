@@ -22,6 +22,7 @@ android {
 dependencies {
     api(project(":core:data"))
     api(project(":core:network"))
+    implementation(project(":core:dsh"))
 
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.serialization.json)

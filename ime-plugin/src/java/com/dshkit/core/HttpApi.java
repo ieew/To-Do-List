@@ -58,8 +58,7 @@ public final class HttpApi {
         public final String topicIn;
         public final String topicOut;
 
-        Device(String deviceId, String ticket, long ticketExpiresAt, String host, int port,
-               boolean tls, String username, String topicIn, String topicOut) {
+        Device(String deviceId, String ticket, long ticketExpiresAt, String host, int port,               boolean tls, String username, String topicIn, String topicOut) {
             this.deviceId = deviceId;
             this.ticket = ticket;
             this.ticketExpiresAt = ticketExpiresAt;
@@ -69,6 +68,26 @@ public final class HttpApi {
             this.username = username;
             this.topicIn = topicIn;
             this.topicOut = topicOut;
+        }
+    }
+
+    /** 设备级凭证续期的返回值：新票据 + 轮换后的凭证 + MQTT 端点。 */
+    public static final class Credential {
+        public final String deviceId;
+        public final String ticket;
+        public final long ticketExpiresAt;
+        public final String credential;
+        public final long credentialExpiresAt;
+        public final Device endpoint;
+
+        Credential(String deviceId, String ticket, long ticketExpiresAt,
+                   String credential, long credentialExpiresAt, Device endpoint) {
+            this.deviceId = deviceId;
+            this.ticket = ticket;
+            this.ticketExpiresAt = ticketExpiresAt;
+            this.credential = credential;
+            this.credentialExpiresAt = credentialExpiresAt;
+            this.endpoint = endpoint;
         }
     }
 
@@ -159,6 +178,18 @@ public final class HttpApi {
             throws ApiException {
         Map<String, Object> out = get("/v1/dsh/pull?device_id=" + enc(deviceId)
                 + "&since=" + since + "&limit=" + limit, accessToken);
+        return page(out, since);
+    }
+
+    /** 设备票据 pull：插件只有凭证、没有账号 access token 时走这里。 */
+    public Page pullAsDevice(String deviceId, String ticket, long since, int limit)
+            throws ApiException {
+        Map<String, Object> out = request("GET", "/v1/dsh/pull?device_id=" + enc(deviceId)
+                + "&since=" + since + "&limit=" + limit, null, null, deviceId, ticket);
+        return page(out, since);
+    }
+
+    private Page page(Map<String, Object> out, long since) {
         List<Message> messages = new ArrayList<Message>();
         for (Object item : Json.asArray(out.get("messages"))) {
             Map<String, Object> m = Json.asObject(item);
@@ -179,6 +210,42 @@ public final class HttpApi {
         Map<String, Object> out = post("/v1/dsh/ack",
                 Json.obj("device_id", deviceId, "seqs", seqs), accessToken);
         return Json.integer(out, "acked", 0);
+    }
+
+    /** 设备票据 ack，与 {@link #pullAsDevice} 配套。 */
+    public int ackAsDevice(String deviceId, String ticket, List<Long> seqs) throws ApiException {
+        Map<String, Object> out = request("POST", "/v1/dsh/ack", null,
+                Json.write(Json.obj("device_id", deviceId, "seqs", seqs)), deviceId, ticket);
+        return Json.integer(out, "acked", 0);
+    }
+
+    /**
+     * 设备自主续期：`device_id + credential`，不需要 Authorization。
+     * 成功后凭证立即轮换，调用方必须保存新值。
+     */
+    public Credential refreshDevice(String deviceId, String credential) throws ApiException {
+        Map<String, Object> out = post("/v1/dsh/devices/refresh",
+                Json.obj("device_id", deviceId, "credential", credential), null);
+        Map<String, Object> mqtt = Json.asObject(out.get("mqtt"));
+        String host = Json.str(mqtt, "host", "");
+        if (host.isEmpty()) throw new ApiException(200, "bad_endpoint", "服务端没下发 broker 地址");
+        Device endpoint = new Device(
+                Json.str(out, "device_id", deviceId),
+                Json.str(out, "ticket", ""),
+                Json.lng(out, "ticket_expires_at", 0),
+                host,
+                Json.integer(mqtt, "port", 1883),
+                Json.bool(mqtt, "tls", false),
+                Json.str(mqtt, "username", deviceId),
+                Json.str(mqtt, "topic_in", ""),
+                Json.str(mqtt, "topic_out", ""));
+        return new Credential(
+                endpoint.deviceId,
+                endpoint.ticket,
+                endpoint.ticketExpiresAt,
+                Json.str(out, "credential", ""),
+                Json.lng(out, "credential_expires_at", 0),
+                endpoint);
     }
 
     /** 剪贴板上行：默认服务端只实时转发给同用户的其他设备。 */

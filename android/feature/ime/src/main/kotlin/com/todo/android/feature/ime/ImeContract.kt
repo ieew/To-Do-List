@@ -46,9 +46,40 @@ object ImeContract {
     /** `call` 方法：删除任务（写 `__deleted` 墓碑；插件侧已做二次确认）。 */
     const val METHOD_DELETE = "delete_task"
 
+    // ---- dsh 数据通道（App ↔ 输入法插件）----
+    /** 插件拉取授权：device_id + credential + 服务器 + 免打扰等设置快照。 */
+    const val METHOD_DSH_AUTHORIZE = "dsh_authorize"
+    /** 插件续期后回写轮换后的设备凭证。 */
+    const val METHOD_DSH_CREDENTIAL_UPDATE = "dsh_credential_update"
+    /** 插件回写 MQTT 连接状态（设置页展示）。 */
+    const val METHOD_DSH_STATUS = "dsh_status"
+    /** 插件收到 nudge，唤醒 App 立即 pull。 */
+    const val METHOD_DSH_NUDGE = "dsh_nudge"
+    /** 插件展示提醒前先认领，抢不到就不弹（防止与 App 重复提醒）。 */
+    const val METHOD_DSH_CLAIM = "dsh_claim_reminder"
+
+    // dsh 调用用到的 extras
+    const val EXTRA_AVAILABLE = "available"
+    const val EXTRA_SERVER = "server"
+    const val EXTRA_USER_ID = "user_id"
+    const val EXTRA_DEVICE_ID = "device_id"
+    const val EXTRA_CREDENTIAL = "credential"
+    const val EXTRA_CREDENTIAL_EXP = "credential_expires_at"
+    const val EXTRA_CONNECTED = "connected"
+    const val EXTRA_ERROR = "error"
+    const val EXTRA_WORKSPACE_ID = "workspace_id"
+    const val EXTRA_REMIND_AT = "remind_at"
+    const val EXTRA_CLAIMED = "claimed"
+    const val EXTRA_DND_ENABLED = "dnd_enabled"
+    const val EXTRA_DND_START = "dnd_start"
+    const val EXTRA_DND_END = "dnd_end"
+    const val EXTRA_REMINDER_LEAD = "reminder_lead"
+    const val EXTRA_NOTIFICATIONS = "notifications"
+
     const val ARG_TASK_ID = "task_id"
     const val EXTRA_DONE = "done"
     const val EXTRA_OK = "ok"
+    const val EXTRA_TASK_ID = "task_id"
 
     /** 「即将开始」只统计未来 36 小时内会开始的任务。 */
     const val UPCOMING_WINDOW_MS = 36L * 60L * 60L * 1000L

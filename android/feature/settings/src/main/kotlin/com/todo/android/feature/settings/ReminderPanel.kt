@@ -14,6 +14,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.todo.android.core.designsystem.EditDialog
 import com.todo.android.core.designsystem.SegmentedControl
 import com.todo.android.core.designsystem.SettingDivider
@@ -24,6 +25,7 @@ import com.todo.android.core.designsystem.TodoTheme
 import com.todo.android.core.designsystem.Tokens
 import com.todo.android.core.designsystem.TimeText
 import com.todo.android.core.data.settings.KeepAliveModes
+import com.todo.android.core.dsh.DshMode
 
 @Composable
 internal fun ReminderPanel(state: SettingsUiState, viewModel: SettingsViewModel) {
@@ -130,6 +132,53 @@ internal fun ReminderPanel(state: SettingsUiState, viewModel: SettingsViewModel)
                 append(" 次")
             },
             onClick = { viewModel.refreshKeepAliveInfo() },
+        )
+    }
+
+    SettingsGroup(title = "数据通道") {
+        val dsh by viewModel.dshStatus.collectAsStateWithLifecycle()
+        SettingRow(
+            title = "启用新数据通道",
+            description = "推送、提醒、剪贴板走 dsh 通道；关闭后只保留本地闹钟",
+            trailing = {
+                TodoSwitch(state.settings.dshChannelEnabled, viewModel::setDshChannelEnabled)
+            },
+        )
+        SettingDivider()
+        SettingRow(
+            title = "通道形态",
+            description = when {
+                !state.settings.dshChannelEnabled -> "已关闭"
+                dsh.mode == DshMode.IME -> "经输入法插件（实时 nudge，剪贴板由插件负责）"
+                dsh.mode == DshMode.SELF -> "App 自建 MQTT（未检测到输入法插件）"
+                else -> "仅轮询"
+            },
+        )
+        SettingDivider()
+        SettingRow(
+            title = "优先使用输入法通道",
+            description = if (state.settings.dshPreferIme) {
+                "输入法是默认输入法时自动委托，避免两条长连接"
+            } else {
+                "始终由 App 自己维持通道"
+            },
+            trailing = { TodoSwitch(state.settings.dshPreferIme, viewModel::setDshPreferIme) },
+        )
+        SettingDivider()
+        SettingRow(
+            title = "连接状态",
+            description = buildString {
+                append(if (dsh.connected) "已连接" else "未连接")
+                append(" · 游标 ")
+                append(dsh.cursor)
+                if (dsh.lastError.isNotBlank()) append(" · ").append(dsh.lastError)
+            },
+            onClick = { viewModel.refreshDsh() },
+        )
+        SettingDivider()
+        SettingRow(
+            title = "设备",
+            description = "App ${dsh.appDeviceId.ifBlank { "未注册" }} · 输入法 ${dsh.imeDeviceId.ifBlank { "未授权" }}",
         )
     }
 

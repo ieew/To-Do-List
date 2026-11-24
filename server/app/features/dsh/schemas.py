@@ -88,3 +88,17 @@ class AckRequest(_StrictModel):
         if any(seq <= 0 for seq in value):
             raise ValueError("seq 必须是正整数")
         return value
+
+
+class CredentialRefreshRequest(_StrictModel):
+    """设备自助续期：只凭 device_id + credential，不需要 Authorization。"""
+
+    device_id: str
+    credential: str = Field(min_length=8, max_length=256)
+
+    @field_validator("device_id")
+    @classmethod
+    def _check_device_id(cls, value: str) -> str:
+        if not _DEVICE_ID_RE.match(value):
+            raise ValueError("device_id 只能是 1–64 位字母、数字或 ._:-")
+        return value

@@ -24,3 +24,5 @@ class Services:
     dsh: DshRuntime | None = None
     dsh_limiter: SlidingWindowLimiter | None = None
     dsh_clip_limiter: SlidingWindowLimiter | None = None
+    # 设备凭证续期限流：按设备计数，避免凭证被爆破/滥用
+    dsh_refresh_limiter: SlidingWindowLimiter | None = None

@@ -1,6 +1,7 @@
 # 安卓 App × 中文输入法2 dsh 通道协作设计（通道委托与提醒去重）
 
-> 状态：设计稿（2026-11-24），未实现。
+> 状态：**已实现（2026-11-25）**。服务端凭证端点、Android `core:dsh`、`feature:ime` provider、
+> 输入法 dsh-kit 凭证路径与提醒认领均已落地；实现要点见 §十四。
 > 关联：[`plans/todo-app-plan.md`](../plans/todo-app-plan.md) §4.1、[`docs/ime-push-client.md`](./ime-push-client.md) §17/§18、[`docs/reminder-and-tag-model.md`](./reminder-and-tag-model.md) §一/§一之二。
 
 ## 一、目标与原则
@@ -189,68 +190,56 @@ Android 后台限制决定了 App 无法在切后台后持续监听剪贴板，�
 
 ## 九、失败与边界
 
-| 场景 | 行为 |
+- 插件未安装/未启用：App 检测不到 trime 是默认输入法，直接走自建 MQTT。
+- 插件已启用但未授权：`dsh_authorize` 返回 `available=false`，插件记日志并等待，App 负责首次签发。
+- 插件被系统冻结：App 的 60s 安全轮询继续工作；插件恢复后 `refresh` 自动续上。
+- App 被杀：插件仍可 pull 并用 `dsh_claim_reminder` 认领后兜底展示；认领表在 App 的 Room 里，
+  provider 会把 App 进程拉起来，因此仍能保持一致。
+- 通知权限被关：认领仍然发生（只记账不弹），不会在插件侧重复弹。
+- 网络断开：两端都只退避重连，不丢游标；服务端消息 72h 过期。
+
+## 十、provider 契约（插件 → App）
+
+`content://com.todo.android.ime` 的 `call` 新增：
+
+| method | 方向 | 说明 |
+| --- | --- | --- |
+| `dsh_authorize` | 插件 → App | 返回 `server` / `user_id` / `device_id` / `credential` / `credential_expires_at` / 免打扰与提前量快照 |
+| `dsh_credential_update` | 插件 → App | 续期轮换后回写新凭证；App 只接受不更旧的过期时间 |
+| `dsh_status` | 插件 → App | 回写 MQTT 连接状态与错误，供设置页展示 |
+| `dsh_nudge` | 插件 → App | 收到 nudge 后唤醒 App 立即 pull |
+| `dsh_claim_reminder` | 插件 → App | 展示前认领 `workspace|task|remind_at`，`claimed=false` 表示已被 App 展示 |
+
+安全边界不变：仍按 `Binder.getCallingUid()` 校验调用方包名为 `com.nirenr.trime`。
+
+## 十一、Android 实现落点
+
+| 模块 | 内容 |
 | --- | --- |
-| 输入法进程被杀 | 心跳停止；App 在 120s 内切到 `APP_MQTT`；剪贴板暂停，直到插件恢复 |
-| App 被强制停止 | provider 调用失败；输入法用设备级凭证继续续票/展示/剪贴板；凭证被吊销或过期后才停止 |
-| 交接瞬间双通道都在 | App 用 `dsh_seen` + `task_local` 去重；输入法 `delegate=true` 不展示 |
-| MQTT 断线 | 双方各自退避重连；App 在 `APP_POLL` 30s 兜底；插件继续重连剪贴板 |
-| 服务端换库/seq 回退 | 双方各自用 `latest_seq < cursor` 重置游标 |
-| 通知权限被关 | App claim 后只记账，`dsh_status` 返回 `delegate=false`；输入法接管展示 |
-| DND | App 展示时用 AppSettings；输入法兜底时用 `dsh_settings` 缓存/广播的 DND 与提前量 |
-| 同一账号多台手机 | 每台手机各自 App/IME 设备；广播到全部设备，各自展示一份 |
-| 插件未运行 | App 自建通道只保证通知/提醒；剪贴板同步不可用 |
+| `core/data` | Room v2：`dsh_claim` 表（跨进程认领）、`task_local.fired_source/fired_at`、`MIGRATION_1_2` |
+| `core/network` | `DshApi` + `DshWire`（register / credential / refresh / pull / ack / revoke） |
+| `core/dsh` | `DshManager`（设备与凭证、游标、pull/ack、认领、通道选择）、`DshMqtt`（Paho 自建通道） |
+| `core/reminder` | `DshReminderBridge`（通道消息 → 通知）、`ReminderScheduler/Receiver` 展示前认领、记录 `fired_source` |
+| `feature/ime` | provider 新增 5 个 dsh 方法 |
+| `feature/settings` | 「提醒 → 数据通道」：开关、形态、连接状态、设备号、立即重连 |
 
-## 十、服务端是否需要改
+## 十二、输入法实现落点
 
-v1 不需要改协议：
+- `core/Config`：账号密码降级为调试兼容项，不再参与默认路径。
+- `core/Secret`：凭证 AES/GCM 加密（Android Keystore，别名 `dsh-kit-device-credential`）。
+- `core/HttpApi`：`refreshDevice` / `pullAsDevice` / `ackAsDevice`。
+- `core/Session`：凭证优先（`refresh` → 票据），`401 invalid_credential` 时清掉凭证并向 App 重新取；
+  收到 nudge 时转发给 App；连接状态回写 App。
+- `mod/NotifyModule`：`payload.type == "reminder"` 时先认领；App 已展示或处于免打扰则不弹。
+- `mod/TodoClient`：封装 5 个 provider 方法。
+- 构建：新增 `tools/build.ps1`（Windows 版 javac → 打补丁 Paho → d8），产物 `out/dsh-kit.dex`。
 
-- 服务端提醒已按 `(workspace_id, task_id, remind_at, user_id)` 去重，并广播到该用户全部设备；
-- App 与输入法各注册设备后，各自收到一份，由客户端单一展示者去重。
+## 十三、验收清单
 
-可选后续（plan §4.1 阶段四）：`/v1/sync/push` 提交 op 后向工作区其他成员发 `kind="sync"` nudge，App 收到后立即 `/v1/sync/pull`。这与本设计正交。
-
-## 十一、实施阶段
-
-| 阶段 | 内容 |
-| --- | --- |
-| P0 | 修复插件 `Session.pullNow` 游标推进缺陷 |
-| P1 | 服务端：新增 `POST /devices/{id}/credential`、`POST /devices/refresh`、凭证哈希存储/轮换/吊销/限流与测试（见 `server-protocol.md` §15.12） |
-| P2 | App 新增 `core/dsh`：HTTP 注册/pull/ack、设备凭证签发、Paho MQTT、Room `dsh_seen`/`dsh_cursor`、`ReminderCoordinator.claim`、provider `dsh_authorize/dsh_status/dsh_settings/dsh_nudge` |
-| P3 | 输入法：删除账号/密码配置，改用设备级凭证自主续期；`dsh_status` 心跳、`dsh_nudge` 转发、设置缓存/广播；`delegate` 时抑制广播通知，但**保留 ClipSource** |
-| P4 | App 自建 MQTT 客户端（挂在 `KeepAliveService`），含票据续期、重连、降级轮询；App 忽略 clip |
-| P5 | 设置页「通道状态」、设备授权/吊销入口、测试按钮、通知点击跳转任务、验收脚本 |
-
-## 十二、验收矩阵
-
-- [ ] 输入法通道在线：App 不建 MQTT；到点只弹一条（App）
-- [ ] 输入法通道关闭/杀进程：120s 内 App 自建通道，到点只弹一条；剪贴板同步不可用
-- [ ] App 强制停止：输入法用现有票据兜底弹提醒；票据过期后停止
-- [ ] 同一提醒本地先弹、服务端后到：只弹一次
-- [ ] 服务端提醒先到、本地闹钟后到：只弹一次
-- [ ] 修改 `remind_at` 改早后：新时间弹一次，旧时间不再弹
-- [ ] DND 期间：不弹，结束后汇总一次；输入法兜底时读取 App 设置
-- [ ] App 通知权限关闭时，输入法接管展示；定向到 IME 设备的 notify 不会被抑制丢失
-- [ ] 剪贴板：始终由输入法上传/应用；App 不监听剪贴板；对端内容不回流
-- [ ] 插件不再保存账号密码/refresh token；退出登录能吊销 IME 设备
-- [ ] 账号/服务器切换：旧 IME 设备被吊销，新授权生效
-- [ ] 断网恢复/服务端重启：游标自愈，不重复弹旧提醒
-
-## 十三、已确认与待办
-
-已确认：
-
-1. App 自建 MQTT 使用 **Paho**。
-2. `delegate` 覆盖所有 `kind=notify`。
-3. 心跳 60s / 超时 120s。
-4. `task_local` 增加 `fired_source`/`fired_at`，Room 迁移版本 +1。
-5. 需要 App → 插件反向通道（设置变更广播 + `channel_token`）。
-6. 插件不保存账号密码；由 App 授权设备票据。
-7. 剪贴板逻辑全部留在插件；App 不参与剪贴板同步。
-8. 采用**方案 B：设备级凭证**。插件保存加密后的 `credential`，自主调 `/v1/dsh/devices/refresh` 续票据；不保存账号密码或账号 refresh token。
-
-待实现时确认：
-
-1. `channel_token` 用随机串还是 `PendingIntent` 能力；本设计默认随机串。
-2. 插件票据续期间隔 8 分钟是否与 App 的网络/唤醒策略冲突。
-3. 输入法兜底时是否需要显示「App 不可用，剪贴板正常/提醒由输入法接管」的状态。
+1. 未登录：通道关闭，设置页显示「已关闭」。
+2. 登录但未装输入法：形态 = App 自建，`connected=true`，提醒只弹一次。
+3. 输入法为默认输入法：形态 = 经输入法通道；关掉 App 进程后提醒仍由插件弹出且只弹一次。
+4. 同一提醒同时到达两端：`dsh_claim` 只有一个 winner。
+5. 凭证过期/被吊销：插件清凭证，设置页显示未授权，重新打开 App 后自动恢复。
+6. 免打扰时段：两端都不弹，但 `last_fired_at` / 认领已记账，离开时段不补炸。
+7. 剪贴板：插件在线时双向同步，回环被 `fp` 去重；插件未运行则无剪贴板同步。

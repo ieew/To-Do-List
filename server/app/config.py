@@ -54,6 +54,9 @@ class ServerSettings(BaseSettings):
     dsh_push_rate: int = 30
     dsh_clip_rate: int = 60
     dsh_clip_persist: bool = False
+    # 设备级凭证：无法持有账号密码的宿主（输入法插件）用它自主续期短票据
+    dsh_device_credential_days: int = 30
+    dsh_device_refresh_rate: int = 10
     # 服务端提醒：把待办的 remind_at 变成推送（账号体系复用 users/memberships）
     dsh_reminders_enabled: bool = True
     dsh_reminder_level: int = 6
@@ -83,3 +86,7 @@ class ServerSettings(BaseSettings):
             raise RuntimeError("服务端启动失败：TODO_SERVER_DSH_TICKET_TTL_MIN 必须大于 0")
         if self.dsh_msg_ttl_hours <= 0:
             raise RuntimeError("服务端启动失败：TODO_SERVER_DSH_MSG_TTL_HOURS 必须大于 0")
+        if not 1 <= self.dsh_device_credential_days <= 365:
+            raise RuntimeError(
+                "服务端启动失败：TODO_SERVER_DSH_DEVICE_CREDENTIAL_DAYS 需在 1–365 之间"
+            )

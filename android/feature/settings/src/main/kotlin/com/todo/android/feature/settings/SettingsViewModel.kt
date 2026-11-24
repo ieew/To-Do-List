@@ -14,6 +14,8 @@ import com.todo.android.core.data.settings.SettingsStore
 import com.todo.android.core.data.settings.StartupModes
 import com.todo.android.core.data.settings.ThemeModes
 import com.todo.android.core.domain.WorkspaceProjection
+import com.todo.android.core.dsh.DshManager
+import com.todo.android.core.dsh.DshStatus
 import com.todo.android.core.network.ApiResult
 import com.todo.android.core.network.BaseUrl
 import com.todo.android.core.network.ServerConfig
@@ -70,6 +72,7 @@ class SettingsViewModel @Inject constructor(
     private val serverConfig: ServerConfig,
     private val authApi: AuthApi,
     private val sessionManager: SessionManager,
+    private val dshManager: DshManager,
     private val json: Json,
     @ApplicationContext private val context: Context,
 ) : ViewModel() {
@@ -124,6 +127,9 @@ class SettingsViewModel @Inject constructor(
             keepAliveBeatCount = bundle.keepAlive.beatCount,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsUiState())
+
+    /** 数据通道状态：失败只影响展示，不参与主 state 的 combine，避免额外闪烁。 */
+    val dshStatus: StateFlow<DshStatus> = dshManager.status
 
     init {
         viewModelScope.launch { aiKeyConfigured.value = aiKeyStore.hasKey() }
@@ -365,6 +371,27 @@ class SettingsViewModel @Inject constructor(
             settingsStore.update { it.copy(dndStart = start.trim(), dndEnd = end.trim()) }
         }
         return true
+    }
+
+    // ---- 数据通道 ----
+
+    fun setDshChannelEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsStore.update { it.copy(dshChannelEnabled = enabled) }
+            if (enabled) dshManager.start() else dshManager.stop()
+        }
+    }
+
+    fun setDshPreferIme(prefer: Boolean) {
+        viewModelScope.launch {
+            settingsStore.update { it.copy(dshPreferIme = prefer) }
+            dshManager.refreshNow()
+        }
+    }
+
+    fun refreshDsh() {
+        dshManager.refreshNow()
+        local.value = local.value.copy(toast = "正在重建数据通道…")
     }
 
     fun showToast(message: String?) {

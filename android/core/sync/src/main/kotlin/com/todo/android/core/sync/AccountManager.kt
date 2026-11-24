@@ -2,6 +2,7 @@ package com.todo.android.core.sync
 
 import com.todo.android.core.data.repository.OpRepository
 import com.todo.android.core.data.settings.SettingsStore
+import com.todo.android.core.dsh.DshManager
 import com.todo.android.core.network.ApiResult
 import com.todo.android.core.network.ServerConfig
 import com.todo.android.core.network.api.AuthApi
@@ -32,6 +33,7 @@ class AccountManager @Inject constructor(
     private val settingsStore: SettingsStore,
     private val serverConfig: ServerConfig,
     private val json: Json,
+    private val dsh: DshManager,
 ) {
     suspend fun login(username: String, password: String, serverUrl: String): ApiResult<Unit> {
         serverConfig.update(serverUrl)
@@ -40,6 +42,8 @@ class AccountManager @Inject constructor(
             is ApiResult.Success -> {
                 val body = result.value
                 bindSession(body.user, body.tokens, deviceId, body.workspaces.firstOrNull()?.workspaceId)
+                dsh.reset()
+                dsh.start()
                 ApiResult.Success(Unit)
             }
 
@@ -65,6 +69,8 @@ class AccountManager @Inject constructor(
             is ApiResult.Success -> {
                 val body: RegisterResponse = result.value
                 bindSession(body.user, body.tokens, deviceId, body.defaultWorkspaceId)
+                dsh.reset()
+                dsh.start()
                 ApiResult.Success(Unit)
             }
 
@@ -78,6 +84,9 @@ class AccountManager @Inject constructor(
             apiCall(json) { authApi.logout(LogoutRequest(session.refreshToken)) }
         }
         sessionManager.clear()
+        // 账号退出后通道凭证随之失效：清空本地游标并停掉 MQTT。
+        dsh.reset()
+        dsh.stop()
         // 保留本地数据与 sync_account，仅清除登录态。
     }
 

@@ -60,6 +60,10 @@ data class AppSettings(
     /** 提前多少分钟提醒；0 表示准点。与 Windows 端 `reminderLead` 一致。 */
     val reminderLead: Int = 0,
     val keepAliveMode: String = KeepAliveModes.HEARTBEAT,
+    /** 新数据通道（dsh）：推送、提醒、剪贴板委托。 */
+    val dshChannelEnabled: Boolean = true,
+    /** 优先使用输入法插件的通道（它负责实时 nudge 与剪贴板）。 */
+    val dshPreferIme: Boolean = true,
     val dndEnabled: Boolean = false,
     val dndStart: String = DndDefaults.START,
     val dndEnd: String = DndDefaults.END,

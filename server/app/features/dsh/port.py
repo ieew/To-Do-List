@@ -17,6 +17,7 @@ class ServicesPort(Protocol):
     read: ReadPool
     dsh: Any
     dsh_limiter: Any
+    dsh_refresh_limiter: Any
 
 
 # ---------------------------------------------------------------- 设备
@@ -87,6 +88,35 @@ async def mark_revoked(conn: aiosqlite.Connection, device_id: str) -> bool:
     changed = cursor.rowcount
     await cursor.close()
     return bool(changed)
+
+
+async def set_credential(
+    conn: aiosqlite.Connection,
+    *,
+    device_id: str,
+    credential_hash: str,
+    expires_at: int,
+    rotated_at: int,
+) -> None:
+    await conn.execute(
+        """
+        UPDATE dsh_devices
+        SET credential_hash = ?, credential_expires_at = ?, credential_rotated_at = ?
+        WHERE device_id = ?
+        """,
+        (credential_hash, expires_at, rotated_at, device_id),
+    )
+
+
+async def clear_credential(conn: aiosqlite.Connection, device_id: str) -> None:
+    await conn.execute(
+        """
+        UPDATE dsh_devices
+        SET credential_hash = NULL, credential_expires_at = NULL, credential_rotated_at = NULL
+        WHERE device_id = ?
+        """,
+        (device_id,),
+    )
 
 
 async def count_devices(conn: aiosqlite.Connection, user_id: str) -> tuple[int, int]:

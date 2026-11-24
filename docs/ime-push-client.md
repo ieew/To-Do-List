@@ -488,6 +488,20 @@ ContentResolver.call(content://com.todo.android.ime/tasks, "delete_task", taskId
 
 其它方法（`update` / 未知 `call`）一律抛 `UnsupportedOperationException`，插件按「不可用」处理。
 
+#### 17.3.1 dsh 通道相关方法（2026-11-25 新增）
+
+| 方法 | 调用方 | 入参 / 返回 |
+| --- | --- | --- |
+| `dsh_authorize` | 插件 | 无入参；返回 `server`、`user_id`、`device_id`、`credential`、`credential_expires_at`、`dnd_enabled`、`dnd_start`、`dnd_end`、`reminder_lead`、`notifications` |
+| `dsh_credential_update` | 插件 | `{credential, credential_expires_at}`；App 只接受不更旧的过期时间 |
+| `dsh_status` | 插件 | `{connected, error}` → 写入 meta，设置页展示 |
+| `dsh_nudge` | 插件 | 无；触发 App 立即 pull |
+| `dsh_claim_reminder` | 插件 | `{task_id, workspace_id, remind_at}` → `{claimed}`；`claimed=false` 表示 App 已展示 |
+
+- 认领表在 App 的 Room `dsh_claim`，键为 `workspace_id|task_id|remind_at`；
+- 凭证只通过这个受 UID 校验的 provider 传递，插件不保存账号密码；
+- 插件续期轮换后必须回写，否则 App 侧看到的仍是旧凭证。
+
 ### 17.4 两类任务
 
 | scope | 条件 | 排序 |

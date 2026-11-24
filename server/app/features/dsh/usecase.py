@@ -16,10 +16,15 @@ import aiosqlite
 from app.core_domain.errors import AppError
 from app.features.dsh import port
 from app.features.dsh.port import ServicesPort as Services
-from app.features.dsh.schemas import ClipRequest, PushRequest, RegisterDeviceRequest
+from app.features.dsh.schemas import (
+    ClipRequest,
+    CredentialRefreshRequest,
+    PushRequest,
+    RegisterDeviceRequest,
+)
 from app.features.dsh.ticket import mint_ticket
 from app.infra.clock import now_ms
-from app.infra.security import new_id
+from app.infra.security import constant_time_equals, new_device_credential, new_id, sha256_hex
 
 MAX_PAYLOAD_BYTES = 32 * 1024
 _TOUCH_INTERVAL_MS = 60_000
@@ -104,6 +109,8 @@ async def revoke_device(services: Services, user_id: str, device_id: str) -> dic
         row = await port.get_device(conn, device_id)
         if row is None or str(row["user_id"]) != user_id:
             raise AppError("device_not_found")
+        # 吊销即清空设备凭证，插件下次续期会拿到 401/409，主动清除本地状态。
+        await port.clear_credential(conn, device_id)
         return await port.mark_revoked(conn, device_id)
 
     changed = await services.writer.submit(txn)
@@ -113,6 +120,96 @@ async def revoke_device(services: Services, user_id: str, device_id: str) -> dic
         # 内存缓存立即生效（票据还在有效期内也连不上了），并踢掉在线连接。
         kicked = await runtime.revoke(device_id)
     return {"device_id": device_id, "revoked": True, "changed": changed, "kicked": kicked}
+
+
+# ---------------------------------------------------------------- 设备凭证
+
+
+def _credential_expiry(services: Services, at_ms: int) -> int:
+    return at_ms + services.settings.dsh_device_credential_days * 86_400_000
+
+
+async def issue_credential(services: Services, user_id: str, device_id: str) -> dict:
+    """账号侧签发设备凭证：只有设备所属用户可以签发，重复签发立即轮换。"""
+    at = now_ms()
+    credential = new_device_credential()
+    expires_at = _credential_expiry(services, at)
+    credential_hash = sha256_hex(credential)
+
+    async def txn(conn: aiosqlite.Connection) -> None:
+        row = await port.get_device(conn, device_id)
+        if row is None or str(row["user_id"]) != user_id:
+            raise AppError("device_not_found")
+        if int(row["revoked"]):
+            raise AppError("device_revoked")
+        await port.set_credential(
+            conn,
+            device_id=device_id,
+            credential_hash=credential_hash,
+            expires_at=expires_at,
+            rotated_at=at,
+        )
+
+    await services.writer.submit(txn)
+    return {
+        "device_id": device_id,
+        "credential": credential,
+        "credential_expires_at": expires_at,
+    }
+
+
+async def refresh_device(services: Services, payload: CredentialRefreshRequest) -> dict:
+    """设备自助续期：校验 device_id + credential，签发新票据并轮换凭证。"""
+    settings = services.settings
+    limiter = services.dsh_refresh_limiter
+    if limiter is not None and not await limiter.allow(payload.device_id):
+        raise AppError("rate_limited")
+
+    at = now_ms()
+    provided_hash = sha256_hex(payload.credential)
+    credential = new_device_credential()
+    expires_at = _credential_expiry(services, at)
+    new_hash = sha256_hex(credential)
+
+    async def txn(conn: aiosqlite.Connection) -> str:
+        row = await port.get_device(conn, payload.device_id)
+        # 设备不存在与凭证错误统一报 invalid_credential，避免暴露 device_id 是否存在。
+        if row is None:
+            raise AppError("invalid_credential")
+        if int(row["revoked"]):
+            raise AppError("device_revoked")
+        stored = str(row["credential_hash"] or "")
+        if not stored or not constant_time_equals(stored, provided_hash):
+            raise AppError("invalid_credential")
+        credential_expires_at = row["credential_expires_at"]
+        if credential_expires_at is None or int(credential_expires_at) <= at:
+            raise AppError("invalid_credential")
+        await port.set_credential(
+            conn,
+            device_id=payload.device_id,
+            credential_hash=new_hash,
+            expires_at=expires_at,
+            rotated_at=at,
+        )
+        await port.touch_device(conn, device_id=payload.device_id, at_ms=at)
+        return str(row["user_id"])
+
+    user_id = await services.writer.submit(txn)
+    ticket, ticket_expires_at = mint_ticket(
+        settings.jwt_secret,
+        user_id=user_id,
+        device_id=payload.device_id,
+        ttl_seconds=settings.dsh_ticket_ttl_min * 60,
+        now_ms=at,
+    )
+    return {
+        "device_id": payload.device_id,
+        "ticket": ticket,
+        "ticket_expires_at": ticket_expires_at,
+        "credential": credential,
+        "credential_expires_at": expires_at,
+        "mqtt": _mqtt_endpoint(services, user_id, payload.device_id),
+    }
 
 
 def _mqtt_endpoint(services: Services, user_id: str, device_id: str) -> dict:

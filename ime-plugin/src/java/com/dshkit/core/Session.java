@@ -26,10 +26,29 @@ public final class Session {
         void onSessionChanged(Map<String, Object> status);
     }
 
+    /**
+     * 与待办 App 的桥：插件不保存账号密码，只向 App 取设备凭证。
+     * 由 Kit 实现（provider 调用）；CLI 调试时可以为 null。
+     */
+    public interface Authorizer {
+        /** 取授权信息：server / device_id / credential / credential_expires_at 等；失败返回 null。 */
+        Map<String, Object> fetch();
+
+        /** 续期后回写轮换的新凭证。 */
+        void update(String credential, long expiresAt);
+
+        /** 回写 MQTT 连接状态，供 App 设置页展示。 */
+        void report(boolean connected, String error);
+
+        /** 收到 nudge，让 App 立刻 pull（App 负责通知与提醒）。 */
+        void nudge();
+    }
+
     private static final int PAGE_SIZE = 100;
     private static final int MAX_PAGES = 20;
     private static final long TOKEN_MARGIN_MS = 60_000L;
     private static final long TICKET_MARGIN_MS = 60_000L;
+    private static final long CREDENTIAL_MARGIN_MS = 86_400_000L;
     private static final long SAFETY_PULL_MS = 120_000L;
 
     private static final String K_DEVICE_ID = "device_id";
@@ -38,6 +57,9 @@ public final class Session {
     private static final String K_ACCESS_EXP = "access_exp";
     private static final String K_REFRESH = "refresh";
     private static final String K_REFRESH_EXP = "refresh_exp";
+    private static final String K_CREDENTIAL = "credential";
+    private static final String K_CREDENTIAL_EXP = "credential_exp";
+    private static final String K_SERVER = "server";
 
     private volatile Config cfg;
     private final HttpApi api;
@@ -61,7 +83,10 @@ public final class Session {
     private volatile String access;
     private volatile long accessExp;
     private volatile String refreshToken;
+    private volatile String credential;
+    private volatile long credentialExp;
     private volatile HttpApi.Device device;
+    private volatile Authorizer authorizer;
     private volatile long cursor;
     private volatile String lastError = "";
     private volatile long lastNudgeAt;
@@ -71,6 +96,12 @@ public final class Session {
     private volatile long ackedCount;
     private volatile long reconnectDelay = 2000L;
     private volatile Listener listener;
+    /** App 下发的设置快照：插件兜底展示提醒时据此判断静默/提前量。 */
+    private volatile boolean notificationsEnabled = true;
+    private volatile boolean dndEnabled;
+    private volatile String dndStart = "22:00";
+    private volatile String dndEnd = "08:00";
+    private volatile int reminderLead;
 
     public Session(Config cfg, HttpApi api, Transport transport, Store store, Scheduler sched,
                    Log log, Applier applier) {
@@ -85,7 +116,9 @@ public final class Session {
         this.access = store.getString(K_ACCESS, null);
         this.accessExp = store.getLong(K_ACCESS_EXP, 0);
         this.refreshToken = store.getString(K_REFRESH, null);
-        api.setServer(cfg.server);
+        this.credential = Secret.open(store.getString(K_CREDENTIAL, null));
+        this.credentialExp = store.getLong(K_CREDENTIAL_EXP, 0);
+        api.setServer(store.getString(K_SERVER, cfg.server));
         transport.addListener(new Transport.Listener() {
             @Override
             public void onState(Transport.State state, String detail) {
@@ -129,6 +162,16 @@ public final class Session {
         this.listener = listener;
     }
 
+    /** 注入 App 桥（provider）。必须在 start() 之前调用才能走「凭证优先」路径。 */
+    public void setAuthorizer(Authorizer authorizer) {
+        this.authorizer = authorizer;
+    }
+
+    /** 当前是否持有设备凭证（持有则完全不需要账号密码/refresh token）。 */
+    public boolean hasCredential() {
+        return credential != null && !credential.isEmpty();
+    }
+
     /** 配置重载：只换配置对象，连接由调用方 kick() 重新建立。 */
     public void setConfig(Config cfg) {
         this.cfg = cfg;
@@ -137,13 +180,13 @@ public final class Session {
     // ------------------------------------------------------------ 生命周期
 
     public void start() {
-        if (!cfg.hasServer()) {
-            lastError = "还没配置服务端（dsh.d/config.json 的 server）";
+        if (!cfg.hasServer() && !hasCredential() && !loadAuthorization()) {
+            lastError = "还没授权：请在待办 App 的设置里启用输入法通道";
             log.w("session", lastError);
             fireStatus();
             return;
         }
-        if (!cfg.autoConnect) {
+        if (!cfg.autoConnect && !hasCredential()) {
             lastError = "auto_connect=false，等待手动连接";
             fireStatus();
             return;
@@ -295,7 +338,7 @@ public final class Session {
         if (!running || online) return;
         if (!attempting.compareAndSet(false, true)) return;
         try {
-            if (!ensureToken()) {
+            if (!ensureAuth()) {
                 scheduleReconnect();
                 return;
             }
@@ -372,6 +415,7 @@ public final class Session {
         lastError = "";
         log.i("session", "MQTT 已连接 " + (device == null ? "" : device.host + ":" + device.port));
         fireStatus();
+        reportState(true, "");
         pullNow("connected");
     }
 
@@ -381,7 +425,18 @@ public final class Session {
         if (detail != null && !detail.isEmpty()) lastError = detail;
         log.w("session", "MQTT 断开：" + detail);
         fireStatus();
+        reportState(false, detail == null ? "" : detail);
         scheduleReconnect();
+    }
+
+    private void reportState(boolean connected, String error) {
+        Authorizer a = authorizer;
+        if (a == null) return;
+        try {
+            a.report(connected, error);
+        } catch (Throwable t) {
+            log.w("session", "回写通道状态失败：" + t.getMessage());
+        }
     }
 
     private void scheduleReconnect() {
@@ -405,6 +460,76 @@ public final class Session {
         reconnectFuture = null;
         if (f != null) f.cancel(false);
         reconnectPending.set(false);
+    }
+
+    /**
+     * 鉴权：优先设备凭证（无需账号密码）；否则回落到旧路径（refresh_token / 登录）。
+     */
+    private boolean ensureAuth() {
+        if (hasCredential()) return true;
+        if (loadAuthorization()) return true;
+        return ensureToken();
+    }
+
+    /** 从 App（provider）取授权信息；成功返回 true。 */
+    private boolean loadAuthorization() {
+        Authorizer a = authorizer;
+        if (a == null) return false;
+        Map<String, Object> info;
+        try {
+            info = a.fetch();
+        } catch (Throwable t) {
+            lastError = "读取输入法授权失败：" + t.getMessage();
+            log.w("session", lastError);
+            return false;
+        }
+        if (info == null) {
+            lastError = "待办 App 未授权输入法通道";
+            log.w("session", lastError);
+            return false;
+        }
+        String server = Json.str(info, "server", "");
+        if (!server.isEmpty()) {
+            api.setServer(server);
+            store.put(K_SERVER, server);
+        }
+        String id = Json.str(info, "device_id", "");
+        if (!id.isEmpty()) store.put(K_DEVICE_ID, id);
+        String cred = Json.str(info, "credential", "");
+        if (!cred.isEmpty()) {
+            saveCredential(cred, Json.lng(info, "credential_expires_at", 0));
+        }
+        notificationsEnabled = Json.bool(info, "notifications", true);
+        dndEnabled = Json.bool(info, "dnd_enabled", false);
+        dndStart = Json.str(info, "dnd_start", "22:00");
+        dndEnd = Json.str(info, "dnd_end", "08:00");
+        reminderLead = Json.integer(info, "reminder_lead", 0);
+        store.saveIfDirty();
+        return hasCredential();
+    }
+
+    private void saveCredential(String value, long expiresAt) {
+        credential = value;
+        credentialExp = expiresAt;
+        store.put(K_CREDENTIAL, value == null || value.isEmpty() ? null : Secret.seal(value));
+        store.put(K_CREDENTIAL_EXP, Long.valueOf(expiresAt));
+        store.saveIfDirty();
+        Authorizer a = authorizer;
+        if (a != null && value != null && !value.isEmpty()) {
+            try {
+                a.update(value, expiresAt);
+            } catch (Throwable t) {
+                log.w("session", "回写凭证失败：" + t.getMessage());
+            }
+        }
+    }
+
+    private void clearCredential() {
+        credential = null;
+        credentialExp = 0;
+        store.put(K_CREDENTIAL, null);
+        store.put(K_CREDENTIAL_EXP, null);
+        store.saveIfDirty();
     }
 
     private boolean ensureToken() {
@@ -457,12 +582,24 @@ public final class Session {
         HttpApi.Device d = device;
         long now = System.currentTimeMillis();
         if (d != null && d.ticketExpiresAt - now > TICKET_MARGIN_MS) return true;
+
+        // 凭证优先：不需要账号密码，也不占用账号 refresh token。
+        if (hasCredential()) {
+            if (refreshWithCredential()) return true;
+            if (!loadAuthorization() || !refreshWithCredential()) {
+                lastError = "设备凭证已失效，请在待办 App 中重新授权输入法通道";
+                log.w("session", lastError);
+                return false;
+            }
+            return true;
+        }
+
         try {
             d = api.registerDevice(access, deviceId(), cfg.deviceName, "ime");
             device = d;
             store.put(K_DEVICE_ID, d.deviceId);
             store.saveIfDirty();
-            log.i("session", "设备就绪：" + d.deviceId + " broker=" + d.host + ":" + d.port);
+            log.i("session", "设备就绪（账号票据）：" + d.deviceId + " broker=" + d.host + ":" + d.port);
             return true;
         } catch (HttpApi.ApiException e) {
             if (e.status == 401) {
@@ -480,6 +617,40 @@ public final class Session {
             }
             lastError = "设备注册失败：" + e.getMessage();
             log.w("session", lastError);
+            return false;
+        }
+    }
+
+    /** 用设备凭证换票据；成功则轮换并持久化新凭证。 */
+    private boolean refreshWithCredential() {
+        String id = deviceId();
+        if (id == null || id.isEmpty()) {
+            lastError = "缺少 device_id，无法续期";
+            return false;
+        }
+        try {
+            HttpApi.Credential c = api.refreshDevice(id, credential);
+            saveCredential(c.credential, c.credentialExpiresAt);
+            device = c.endpoint;
+            store.put(K_DEVICE_ID, c.deviceId);
+            store.saveIfDirty();
+            log.i("session", "设备续期成功：" + c.deviceId + " broker="
+                    + c.endpoint.host + ":" + c.endpoint.port);
+            return true;
+        } catch (HttpApi.ApiException e) {
+            if (e.status == 401 || "invalid_credential".equals(e.code)) clearCredential();
+            if (e.status == 409 || "device_revoked".equals(e.code)) {
+                clearCredential();
+                device = null;
+                store.put(K_DEVICE_ID, null);
+                store.saveIfDirty();
+            }
+            lastError = "设备续期失败：" + e.getMessage();
+            log.w("session", lastError);
+            return false;
+        } catch (Throwable t) {
+            lastError = "设备续期异常：" + t.getMessage();
+            log.e("session/credential", t);
             return false;
         }
     }
@@ -506,6 +677,14 @@ public final class Session {
         if (nudge != null) {
             lastNudgeAt = System.currentTimeMillis();
             log.i("session", "收到 nudge " + nudge);
+            Authorizer a = authorizer;
+            if (a != null) {
+                try {
+                    a.nudge();
+                } catch (Throwable t) {
+                    log.w("session", "唤醒 App 失败：" + t.getMessage());
+                }
+            }
             pullNow("nudge");
             return;
         }
@@ -535,13 +714,21 @@ public final class Session {
         log.i("session", "pull(" + reason + ") since=" + cursor);
         pulling = true;
         try {
+            boolean deviceTicket = device.ticket != null && !device.ticket.isEmpty();
+            if (!deviceTicket && !ensureToken()) return;
             for (int page = 0; page < MAX_PAGES; page++) {
-                if (!ensureToken()) return;
                 HttpApi.Page result;
                 try {
-                    result = api.pull(access, device.deviceId, cursor, PAGE_SIZE);
+                    result = deviceTicket
+                            ? api.pullAsDevice(device.deviceId, device.ticket, cursor, PAGE_SIZE)
+                            : api.pull(access, device.deviceId, cursor, PAGE_SIZE);
                 } catch (HttpApi.ApiException e) {
                     if (e.status != 401) throw e;
+                    if (deviceTicket) {
+                        // 设备票据过期：下一轮 attempt 会用凭证换新票据。
+                        device = null;
+                        throw e;
+                    }
                     access = null; // 令牌过期：换一张再来一次
                     if (!ensureToken()) throw e;
                     result = api.pull(access, device.deviceId, cursor, PAGE_SIZE);
@@ -575,7 +762,9 @@ public final class Session {
                 pulledCount += result.messages.size();
                 // 顺序：先 ack 再推进游标。ack 幂等，崩在中间最多重复投递，不会丢。
                 if (!ackSeqs.isEmpty()) {
-                    ackedCount += api.ack(access, device.deviceId, ackSeqs);
+                    ackedCount += deviceTicket
+                            ? api.ackAsDevice(device.deviceId, device.ticket, ackSeqs)
+                            : api.ack(access, device.deviceId, ackSeqs);
                 }
                 setCursor(Math.max(result.nextSeq, maxSeq));
                 if (!result.hasMore) break;
@@ -585,9 +774,13 @@ public final class Session {
                     + " 确认=" + ackedCount);
         } catch (HttpApi.ApiException e) {
             if (e.status == 401) {
-                access = null;
-                store.put(K_ACCESS, null);
-                store.saveIfDirty();
+                if (device != null && device.ticket != null && !device.ticket.isEmpty()) {
+                    device = null; // 设备票据过期，下一轮换新票
+                } else {
+                    access = null;
+                    store.put(K_ACCESS, null);
+                    store.saveIfDirty();
+                }
             }
             lastError = "拉取失败：" + e.getMessage();
             log.w("session", "pull(" + reason + ") " + lastError);
@@ -628,7 +821,7 @@ public final class Session {
     public Map<String, Object> status() {
         Map<String, Object> out = new LinkedHashMap<String, Object>();
         out.put("state", !running ? "stopped" : (online ? "online" : "offline"));
-        out.put("server", cfg.server);
+        out.put("server", api.server().isEmpty() ? cfg.server : api.server());
         out.put("username", cfg.username);
         out.put("device_id", device == null ? (deviceId() == null ? "" : deviceId()) : device.deviceId);
         out.put("broker", device == null ? "" : (device.host + ":" + device.port));
@@ -641,7 +834,47 @@ public final class Session {
         out.put("last_pull_at", Long.valueOf(lastPullAt));
         out.put("last_error", lastError);
         out.put("ticket_expires_at", Long.valueOf(device == null ? 0 : device.ticketExpiresAt));
+        out.put("auth", hasCredential() ? "credential" : "token");
+        out.put("credential_expires_at", Long.valueOf(credentialExp));
+        out.put("im_authorized", Boolean.valueOf(hasCredential()));
         return out;
+    }
+
+    /** App 的设置快照（插件兜底时用）。 */
+    public boolean notificationsEnabled() {
+        return notificationsEnabled;
+    }
+
+    public boolean dndEnabled() {
+        return dndEnabled;
+    }
+
+    public int reminderLead() {
+        return reminderLead;
+    }
+
+    /** 免打扰判定（支持跨天）。 */
+    public boolean inDnd(long nowMs) {
+        if (!dndEnabled) return false;
+        int start = minutesOfDay(dndStart);
+        int end = minutesOfDay(dndEnd);
+        if (start < 0 || end < 0 || start == end) return false;
+        java.util.Calendar c = java.util.Calendar.getInstance();
+        c.setTimeInMillis(nowMs);
+        int now = c.get(java.util.Calendar.HOUR_OF_DAY) * 60 + c.get(java.util.Calendar.MINUTE);
+        return start < end ? (now >= start && now < end) : (now >= start || now < end);
+    }
+
+    private static int minutesOfDay(String hhmm) {
+        try {
+            String[] parts = hhmm.split(":");
+            int h = Integer.parseInt(parts[0].trim());
+            int m = Integer.parseInt(parts[1].trim());
+            if (h < 0 || h > 23 || m < 0 || m > 59) return -1;
+            return h * 60 + m;
+        } catch (Throwable t) {
+            return -1;
+        }
     }
 
     public void noteApplied() {

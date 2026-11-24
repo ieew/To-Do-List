@@ -125,4 +125,59 @@ public final class TodoClient {
             return false;
         }
     }
+
+    // ------------------------------------------------------------ dsh 数据通道
+
+    /** 取 App 授权信息；未登录/未启用返回 null（不抛异常，按「不可用」处理）。 */
+    public java.util.Map<String, Object> dshAuthorize() {
+        Bundle out = dshCall("dsh_authorize", null);
+        if (out == null) return null;
+        java.util.Map<String, Object> map = new java.util.LinkedHashMap<String, Object>();
+        for (String key : out.keySet()) {
+            map.put(key, out.get(key));
+        }
+        return map;
+    }
+
+    /** 续期后回写轮换后的凭证。 */
+    public void dshUpdateCredential(String credential, long expiresAt) {
+        Bundle input = new Bundle();
+        input.putString("credential", credential);
+        input.putLong("credential_expires_at", expiresAt);
+        dshCall("dsh_credential_update", input);
+    }
+
+    /** 回写 MQTT 连接状态（设置页展示）。 */
+    public void dshReport(boolean connected, String error) {
+        Bundle input = new Bundle();
+        input.putBoolean("connected", connected);
+        input.putString("error", error == null ? "" : error);
+        dshCall("dsh_status", input);
+    }
+
+    /** 收到 nudge 时唤醒 App 立即 pull。 */
+    public void dshNudge() {
+        dshCall("dsh_nudge", new Bundle());
+    }
+
+    /**
+     * 展示提醒前认领：抢到返回 true，说明另一方（App）已经弹过，插件应跳过。
+     * provider 不可用时返回 true（插件自己兜底展示）。
+     */
+    public boolean dshClaimReminder(String taskId, String workspaceId, long remindAt) {
+        Bundle input = new Bundle();
+        input.putString("task_id", taskId);
+        input.putString("workspace_id", workspaceId);
+        input.putLong("remind_at", remindAt);
+        Bundle out = dshCall("dsh_claim_reminder", input);
+        return out == null || out.getBoolean("claimed", true);
+    }
+
+    private Bundle dshCall(String method, Bundle extras) {
+        try {
+            return ctx.getContentResolver().call(TASKS_URI, method, null, extras);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
 }

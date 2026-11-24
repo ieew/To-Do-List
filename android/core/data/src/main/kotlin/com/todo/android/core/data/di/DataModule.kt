@@ -3,6 +3,7 @@ package com.todo.android.core.data.di
 import android.content.Context
 import androidx.room.Room
 import com.todo.android.core.data.ProjectionHolder
+import com.todo.android.core.data.db.DshClaimDao
 import com.todo.android.core.data.db.LocalHlcDao
 import com.todo.android.core.data.db.LocalPrefDao
 import com.todo.android.core.data.db.MetaDao
@@ -35,7 +36,9 @@ object DataModule {
     @Provides
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): TodoDatabase =
-        Room.databaseBuilder(context, TodoDatabase::class.java, TodoDatabase.NAME).build()
+        Room.databaseBuilder(context, TodoDatabase::class.java, TodoDatabase.NAME)
+            .addMigrations(TodoDatabase.MIGRATION_1_2)
+            .build()
 
     @Provides
     fun provideOpLogDao(db: TodoDatabase): OpLogDao = db.opLogDao()
@@ -54,6 +57,9 @@ object DataModule {
 
     @Provides
     fun provideLocalHlcDao(db: TodoDatabase): LocalHlcDao = db.localHlcDao()
+
+    @Provides
+    fun provideDshClaimDao(db: TodoDatabase): DshClaimDao = db.dshClaimDao()
 
     @Provides
     @Singleton

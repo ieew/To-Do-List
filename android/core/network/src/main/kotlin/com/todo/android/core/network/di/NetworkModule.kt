@@ -4,6 +4,7 @@ import com.todo.android.core.network.BaseUrlInterceptor
 import com.todo.android.core.network.JsonConverterFactory
 import com.todo.android.core.network.ServerConfig
 import com.todo.android.core.network.api.AuthApi
+import com.todo.android.core.network.api.DshApi
 import com.todo.android.core.network.api.MemberApi
 import com.todo.android.core.network.api.SyncApi
 import com.todo.android.core.network.session.AuthInterceptor
@@ -66,6 +67,10 @@ object NetworkModule {
     @Provides
     @Singleton
     fun provideMemberApi(retrofit: Retrofit): MemberApi = retrofit.create(MemberApi::class.java)
+
+    @Provides
+    @Singleton
+    fun provideDshApi(retrofit: Retrofit): DshApi = retrofit.create(DshApi::class.java)
 
     @Provides
     @Singleton

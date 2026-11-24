@@ -7,6 +7,7 @@ import com.todo.android.core.data.ProjectionHolder
 import com.todo.android.core.data.db.TaskLocalEntity
 import com.todo.android.core.data.db.TaskLocalDao
 import com.todo.android.core.data.settings.SettingsStore
+import com.todo.android.core.dsh.DshManager
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
@@ -31,6 +32,9 @@ class ReminderReceiver : BroadcastReceiver() {
     @Inject
     lateinit var notifier: ReminderNotifier
 
+    @Inject
+    lateinit var dsh: DshManager
+
     override fun onReceive(context: Context, intent: Intent) {
         val taskId = intent.getStringExtra(EXTRA_TASK_ID) ?: return
         val remindAt = intent.getLongExtra(EXTRA_REMIND_AT, 0L)
@@ -47,7 +51,13 @@ class ReminderReceiver : BroadcastReceiver() {
                 // 否则会出现「闹钟触发了、进程也起来了，但通知没弹、还记了已触发」的丢提醒。
                 val shouldNotify = (task == null || !task.done) &&
                     title != null && !inDnd && scheduler.canPostNotifications()
-                if (shouldNotify) {
+                val claimed = dsh.claimReminder(
+                    workspaceId = projectionHolder.projection.value.activeWorkspaceId,
+                    taskId = taskId,
+                    remindAt = remindAt,
+                    source = "app",
+                )
+                if (shouldNotify && claimed) {
                     notifier.notifyReminder(taskId, title!!)
                 }
                 // 免打扰时段内静默，但仍记录 last_fired_at，避免重复补发。

@@ -118,3 +118,16 @@ interface LocalHlcDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun put(entity: LocalHlcEntity)
 }
+
+/** 提醒认领：`INSERT OR IGNORE` 返回 -1 表示已有人展示过。 */
+@Dao
+interface DshClaimDao {
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun claim(entity: DshClaimEntity): Long
+
+    @Query("SELECT COUNT(*) FROM dsh_claim WHERE dedupe_key = :key")
+    suspend fun count(key: String): Int
+
+    @Query("DELETE FROM dsh_claim WHERE claimed_at < :before")
+    suspend fun prune(before: Long)
+}

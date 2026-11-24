@@ -19,6 +19,7 @@ android {
 dependencies {
     implementation(project(":core:data"))
     implementation(project(":core:sync"))
+    implementation(project(":core:dsh"))
     implementation(project(":core:ai"))
     implementation(project(":core:reminder"))
     implementation(project(":core:designsystem"))

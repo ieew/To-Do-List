@@ -40,6 +40,11 @@ def sha256_hex(raw: str) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
+def new_device_credential() -> str:
+    """设备级凭证明文：只在签发/续期响应里出现一次，服务端只存 sha256。"""
+    return "dshcred-" + secrets.token_urlsafe(32)
+
+
 def constant_time_equals(left: str, right: str) -> bool:
     return hmac.compare_digest(left.encode("utf-8"), right.encode("utf-8"))
 

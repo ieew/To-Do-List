@@ -14,6 +14,7 @@ import com.todo.android.core.data.time.IsoTime
 import com.todo.android.core.domain.Fields
 import com.todo.android.core.domain.TaskItem
 import com.todo.android.core.domain.WorkspaceProjection
+import com.todo.android.core.dsh.DshManager
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
@@ -40,6 +41,8 @@ class ImeTaskProvider : ContentProvider() {
         fun repository(): OpRepository
 
         fun taskCommands(): TaskCommands
+
+        fun dshManager(): DshManager
     }
 
     override fun onCreate(): Boolean = true
@@ -113,6 +116,7 @@ class ImeTaskProvider : ContentProvider() {
 
     override fun call(method: String, arg: String?, extras: Bundle?): Bundle {
         ensureCallerAllowed()
+        if (method.startsWith("dsh_")) return dshCall(method, arg, extras)
 
         val taskId = arg?.trim()?.takeIf { it.isNotEmpty() }
             ?: extras?.getString(ImeContract.ARG_TASK_ID)?.trim()?.takeIf { it.isNotEmpty() }
@@ -160,6 +164,66 @@ class ImeTaskProvider : ContentProvider() {
         if (uri.pathSegments.firstOrNull() == SEGMENT_TASKS) "vnd.android.cursor.dir/vnd.todo.ime.task" else null
 
     // ---------------------------------------------------------------- 内部
+
+    /**
+     * dsh 通道的跨进程调用（插件 → App）：
+     * - `dsh_authorize`：插件拉授权信息；
+     * - `dsh_credential_update`：插件回写轮换后的凭证；
+     * - `dsh_status`：插件回写连接状态；
+     * - `dsh_nudge`：插件收到 nudge，让 App 立即 pull；
+     * - `dsh_claim_reminder`：展示前认领，保证只有一方弹提醒。
+     */
+    private fun dshCall(method: String, arg: String?, extras: Bundle?): Bundle {
+        val manager = entryPoint().dshManager()
+        val out = Bundle()
+        when (method) {
+            ImeContract.METHOD_DSH_AUTHORIZE -> {
+                val payload = runBlocking { manager.authorizePayload() }
+                payload.forEach { (key, value) ->
+                    when (value) {
+                        is Boolean -> out.putBoolean(key, value)
+                        is Int -> out.putInt(key, value)
+                        is Long -> out.putLong(key, value)
+                        else -> out.putString(key, value?.toString().orEmpty())
+                    }
+                }
+                out.putBoolean(ImeContract.EXTRA_AVAILABLE, true)
+            }
+
+            ImeContract.METHOD_DSH_CREDENTIAL_UPDATE -> {
+                val credential = extras?.getString(ImeContract.EXTRA_CREDENTIAL).orEmpty()
+                val expiresAt = extras?.getLong(ImeContract.EXTRA_CREDENTIAL_EXP, 0L) ?: 0L
+                runBlocking { manager.updateImeCredential(credential, expiresAt) }
+                out.putBoolean(ImeContract.EXTRA_OK, true)
+            }
+
+            ImeContract.METHOD_DSH_STATUS -> {
+                val connected = extras?.getBoolean(ImeContract.EXTRA_CONNECTED, false) ?: false
+                val error = extras?.getString(ImeContract.EXTRA_ERROR).orEmpty()
+                runBlocking { manager.noteImeStatus(connected, error) }
+                out.putBoolean(ImeContract.EXTRA_OK, true)
+            }
+
+            ImeContract.METHOD_DSH_NUDGE -> {
+                manager.pullNow("nudge")
+                out.putBoolean(ImeContract.EXTRA_OK, true)
+            }
+
+            ImeContract.METHOD_DSH_CLAIM -> {
+                val taskId = extras?.getString(ImeContract.EXTRA_TASK_ID)
+                    ?: arg?.trim().orEmpty()
+                val workspaceId = extras?.getString(ImeContract.EXTRA_WORKSPACE_ID).orEmpty()
+                val remindAt = extras?.getLong(ImeContract.EXTRA_REMIND_AT, 0L) ?: 0L
+                val claimed = runBlocking {
+                    manager.claimReminder(workspaceId, taskId, remindAt, "ime")
+                }
+                out.putBoolean(ImeContract.EXTRA_CLAIMED, claimed)
+            }
+
+            else -> throw IllegalArgumentException("unsupported dsh method: $method")
+        }
+        return out
+    }
 
     private fun entryPoint(): ImeEntryPoint =
         EntryPointAccessors.fromApplication(requireNotNull(context).applicationContext, ImeEntryPoint::class.java)

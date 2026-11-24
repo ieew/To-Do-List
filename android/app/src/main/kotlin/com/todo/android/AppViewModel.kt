@@ -8,6 +8,8 @@ import com.todo.android.core.data.repository.TaskCommands
 import com.todo.android.core.data.settings.AppSettings
 import com.todo.android.core.data.settings.SettingsStore
 import com.todo.android.core.designsystem.ThemeMode
+import com.todo.android.core.dsh.DshManager
+import com.todo.android.core.reminder.DshReminderBridge
 import com.todo.android.core.reminder.KeepAliveManager
 import com.todo.android.core.reminder.ReminderScheduler
 import com.todo.android.core.sync.AccountManager
@@ -68,6 +70,8 @@ class AppViewModel @Inject constructor(
     private val reminderScheduler: ReminderScheduler,
     private val keepAliveManager: KeepAliveManager,
     private val syncScheduler: SyncScheduler,
+    private val dsh: DshManager,
+    private val dshReminderBridge: DshReminderBridge,
 ) : ViewModel() {
     private val _screen = MutableStateFlow<Screen>(Screen.Tasks)
     val screen: StateFlow<Screen> = _screen.asStateFlow()
@@ -89,7 +93,14 @@ class AppViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.Eagerly, ThemeMode.SYSTEM)
 
     init {
-        viewModelScope.launch { settingsStore.observe().collect { _settings.value = it } }
+        // 通道消息 → 提醒：只启动一次（Activity 重建时 ViewModel 已存在）。
+        runCatching { dshReminderBridge.start() }
+        viewModelScope.launch {
+            settingsStore.observe().collect {
+                _settings.value = it
+                if (it.dshChannelEnabled) dsh.start() else dsh.stop()
+            }
+        }
         viewModelScope.launch {
             syncEngine.state.collect {
                 _sync.value = it
@@ -111,6 +122,7 @@ class AppViewModel @Inject constructor(
                 accountManager.restore()
                 syncEngine.bootstrap()
                 ensureLocalWorkspace()
+                dsh.start()
                 true
             }
             _boot.value = if (ok == true) {

@@ -44,7 +44,13 @@ ime-plugin/
 
 ```bash
 cd ime-plugin
-bash tools/build.sh          # 产物 out/dsh-kit.dex（约 280 KB）
+bash tools/build.sh          # Linux/WSL，产物 out/dsh-kit.dex（约 280 KB）
+```
+
+Windows 直接用 PowerShell（自动找 Android SDK 的 android.jar 与 build-tools 的 d8）：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\build.ps1
 ```
 
 构建会：javac 编译 `src/java` → 复制一份 Paho jar 并删掉其 `NetworkModuleService.class`
@@ -77,12 +83,15 @@ mkdir -p /sdcard/Documents/rime/scripts/dsh.d
 vi /sdcard/Documents/rime/scripts/dsh.d/config.json
 ```
 
-`config.json` 最小可用：
+`config.json` 最小可用（账号密码仅调试兼容；正常路径由待办 App 授权）：
 
 ```json
 {"server": "http://127.0.0.1:8000", "username": "alice", "password": "password123", "default_level": 3}
 ```
 
+- **推荐方式**：在待办 App「设置 → 提醒 → 数据通道」启用输入法通道。App 会注册 `dsh-ime-*`
+  设备并签发设备级凭证；插件通过 provider 取到凭证后自己调 `/v1/dsh/devices/refresh` 续期，
+  **不保存账号密码**。凭证用 Android Keystore AES/GCM 加密后落盘。
 - `server` 要能被手机访问；服务端 MQTT 端口（默认 1883）也必须可达，
   且服务端 `TODO_SERVER_DSH_MQTT_PUBLIC_HOST` 要写手机能访问到的地址。
 - 登录成功后会拿 refresh_token 存到私有目录，之后可以从 `config.json` 删掉 `password`。

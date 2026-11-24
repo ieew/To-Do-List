@@ -15,7 +15,13 @@ from fastapi import APIRouter, Depends, Header, Query, Request, status
 from app.api.deps import get_current_user, get_services
 from app.core_domain.errors import AppError
 from app.features.dsh import usecase
-from app.features.dsh.schemas import AckRequest, ClipRequest, PushRequest, RegisterDeviceRequest
+from app.features.dsh.schemas import (
+    AckRequest,
+    ClipRequest,
+    CredentialRefreshRequest,
+    PushRequest,
+    RegisterDeviceRequest,
+)
 from app.features.dsh.ticket import verify_ticket
 from app.infra.clock import now_ms
 from app.infra.security import constant_time_equals, decode_access_token
@@ -87,6 +93,18 @@ async def list_devices(services: Container, user_id: CurrentUser) -> dict:
 @router.post("/devices/{device_id}/revoke")
 async def revoke_device(device_id: str, services: Container, user_id: CurrentUser) -> dict:
     return await usecase.revoke_device(services, user_id, device_id)
+
+
+@router.post("/devices/{device_id}/credential", status_code=status.HTTP_201_CREATED)
+async def issue_credential(device_id: str, services: Container, user_id: CurrentUser) -> dict:
+    """账号侧为设备签发凭证：输入法插件用它自主续期，不需要保存账号密码。"""
+    return await usecase.issue_credential(services, user_id, device_id)
+
+
+@router.post("/devices/refresh")
+async def refresh_device(payload: CredentialRefreshRequest, services: Container) -> dict:
+    """设备侧自助续期：只校验 device_id + credential，不读 Authorization。"""
+    return await usecase.refresh_device(services, payload)
 
 
 # ---------------------------------------------------------------- 投递 / 拉取 / 确认

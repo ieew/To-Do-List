@@ -31,6 +31,7 @@ public final class NotifyModule {
     private final Log log;
     private final int defaultLevel;
     private Session session;
+    private TodoClient todoClient;
     private volatile Map<String, Object> last;
 
     public NotifyModule(Store store, NotifySink sink, Log log, int defaultLevel) {
@@ -43,6 +44,11 @@ public final class NotifyModule {
     /** 构造顺序原因：Session 先建、模块后建，再回填。 */
     public void setSession(Session session) {
         this.session = session;
+    }
+
+    /** 提醒去重：展示前通过 provider 向 App 认领，避免两边都弹。 */
+    public void setTodoClient(TodoClient todoClient) {
+        this.todoClient = todoClient;
     }
 
     /** 返回 true 表示已处理、可以 ack。 */
@@ -63,6 +69,10 @@ public final class NotifyModule {
         String tag = msgId;
         boolean legacySilent = false;
         int level = defaultLevel;
+        boolean reminder = false;
+        String taskId = "";
+        String workspaceId = "";
+        long remindAt = 0L;
         try {
             Map<String, Object> payload = Json.asObject(Json.parse(payloadJson));
             String t = Json.str(payload, "title", "");
@@ -78,11 +88,25 @@ public final class NotifyModule {
             level = Levels.fromPayload(payload, defaultLevel);
             // 老格式：silent=true 且没写 level，按「只进通知中心」处理
             if (payload.get("level") == null && legacySilent) level = 1;
+            reminder = "reminder".equals(Json.str(payload, "type", ""));
+            taskId = Json.str(payload, "task_id", "");
+            workspaceId = Json.str(payload, "workspace_id", "");
+            remindAt = parseIso(Json.str(payload, "remind_at", ""));
         } catch (Throwable t) {
             body = payloadJson == null ? "" : payloadJson;
             if (body.length() > 120) body = body.substring(0, 120) + "…";
         }
         if (tag == null || tag.isEmpty()) tag = "dsh-" + System.currentTimeMillis();
+
+        // 服务端提醒：App 与插件只允许一方展示。
+        if (reminder && !shouldShowReminder(taskId, workspaceId, remindAt)) {
+            markSeen(msgId);
+            record(msgId, level, title, body, false);
+            last = Json.obj("level", level, "title", title, "shown", false);
+            log.i("notify", "提醒已由 App 展示，插件跳过 tag=" + tag);
+            if (session != null) session.noteApplied();
+            return true;
+        }
 
         boolean shown = sink.show(tag, title, body, level, url);
         markSeen(msgId);
@@ -98,6 +122,39 @@ public final class NotifyModule {
 
     public boolean canNotify(int level) {
         return sink.canNotify(level);
+    }
+
+    /**
+     * 提醒是否由插件展示：
+     * - App 关闭通知 / 处于免打扰 → 不展示（但仍 ack，避免堵队列）；
+     * - 通过 provider 认领，抢不到说明 App 已经弹过。
+     */
+    private boolean shouldShowReminder(String taskId, String workspaceId, long remindAt) {
+        Session s = session;
+        if (s != null) {
+            if (!s.notificationsEnabled()) {
+                log.i("notify", "App 已关闭通知，插件静默记录");
+                return false;
+            }
+            if (s.inDnd(System.currentTimeMillis())) {
+                log.i("notify", "免打扰时段，插件静默记录");
+                return false;
+            }
+        }
+        if (todoClient == null || taskId == null || taskId.isEmpty() || remindAt <= 0) return true;
+        boolean claimed = todoClient.dshClaimReminder(taskId, workspaceId, remindAt);
+        if (!claimed) log.i("notify", "提醒已被 App 认领 task=" + taskId);
+        return claimed;
+    }
+
+    /** RFC3339 → 毫秒；解析失败返回 0（不做跨端认领，按普通通知处理）。 */
+    private static long parseIso(String raw) {
+        if (raw == null || raw.trim().isEmpty()) return 0L;
+        try {
+            return java.time.OffsetDateTime.parse(raw.trim()).toInstant().toEpochMilli();
+        } catch (Throwable t) {
+            return 0L;
+        }
     }
 
     /** 本地测试：不经过服务端，直接按等级弹一条，用来验证渠道/权限。 */
