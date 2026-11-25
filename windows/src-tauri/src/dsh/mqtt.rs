@@ -10,6 +10,8 @@ use tokio::sync::mpsc::Sender;
 pub enum MqttEvent {
     Connected,
     Nudge,
+    /// 其它设备写了数据：让同步 worker 立即 pull。
+    Sync,
     Clip {
         id: String,
         text: String,
@@ -52,6 +54,11 @@ pub async fn run(
                 match payload {
                     Some(MqttPayload::Nudge { .. }) => {
                         if events.send(MqttEvent::Nudge).await.is_err() {
+                            return Ok(());
+                        }
+                    }
+                    Some(MqttPayload::Sync) => {
+                        if events.send(MqttEvent::Sync).await.is_err() {
                             return Ok(());
                         }
                     }

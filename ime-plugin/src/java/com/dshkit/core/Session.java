@@ -704,6 +704,19 @@ public final class Session {
             pullNow("nudge");
             return;
         }
+        // 数据变更信号：插件自己不跑 op 同步，转给 App 让它立即 pull。
+        if (raw.indexOf("\"t\":\"sync\"") >= 0) {
+            log.i("session", "收到数据变更信号，转给 App");
+            Authorizer a = authorizer;
+            if (a != null) {
+                try {
+                    a.nudge();
+                } catch (Throwable t) {
+                    log.w("session", "转发同步信号失败：" + t.getMessage());
+                }
+            }
+            return;
+        }
         Protocol.Clip clip = Protocol.parseClip(raw);
         if (clip != null) {
             boolean ok = false;

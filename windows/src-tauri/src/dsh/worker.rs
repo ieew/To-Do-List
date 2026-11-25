@@ -221,6 +221,11 @@ async fn run(app: AppHandle) {
                     Some(MqttEvent::Nudge) => {
                         next_pull = 0;
                     }
+                    Some(MqttEvent::Sync) => {
+                        // 其它设备写了 op：立刻唤醒同步 worker，不等到下个轮询周期。
+                        state.sync.wake();
+                        logging::info("dsh", "收到数据变更信号，立即同步");
+                    }
                     Some(MqttEvent::Clip { id, text, fp }) => {
                         apply_clip_event(&app, &state, &id, &text, &fp).await;
                     }

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
 import aiosqlite
@@ -16,6 +17,8 @@ from app.features.sync_push.schemas import PushRequest
 from app.infra.clock import now_ms
 
 _PERMISSION_CODES = frozenset({"workspace_access_revoked", "forbidden"})
+
+logger = logging.getLogger("todo.sync")
 
 
 async def push(
@@ -97,8 +100,24 @@ async def push(
 
         for workspace_id in {op.workspace_id for op in ops}:
             history_usecase.schedule_snapshot_if_due(services, workspace_id)
+        await _signal_data_change(services, user_id)
 
     return 200, {"server_hlc": server_hlc, "server_seq": server_seq, "results": results}
+
+
+async def _signal_data_change(services: Services, user_id: str) -> None:
+    """告诉同账号在线设备「有新数据」，让它们立即 pull。
+
+    MQTT 只发一个 `{"t":"sync"}`，不携带任何业务内容；不新增消息行、不影响游标。
+    通道未启用/未连上时静默跳过；任何异常都不能让本次 push 失败。
+    """
+    runtime = getattr(services, "dsh", None)
+    if runtime is None:
+        return
+    try:
+        await runtime.publish_sync(user_id=user_id)
+    except Exception:  # noqa: BLE001 - 旁路信号
+        logger.warning("数据变更信号广播失败", exc_info=True)
 
 
 async def _accept_op(

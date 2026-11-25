@@ -22,7 +22,7 @@ from app.features.dsh import usecase
 from app.infra.rate_limit import SlidingWindowLimiter
 from app.main import create_app
 
-from .conftest import auth, register_user
+from .conftest import auth, push_ops, register_user, task_create_ops
 
 # ---------------------------------------------------------------- 夹具
 
@@ -761,3 +761,28 @@ async def test_web_page_served(client: AsyncClient) -> None:
     assert page.headers["content-type"].startswith("text/html")
     assert "dsh-kit 对端" in page.text
     assert "/v1/dsh/push" in page.text  # 页面用的是同一套接口
+
+
+# ---------------------------------------------------------------- 数据变更信号
+
+
+async def test_op_push_emits_sync_signal(client: AsyncClient, app) -> None:
+    data = await register_user(client, username="alice")
+    token = data["tokens"]["access_token"]
+    user_id = data["user"]["user_id"]
+    workspace_id = data["default_workspace_id"]
+    device = await register_device(client, token)
+
+    async with device_connection(app, device, client_id="sync-target") as mqtt:
+        ops = task_create_ops(
+            workspace_id=workspace_id,
+            task_id="task-sync",
+            list_id=f"{workspace_id}-today",
+            actor_id=user_id,
+        )
+        response = await push_ops(client, token, ops)
+        assert response.status_code == 200, response.text
+        assert any(item["status"] == "accepted" for item in response.json()["results"])
+
+        payload = await next_payload(mqtt, wait_s=5.0)
+        assert payload == {"t": "sync"}

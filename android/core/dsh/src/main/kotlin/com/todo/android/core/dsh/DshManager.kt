@@ -63,6 +63,13 @@ class DshManager @Inject constructor(
     private val _messages = MutableSharedFlow<DshMessage>(extraBufferCapacity = 128)
     val messages = _messages.asSharedFlow()
 
+    /** 「其它设备写了数据」的信号：上层收到后立即 `syncEngine.runOnce()`。 */
+    private val _syncSignals = MutableSharedFlow<Unit>(
+        extraBufferCapacity = 8,
+        onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST,
+    )
+    val syncSignals = _syncSignals.asSharedFlow()
+
     private var started = false
     private var pollJob: Job? = null
     /** boot() 可能被多处并发触发；注册/签凭证串行化，避免一次启动注册出两个设备。 */
@@ -117,6 +124,11 @@ class DshManager @Inject constructor(
                 pullUntilIdle()
             }
         }
+    }
+
+    /** 数据变更信号：让 op 同步立即跑一轮（由 AppViewModel 收集）。 */
+    fun requestDataSync() {
+        _syncSignals.tryEmit(Unit)
     }
 
     /**
@@ -315,6 +327,7 @@ class DshManager @Inject constructor(
                     ticket = appTicket,
                     keepAliveSeconds = 60,
                     onNudge = { pullNow("nudge") },
+                    onSync = { requestDataSync() },
                     onState = { connected, detail ->
                         _status.value = _status.value.copy(
                             connected = connected,

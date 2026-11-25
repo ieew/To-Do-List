@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Any, Protocol
 
 from app.config import ServerSettings
 from app.db.read_pool import ReadPool
@@ -13,3 +13,5 @@ class ServicesPort(Protocol):
     settings: ServerSettings
     writer: WriterWorker
     read: ReadPool
+    # dsh 推送通道（可选）：op 入账后给同账号在线设备发一个极小的 sync 信号。
+    dsh: Any

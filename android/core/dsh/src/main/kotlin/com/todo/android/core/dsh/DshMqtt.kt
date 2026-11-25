@@ -40,6 +40,7 @@ class DshMqtt @Inject constructor() {
         ticket: String,
         keepAliveSeconds: Int,
         onNudge: () -> Unit,
+        onSync: () -> Unit,
         onState: (connected: Boolean, detail: String) -> Unit,
     ) {
         disconnect()
@@ -61,7 +62,10 @@ class DshMqtt @Inject constructor() {
 
                 override fun messageArrived(topic: String?, message: MqttMessage?) {
                     val text = message?.payload?.toString(Charsets.UTF_8).orEmpty()
-                    if (text.contains("\"nudge\"")) onNudge()
+                    when {
+                        text.contains("\"t\":\"sync\"") -> onSync()
+                        text.contains("\"nudge\"") -> onNudge()
+                    }
                 }
 
                 override fun deliveryComplete(token: IMqttDeliveryToken?) = Unit

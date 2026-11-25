@@ -78,11 +78,13 @@ pub struct ClipResponse {
     pub seq: i64,
 }
 
-/// MQTT 主题上的两种载荷：nudge（唤醒）与 clip（剪贴板直传）。
+/// MQTT 主题上的三种载荷：nudge（推送唤醒）、clip（剪贴板直传）与 sync（数据变更）。
 #[derive(Clone, Debug, PartialEq)]
 pub enum MqttPayload {
     Nudge { seq: i64 },
     Clip { id: String, text: String, fp: String },
+    /// 其它设备提交了 op：收到后立即跑一次 `sync/pull`。不落库、不动 dsh 游标。
+    Sync,
 }
 
 /// 剪贴板 payload 有三种形态：
@@ -175,6 +177,7 @@ pub fn parse_mqtt_payload(bytes: &[u8]) -> Option<MqttPayload> {
                 .unwrap_or_default()
                 .to_string(),
         }),
+        "sync" => Some(MqttPayload::Sync),
         _ => None,
     }
 }
@@ -272,6 +275,15 @@ mod tests {
 
         let bad = parse_mqtt_payload(br#"{"t":"other"}"#);
         assert_eq!(bad, None);
+    }
+
+    #[test]
+    fn parses_data_change_signal() {
+        // 其它设备提交 op 后，服务端只发一个极小的 sync 信号；不带 seq、不落库。
+        assert_eq!(
+            parse_mqtt_payload(br#"{"t":"sync"}"#),
+            Some(MqttPayload::Sync)
+        );
     }
 
     #[test]

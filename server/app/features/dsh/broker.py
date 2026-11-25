@@ -140,7 +140,7 @@ class DshRuntime:
             if not bind.startswith("["):
                 raise
             logger.warning("dsh broker 绑定 %s 失败（%s），回退到 0.0.0.0", bind, exc)
-            config = self._broker_config("0.0.0.0")
+            config = self._broker_config("0.0.0.0")  # noqa: S104 - 回退时必须监听全部网卡
             broker = Broker(config)
             self._broker = broker
             await broker.start()
@@ -205,8 +205,9 @@ class DshRuntime:
         settings = self._settings
         listener: dict[str, Any] = {
             "type": "tcp",
-            "bind": _format_bind(bind if bind is not None else settings.dsh_mqtt_bind,
-                                 settings.dsh_mqtt_port),
+            "bind": _format_bind(
+                bind if bind is not None else settings.dsh_mqtt_bind, settings.dsh_mqtt_port
+            ),
             "max_connections": 0,
         }
         if settings.dsh_mqtt_tls_cert and settings.dsh_mqtt_tls_key:
@@ -304,6 +305,24 @@ class DshRuntime:
         for target in targets:
             nudged = self._enqueue(topic_in(user_id, target), payload) or nudged
         return nudged
+
+    async def publish_sync(self, *, user_id: str) -> int:
+        """数据变更信号：给该用户所有在线设备发 `{"t":"sync"}`，不落库、不动游标。
+
+        客户端收到后立即走自己的 `sync/pull`；它只是「去拉一下」的提示，
+        丢了也不影响正确性（下次轮询/本地写入仍会同步）。
+        """
+        if not self.online:
+            return 0
+        targets = [device for device in self._online_devices_of(user_id) if self.is_online(device)]
+        if not targets:
+            return 0
+        body = b'{"t":"sync"}'
+        sent = 0
+        for target in targets:
+            if self._enqueue(topic_in(user_id, target), body):
+                sent += 1
+        return sent
 
     async def publish_clip(
         self, *, user_id: str, device_id: str, msg_id: str, payload: Any

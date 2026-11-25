@@ -22,10 +22,12 @@ import com.todo.android.core.sync.SyncStatus
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
@@ -95,6 +97,13 @@ class AppViewModel @Inject constructor(
     init {
         // 通道消息 → 提醒：只启动一次（Activity 重建时 ViewModel 已存在）。
         runCatching { dshReminderBridge.start() }
+        // 其它设备改了数据：dsh 只发一个 sync 信号，这里合并短时间内的多条后立即同步。
+        viewModelScope.launch {
+            dsh.syncSignals.conflate().collect {
+                delay(400)
+                runCatching { syncEngine.runOnce() }
+            }
+        }
         viewModelScope.launch {
             settingsStore.observe().collect {
                 _settings.value = it
