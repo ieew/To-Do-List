@@ -168,17 +168,50 @@ public final class TodoClient {
         dshCall("dsh_sync", input);
     }
 
+    /** §8.1：主通道认领最多等这么久，超时就自己展示（宁可重复，不要都不弹）。 */
+    private static final long CLAIM_TIMEOUT_MS = 800L;
+
     /**
-     * 展示提醒前认领：抢到返回 true，说明另一方（App）已经弹过，插件应跳过。
-     * provider 不可用时返回 true（插件自己兜底展示）。
+     * 展示提醒前认领：返回 false 表示**明确被告知**另一方（App）已经弹过，插件应跳过。
+     *
+     * claim 是去重优化，不是正确性依赖（§8.1）。provider 不可用、超时、返回缺字段，
+     * 一律当作「没抢到但也没人认领」→ 插件自己展示。把展示能力押在 App 进程能被拉起上，
+     * 等于让主通道跟着最弱的一环走，这与 §3.0 的分级前提冲突。
+     *
+     * 这里额外加 800ms 超时：ContentResolver.call 会跨进程等 App 响应，而 App 可能正在冷启动，
+     * 不设上限会把「立即弹」拖成「十几秒后才弹」。
      */
     public boolean dshClaimReminder(String taskId, String workspaceId, long remindAt) {
-        Bundle input = new Bundle();
+        final Bundle input = new Bundle();
         input.putString("task_id", taskId);
         input.putString("workspace_id", workspaceId);
         input.putLong("remind_at", remindAt);
-        Bundle out = dshCall("dsh_claim_reminder", input);
-        return out == null || out.getBoolean("claimed", true);
+        final Bundle[] box = new Bundle[1];
+        Thread worker = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                box[0] = dshCall("dsh_claim_reminder", input);
+            }
+        }, "dsh-claim");
+        worker.setDaemon(true);
+        long start = System.currentTimeMillis();
+        worker.start();
+        try {
+            worker.join(CLAIM_TIMEOUT_MS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return true;
+        }
+        Bundle out = box[0];
+        if (out == null) {
+            long waited = System.currentTimeMillis() - start;
+            if (waited >= CLAIM_TIMEOUT_MS) {
+                // 没有 log 就没法解释「为什么两边都弹了」，这条日志是后续排障的入口
+                android.util.Log.i("dsh-kit", "claim 超时 " + waited + "ms，插件自行展示 task=" + taskId);
+            }
+            return true;
+        }
+        return out.getBoolean("claimed", true);
     }
 
     private Bundle dshCall(String method, Bundle extras) {

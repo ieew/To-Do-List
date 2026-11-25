@@ -91,7 +91,7 @@ public final class Kit {
         this.queue = new Queue(base, log);
         this.config = Config.load(new File(Config.DEFAULT_PATH), log);
 
-        this.sched = new Scheduler("dsh-kit", log);
+        this.sched = new Scheduler("dsh-kit", log, primary);
         this.bus = new EventBus(sched.executor(), log);
         this.api = new HttpApi(log);
         this.transport = new MqttTransport(log);

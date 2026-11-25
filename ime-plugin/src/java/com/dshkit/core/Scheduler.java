@@ -17,7 +17,23 @@ public final class Scheduler {
     private final Log log;
 
     public Scheduler(String name, Log log) {
+        this(name, log, true);
+    }
+
+    /**
+     * §7.1：非主实例（secondary）不该有自己的调度线程。
+     *
+     * 每个 Lua 入口都会新建一个 DexClassLoader，Kit 类因此是新的、静态字段重置为 null，
+     * 一个进程里可能同时存在多份 Kit。主实例用 {@code System.getProperty} 判定（进程级，
+     * 跨 ClassLoader 共享），其余构造时传 {@code enabled=false}：不建线程池，
+     * 所有异步动作退化成同步执行，事件照常回调——只是不再占一条常驻线程。
+     */
+    public Scheduler(String name, Log log, boolean enabled) {
         this.log = log;
+        if (!enabled) {
+            this.pool = null;
+            return;
+        }
         this.pool = Executors.newSingleThreadScheduledExecutor(new ThreadFactory() {
             @Override
             public Thread newThread(Runnable r) {
@@ -28,11 +44,20 @@ public final class Scheduler {
         });
     }
 
+    public boolean isEnabled() {
+        return pool != null;
+    }
+
     public void run(Runnable task) {
+        if (pool == null) {
+            guarded(task).run();
+            return;
+        }
         guard(task);
     }
 
     public void delay(Runnable task, long delayMs) {
+        if (pool == null) return;
         if (delayMs <= 0) {
             run(task);
             return;
@@ -46,6 +71,7 @@ public final class Scheduler {
 
     /** 同 {@link #delay}，但返回句柄，便于取消（例如手动重连时作废旧的退避任务）。 */
     public ScheduledFuture<?> delayFuture(Runnable task, long delayMs) {
+        if (pool == null) return null;
         if (delayMs <= 0) {
             run(task);
             return null;
@@ -59,6 +85,7 @@ public final class Scheduler {
     }
 
     public void every(Runnable task, long initialMs, final long periodMs) {
+        if (pool == null) return;
         try {
             pool.scheduleWithFixedDelay(guarded(task), initialMs, periodMs, TimeUnit.MILLISECONDS);
         } catch (Throwable t) {
@@ -67,6 +94,7 @@ public final class Scheduler {
     }
 
     public ScheduledFuture<?> scheduleAtFixedRate(Runnable task, long periodMs) {
+        if (pool == null) return null;
         try {
             return pool.scheduleWithFixedDelay(guarded(task), periodMs, periodMs,
                     TimeUnit.MILLISECONDS);
@@ -108,6 +136,7 @@ public final class Scheduler {
     }
 
     public void shutdown() {
+        if (pool == null) return;
         try {
             pool.shutdownNow();
         } catch (Throwable ignored) {
