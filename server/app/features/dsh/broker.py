@@ -58,11 +58,14 @@ def _format_bind(host: str | None, port: int) -> str:
     return f"{value}:{port}"
 
 
-def _ipv6_only_default() -> bool:
-    """当前平台新建 IPv6 socket 时 `IPV6_V6ONLY` 的默认值。
+def _probe_ipv6_only_default() -> bool:
+    """读取内核默认的 `IPV6_V6ONLY`（纯本地 getsockopt，不涉网络 IO）。
 
     - Windows：默认 1 —— `::` 只收 IPv6，必须额外绑 0.0.0.0 才能服务局域网 IPv4；
     - Linux/macOS：默认 0 —— `::` 本身就是双栈，再绑 0.0.0.0 会 EADDRINUSE。
+
+    只在**模块导入时**调用一次（此时事件循环还没跑），运行期不再碰 socket，
+    保证 broker 的 async 启动路径里没有同步调用。
     """
     try:
         sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
@@ -72,6 +75,10 @@ def _ipv6_only_default() -> bool:
         return bool(sock.getsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY))
     finally:
         sock.close()
+
+
+# 导入期算好，供 `_broker_config` 直接读；测试可用 monkeypatch 覆盖。
+_IPV6_ONLY_DEFAULT = _probe_ipv6_only_default()
 
 
 def topic_in(user_id: str, device_id: str) -> str:
@@ -279,7 +286,7 @@ class DshRuntime:
         # 必须直接往 listeners 里塞对象：BrokerConfig.from_dict 会用 default 的字段
         # 覆盖其它 listener 中「恰好等于字段默认值」的项，而 `0.0.0.0:<port>` 正好是
         # ListenerConfig.bind 的默认字面量，走 dict 配置会被 default 的 IPv6 反向覆盖。
-        if dual_stack and ":" in host and port != 0 and _ipv6_only_default():
+        if dual_stack and ":" in host and port != 0 and _IPV6_ONLY_DEFAULT:
             ipv4_bind = _format_bind("0.0.0.0", port)  # noqa: S104 - 局域网的手机只走 IPv4
             config.listeners["ipv4"] = BrokerConfig.from_dict(
                 {"listeners": {"default": self._listener_config(ipv4_bind)}}

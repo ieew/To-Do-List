@@ -823,7 +823,7 @@ def test_broker_config_adds_ipv4_listener_when_v6only(tmp_path: Path, monkeypatc
     """
     from app.features.dsh import broker as broker_mod
 
-    monkeypatch.setattr(broker_mod, "_ipv6_only_default", lambda: True)
+    monkeypatch.setattr(broker_mod, "_IPV6_ONLY_DEFAULT", True)
     config = _runtime_for_bind(tmp_path, "[::]", 1883)._broker_config()
     assert config.listeners["default"].bind == ":::1883"
     assert config.listeners["ipv4"].bind == "0.0.0.0:1883"
@@ -833,7 +833,7 @@ def test_broker_config_skips_ipv4_listener_when_dualstack(tmp_path: Path, monkey
     """Linux/macOS 的 `::` 本来双栈，再绑 0.0.0.0 会 EADDRINUSE。"""
     from app.features.dsh import broker as broker_mod
 
-    monkeypatch.setattr(broker_mod, "_ipv6_only_default", lambda: False)
+    monkeypatch.setattr(broker_mod, "_IPV6_ONLY_DEFAULT", False)
     config = _runtime_for_bind(tmp_path, "[::]", 1883)._broker_config()
     assert "ipv4" not in config.listeners
 
@@ -841,7 +841,7 @@ def test_broker_config_skips_ipv4_listener_when_dualstack(tmp_path: Path, monkey
 def test_broker_config_skips_ipv4_listener_on_random_port(tmp_path: Path, monkeypatch) -> None:
     from app.features.dsh import broker as broker_mod
 
-    monkeypatch.setattr(broker_mod, "_ipv6_only_default", lambda: True)
+    monkeypatch.setattr(broker_mod, "_IPV6_ONLY_DEFAULT", True)
     config = _runtime_for_bind(tmp_path, "[::]", 0)._broker_config()
     assert "ipv4" not in config.listeners
 
