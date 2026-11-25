@@ -18,11 +18,34 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        // 统一签名：debug 与 release 共用同一个 keystore，保证两者能互相覆盖安装。
+        // 路径优先级：DSH_KEYSTORE 环境变量 > local.properties 的 dsh.keystore > 手机默认路径。
+        // 换机器构建（如服务器）时用环境变量或 local.properties 指到本地那份副本，
+        // 绝不能让 Gradle 自动生成 debug.keystore —— 签名不同会装不上去。
+        create("dsh") {
+            val fallback = "/storage/emulated/0/MT2/keystore/qianxue.jks"
+            val fromProps = rootProject
+                .file("local.properties")
+                .takeIf { it.exists() }
+                ?.let { file ->
+                    java.util.Properties().apply { file.inputStream().use { load(it) } }
+                        .getProperty("dsh.keystore")
+                }
+            storeFile = rootProject.file(System.getenv("DSH_KEYSTORE") ?: fromProps ?: fallback)
+            storePassword = System.getenv("DSH_KEYSTORE_PASS") ?: "Fw34r@3468"
+            keyAlias = System.getenv("DSH_KEY_ALIAS") ?: "qianxue"
+            keyPassword = System.getenv("DSH_KEY_PASS") ?: "Fw34r@3468"
+        }
+    }
+
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("dsh")
+        }
         release {
             isMinifyEnabled = false
-            // 本地自用：沿用 debug keystore，保证与已装版本签名一致、可覆盖升级（换签名必须卸载清数据）。
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("dsh")
         }
     }
 

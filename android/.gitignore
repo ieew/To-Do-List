@@ -15,3 +15,8 @@ shots/
 
 # Kotlin 编译期诊断日志
 .kotlin/
+
+# 签名文件不进仓库（密码在 build.gradle.kts，文件本身走安全渠道传）
+keystore/
+*.jks
+*.keystore
