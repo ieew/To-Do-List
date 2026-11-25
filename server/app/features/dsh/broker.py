@@ -14,6 +14,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import socket
 from dataclasses import dataclass
 from typing import Any
 
@@ -38,19 +39,39 @@ _REVOKED_REFRESH_S = 60
 _CLEANUP_MAX_ROUNDS = 20
 
 
-def _format_bind(host: str, port: int) -> str:
+def _normalize_host(host: str | None) -> str:
+    """去掉首尾空白和 IPv6 方括号，得到可交给 getaddrinfo 的裸主机名。"""
+    value = (host or "").strip()
+    if value.startswith("[") and value.endswith("]"):
+        value = value[1:-1].strip()
+    return value
+
+
+def _format_bind(host: str | None, port: int) -> str:
     """把配置里的监听地址拼成 amqtt 能解析的 host:port。
 
-    - 空值 → [::]（双栈）
-    - 裸 IPv6（含冒号）自动加方括号：`::` → `[::]:1883`
-    - 已经是 [..] 的保持原样
+    关键：IPv6 地址**绝不能带方括号**。amqtt 用 `rsplit(":", 1)` 拆地址和端口，
+    `[::]:1883` 会得到 host=`[::]`，直接被丢给 getaddrinfo；Linux 上（uvloop）
+    会报 `socket.gaierror: [Errno -2] Name or service not known`，启动失败。
     """
-    host = (host or "").strip()
-    if not host:
-        host = "::"
-    if ":" in host and not (host.startswith("[") and host.endswith("]")):
-        host = f"[{host}]"
-    return f"{host}:{port}"
+    value = _normalize_host(host) or "::"
+    return f"{value}:{port}"
+
+
+def _ipv6_only_default() -> bool:
+    """当前平台新建 IPv6 socket 时 `IPV6_V6ONLY` 的默认值。
+
+    - Windows：默认 1 —— `::` 只收 IPv6，必须额外绑 0.0.0.0 才能服务局域网 IPv4；
+    - Linux/macOS：默认 0 —— `::` 本身就是双栈，再绑 0.0.0.0 会 EADDRINUSE。
+    """
+    try:
+        sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+    except OSError:
+        return False
+    try:
+        return bool(sock.getsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY))
+    finally:
+        sock.close()
 
 
 def topic_in(user_id: str, device_id: str) -> str:
@@ -129,13 +150,12 @@ class DshRuntime:
         global _ACTIVE_RUNTIME
 
         self._revoked = await self._load_revoked()
-        configured_bind = (self._settings.dsh_mqtt_bind or "").strip()
-        # 监听策略逐级降级：双栈 → 仅 IPv6 → 仅 IPv4。
-        # Windows/macOS 的 `[::]` 往往是 v6-only，单纯依赖它会让 IPv4 客户端全部连不上。
-        attempts: list[tuple[str, BrokerConfig]] = [("双栈", self._broker_config())]
-        if configured_bind.startswith("["):
+        configured_host = _normalize_host(self._settings.dsh_mqtt_bind) or "::"
+        # 监听策略逐级降级：默认（IPv6，必要时加 IPv4）→ 仅 IPv6 → 仅 IPv4。
+        attempts: list[tuple[str, BrokerConfig]] = [("自动", self._broker_config())]
+        if ":" in configured_host:
             attempts.append(("IPv6-only", self._broker_config(dual_stack=False)))
-        if configured_bind != "0.0.0.0":  # noqa: S104 - 兜底时必须有 IPv4 通配
+        if configured_host != "0.0.0.0":  # noqa: S104 - 兜底时必须有 IPv4 通配
             attempts.append(
                 ("IPv4-only", self._broker_config("0.0.0.0", dual_stack=False))  # noqa: S104
             )
@@ -157,9 +177,11 @@ class DshRuntime:
                 logger.warning("dsh broker 以 %s 方式监听失败（%s），换一种方式重试", label, exc)
                 continue
             logger.info(
-                "dsh broker 监听方式=%s bind=%s",
+                "dsh broker 监听方式=%s 绑定=%s",
                 label,
-                config.listeners["default"].bind,
+                ", ".join(
+                    f"{name}={listener.bind}" for name, listener in broker.listeners_config.items()
+                ),
             )
             break
         else:
@@ -184,7 +206,7 @@ class DshRuntime:
             task.add_done_callback(self._services.background.discard)
 
         logger.info(
-            "dsh broker 已启动：bind=%s:%s 实际端口=%s",
+            "dsh broker 已启动：配置 bind=%s:%s 实际端口=%s",
             self._settings.dsh_mqtt_bind,
             self._settings.dsh_mqtt_port,
             self.bound_port,
@@ -243,21 +265,21 @@ class DshRuntime:
     def _broker_config(self, bind: str | None = None, *, dual_stack: bool = True) -> BrokerConfig:
         settings = self._settings
         port = settings.dsh_mqtt_port
-        primary = _format_bind(bind if bind is not None else settings.dsh_mqtt_bind, port)
+        host = _normalize_host(bind if bind is not None else settings.dsh_mqtt_bind) or "::"
         config = BrokerConfig.from_dict(
             {
-                "listeners": {"default": self._listener_config(primary)},
+                "listeners": {"default": self._listener_config(_format_bind(host, port))},
                 # 显式给 plugins，避免 amqtt 默认塞进 AnonymousAuthPlugin（允许匿名）。
                 "plugins": {"app.features.dsh.broker.DshBrokerPlugin": {}},
             }
         )
-        # `[::]` 在 Windows/macOS 上通常是 v6-only（IPV6_V6ONLY=1），IPv4 客户端
-        # （127.0.0.1、局域网 192.168.x.x）根本连不上；端口固定时额外加一个 IPv4 listener。
+        # IPv6 socket 默认 v6-only 的平台（Windows）才需要额外绑 IPv4：
+        # Linux/macOS 的 `::` 本身就双栈，再绑 0.0.0.0 会 EADDRINUSE。
         #
         # 必须直接往 listeners 里塞对象：BrokerConfig.from_dict 会用 default 的字段
         # 覆盖其它 listener 中「恰好等于字段默认值」的项，而 `0.0.0.0:<port>` 正好是
-        # ListenerConfig.bind 的默认字面量，走 dict 配置会被 default 的 `[::]` 反向覆盖。
-        if dual_stack and primary.startswith("[") and port != 0:
+        # ListenerConfig.bind 的默认字面量，走 dict 配置会被 default 的 IPv6 反向覆盖。
+        if dual_stack and ":" in host and port != 0 and _ipv6_only_default():
             ipv4_bind = _format_bind("0.0.0.0", port)  # noqa: S104 - 局域网的手机只走 IPv4
             config.listeners["ipv4"] = BrokerConfig.from_dict(
                 {"listeners": {"default": self._listener_config(ipv4_bind)}}

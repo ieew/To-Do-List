@@ -804,19 +804,44 @@ def _runtime_for_bind(tmp_path: Path, bind: str, port: int):
     )
 
 
-def test_broker_config_adds_ipv4_listener(tmp_path: Path) -> None:
-    """`[::]` 在 Windows/macOS 上是 v6-only，必须额外监听 0.0.0.0。
+def test_format_bind_never_keeps_ipv6_brackets() -> None:
+    """amqtt 用 `rsplit(':', 1)` 拆地址，带方括号的 `[::]` 会被当成主机名丢给
+    getaddrinfo，在 Linux/uvloop 上直接 `socket.gaierror`（启动失败）。"""
+    from app.features.dsh.broker import _format_bind
+
+    assert _format_bind("[::]", 1883) == ":::1883"
+    assert _format_bind("::", 1883) == ":::1883"
+    assert _format_bind("0.0.0.0", 1883) == "0.0.0.0:1883"  # noqa: S104 - 断言字符串，非真实绑定
+
+
+def test_broker_config_adds_ipv4_listener_when_v6only(tmp_path: Path, monkeypatch) -> None:
+    """IPv6 socket 默认 v6-only 的平台（Windows）必须额外监听 0.0.0.0。
 
     否则局域网里的手机（IPv4）连 broker 会被直接拒绝，实时同步全线失效。
     这里同时防住 amqtt 的坑：BrokerConfig.from_dict 会用 default 覆盖
     「恰好等于字段默认值」的项，`0.0.0.0:<port>` 正好是默认字面量。
     """
+    from app.features.dsh import broker as broker_mod
+
+    monkeypatch.setattr(broker_mod, "_ipv6_only_default", lambda: True)
     config = _runtime_for_bind(tmp_path, "[::]", 1883)._broker_config()
-    assert config.listeners["default"].bind == "[::]:1883"
+    assert config.listeners["default"].bind == ":::1883"
     assert config.listeners["ipv4"].bind == "0.0.0.0:1883"
 
 
-def test_broker_config_skips_ipv4_listener_on_random_port(tmp_path: Path) -> None:
+def test_broker_config_skips_ipv4_listener_when_dualstack(tmp_path: Path, monkeypatch) -> None:
+    """Linux/macOS 的 `::` 本来双栈，再绑 0.0.0.0 会 EADDRINUSE。"""
+    from app.features.dsh import broker as broker_mod
+
+    monkeypatch.setattr(broker_mod, "_ipv6_only_default", lambda: False)
+    config = _runtime_for_bind(tmp_path, "[::]", 1883)._broker_config()
+    assert "ipv4" not in config.listeners
+
+
+def test_broker_config_skips_ipv4_listener_on_random_port(tmp_path: Path, monkeypatch) -> None:
+    from app.features.dsh import broker as broker_mod
+
+    monkeypatch.setattr(broker_mod, "_ipv6_only_default", lambda: True)
     config = _runtime_for_bind(tmp_path, "[::]", 0)._broker_config()
     assert "ipv4" not in config.listeners
 
