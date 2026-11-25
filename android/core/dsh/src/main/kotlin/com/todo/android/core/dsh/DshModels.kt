@@ -27,7 +27,14 @@ data class DshStatus(
     val lastPullAt: Long = 0,
     val lastNudgeAt: Long = 0,
     val lastError: String = "",
-)
+    /** 服务端确认吊销的时刻；0 表示未撤销。仅用于界面展示，不参与任何拦截。 */
+    val imeRevokedAt: Long = 0,
+    /** 本地已停发但服务端还没收到（断网撤销）：被偷的凭证这期间仍然有效。 */
+    val imeRevokePending: Boolean = false,
+) {
+    /** 撤销的两种状态都算「输入法通道已停」，但只有 pending 为假时才算真正撤干净。 */
+    val imeRevoked: Boolean get() = imeRevokedAt > 0 || imeRevokePending
+}
 
 /**
  * 服务端 `{"t":"sync","seq":N,"ws":[...]}`：

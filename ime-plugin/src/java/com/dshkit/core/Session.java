@@ -98,6 +98,12 @@ public final class Session {
     private volatile long appliedCount;
     private volatile long ackedCount;
     private volatile long reconnectDelay = 2000L;
+    /**
+     * 终态：服务端已吊销本设备（`device_revoked`）。此时重试没有意义，只会每 60 秒打一次服务端。
+     * 进终态后停止连接与一切定时任务，只有用户显式重新授权才离开（见 §5.5）。
+     */
+    private volatile boolean revoked;
+    private volatile long lastAuthProbeAt;
     private volatile Listener listener;
     /** App 下发的设置快照：插件兜底展示提醒时据此判断静默/提前量。 */
     private volatile boolean notificationsEnabled = true;
@@ -118,7 +124,16 @@ public final class Session {
         this.cursor = store.getLong(K_CURSOR, 0);
         this.access = store.getString(K_ACCESS, null);
         this.accessExp = store.getLong(K_ACCESS_EXP, 0);
-        this.refreshToken = store.getString(K_REFRESH, null);
+        // §5.5：插件只持设备凭证。旧版本把账号级 refresh_token 明文落在 prefs.json，
+        // 它的权限比设备凭证大（能换 access、能导全量数据），留着会让「撤销」形同虚设。
+        // 升级后首次启动直接清掉，不迁移、不留副本。
+        if (store.getString(K_REFRESH, null) != null) {
+            store.put(K_REFRESH, null);
+            store.put(K_REFRESH_EXP, null);
+            store.saveIfDirty();
+            log.w("session", "已清除旧版遗留的 refresh_token：插件不再持有账号级凭证");
+        }
+        this.refreshToken = null;
         this.credential = Secret.open(store.getString(K_CREDENTIAL, null));
         this.credentialExp = store.getLong(K_CREDENTIAL_EXP, 0);
         api.setServer(store.getString(K_SERVER, cfg.server));
@@ -157,6 +172,17 @@ public final class Session {
             public void onError(String detail) {
                 lastError = detail == null ? "" : detail;
                 fireStatus();
+                // 撤销后 broker 会先于 HTTP 拒绝：MQTT 认证失败本身不带 409，主动问一次服务端。
+                // 节流 30 秒，避免网络抖动时把「认证失败」放大成请求风暴。
+                if (looksLikeAuthFailure(detail) && System.currentTimeMillis() - lastAuthProbeAt > 30_000L) {
+                    lastAuthProbeAt = System.currentTimeMillis();
+                    sched.run(new Runnable() {
+                        @Override
+                        public void run() {
+                            if (!revoked && hasCredential()) refreshWithCredential();
+                        }
+                    });
+                }
             }
         });
     }
@@ -183,6 +209,16 @@ public final class Session {
     // ------------------------------------------------------------ 生命周期
 
     public void start() {
+        if (revoked) {
+            // 终态下唯一的出口：App 重新启用会签发新凭证，这里问一次就能拿到。
+            if (!loadAuthorization()) {
+                lastError = "已在 App 中撤销推送权限，重新启用后才会恢复";
+                log.w("session", lastError);
+                fireStatus();
+                return;
+            }
+            leaveRevoked();
+        }
         if (!cfg.hasServer() && !hasCredential() && !loadAuthorization()) {
             lastError = "还没授权：请在待办 App 的设置里启用输入法通道";
             log.w("session", lastError);
@@ -208,6 +244,80 @@ public final class Session {
                 if (running && online) pullNow("safety");
             }
         }, SAFETY_PULL_MS, SAFETY_PULL_MS);
+    }
+
+    /** 面板上的「重新授权」：清终态后重新走一次授权与连接。 */
+    public void reauthorize() {
+        if (!revoked) {
+            kick();
+            return;
+        }
+        sched.run(new Runnable() {
+            @Override
+            public void run() {
+                if (!loadAuthorization()) {
+                    lastError = "App 里还没重新启用输入法通道";
+                    log.w("session", lastError);
+                    fireStatus();
+                    return;
+                }
+                leaveRevoked();
+                running = true;
+                attempt();
+            }
+        });
+    }
+
+    private void leaveRevoked() {
+        revoked = false;
+        lastError = "";
+        log.i("session", "已离开撤销终态，重新授权成功");
+    }
+
+    /** Paho 的「Not authorized」= CONNACK rc=5；不同版本措辞不同，两种都认。 */
+    private static boolean looksLikeAuthFailure(String detail) {
+        if (detail == null || detail.isEmpty()) return false;
+        String s = detail.toLowerCase(java.util.Locale.ROOT);
+        return s.contains("not authorized") || s.contains("code=5") || s.contains("not_authorized");
+    }
+
+    private boolean isRevokedError(HttpApi.ApiException e) {
+        return e != null && ("device_revoked".equals(e.code) || e.status == 409);
+    }
+
+    /**
+     * 撤销终态：清凭证与 device_id、停连接与定时任务。
+     * 重试没有意义 —— 服务端对这台设备的注册/签发/续期一律 409。
+     */
+    private void enterRevoked(String detail) {
+        if (revoked) return;
+        revoked = true;
+        running = false;
+        online = false;
+        cancelReconnect();
+        clearCredential();
+        access = null;
+        accessExp = 0;
+        refreshToken = null;
+        device = null;
+        store.put(K_DEVICE_ID, null);
+        store.put(K_ACCESS, null);
+        store.put(K_ACCESS_EXP, null);
+        store.put(K_REFRESH, null);
+        store.put(K_REFRESH_EXP, null);
+        store.saveIfDirty();
+        lastError = "已在 App 中撤销推送权限";
+        try {
+            transport.disconnect();
+        } catch (Throwable ignored) {
+        }
+        notifyCredentialInvalid();
+        fireStatus();
+        log.w("session", "设备已被撤销，进入终态：" + detail);
+    }
+
+    public boolean isRevoked() {
+        return revoked;
     }
 
     public void stop() {
@@ -338,6 +448,7 @@ public final class Session {
     // ------------------------------------------------------------ 连接
 
     private void attempt() {
+        if (revoked) return;
         if (!running || online) return;
         if (!attempting.compareAndSet(false, true)) return;
         try {
@@ -443,7 +554,8 @@ public final class Session {
     }
 
     private void scheduleReconnect() {
-        if (!running || online) return;
+        // 终态下不再排队重连：撤销是永久的，重试只会每 60 秒打一次服务端。
+        if (revoked || !running || online) return;
         if (!reconnectPending.compareAndSet(false, true)) return;
         long delay = reconnectDelay;
         reconnectDelay = Math.min(reconnectDelay * 2, 60_000L);
@@ -465,9 +577,7 @@ public final class Session {
         reconnectPending.set(false);
     }
 
-    /**
-     * 鉴权：优先设备凭证（无需账号密码）；否则回落到旧路径（refresh_token / 登录）。
-     */
+    /** 鉴权只有一条路：设备凭证；没有就向 App 要一次授权（§5.5 起不再走账号密码）。 */
     private boolean ensureAuth() {
         if (hasCredential()) return true;
         if (loadAuthorization()) return true;
@@ -535,49 +645,26 @@ public final class Session {
         store.saveIfDirty();
     }
 
+    /**
+     * 兜底鉴权：只用于「既没有设备凭证、也读不到 App 授权」的历史路径。
+     * §5.5 起废弃 `cfg.autoLogin()`（账号密码明文保存、且比设备凭证权限大），
+     * 这里不再主动登录，只报一次错，让上层去 App 重新授权。
+     */
     private boolean ensureToken() {
         long now = System.currentTimeMillis();
         if (access != null && accessExp - now > TOKEN_MARGIN_MS) return true;
-        if (refreshToken != null) {
-            try {
-                HttpApi.Tokens t = api.refresh(refreshToken, deviceId());
-                saveTokens(t);
-                return true;
-            } catch (HttpApi.ApiException e) {
-                if (e.status == 401) {
-                    refreshToken = null;
-                    store.put(K_REFRESH, null);
-                } else {
-                    lastError = "换令牌失败：" + e.getMessage();
-                    log.w("session", lastError);
-                    return false;
-                }
-            }
-        }
-        if (cfg.autoLogin()) {
-            try {
-                HttpApi.Tokens t = api.login(cfg.username, cfg.password, deviceId());
-                saveTokens(t);
-                log.i("session", "登录成功：" + cfg.username);
-                return true;
-            } catch (HttpApi.ApiException e) {
-                lastError = "登录失败：" + e.getMessage();
-                log.w("session", lastError);
-                return false;
-            }
-        }
-        lastError = "没有可用凭据（config 里填 username/password 或先登录一次）";
+        lastError = "没有可用凭据，请在待办 App 中授权输入法通道";
+        log.w("session", lastError);
         return false;
     }
 
+    /** 只持久化 access，**不落盘 refresh_token**：账号级凭证不进插件目录（§5.5）。 */
     private void saveTokens(HttpApi.Tokens t) {
         access = t.access;
         accessExp = t.accessExpiresAt;
-        refreshToken = t.refresh;
+        refreshToken = null;
         store.put(K_ACCESS, t.access);
         store.put(K_ACCESS_EXP, Long.valueOf(t.accessExpiresAt));
-        store.put(K_REFRESH, t.refresh);
-        store.put(K_REFRESH_EXP, Long.valueOf(t.refreshExpiresAt));
         store.saveIfDirty();
     }
 
@@ -610,8 +697,12 @@ public final class Session {
                 accessExp = 0;
                 store.put(K_ACCESS, null);
                 store.saveIfDirty();
+            } else if ("device_revoked".equals(e.code)) {
+                // 同一台设备被吊销：换 id 重注册只会在服务端再撞一次 409，直接进终态。
+                enterRevoked(e.getMessage());
+                return false;
             } else if (e.status == 404 || e.status == 409
-                    || "device_revoked".equals(e.code) || "device_not_found".equals(e.code)) {
+                    || "device_not_found".equals(e.code)) {
                 // 旧设备被吊销/不属于本账号：换一个新的 device_id 再来
                 log.w("session", "设备注册被拒(" + e.code + ")，换新 device_id");
                 device = null;
@@ -641,16 +732,13 @@ public final class Session {
                     + c.endpoint.host + ":" + c.endpoint.port);
             return true;
         } catch (HttpApi.ApiException e) {
+            if (isRevokedError(e)) {
+                enterRevoked(e.getMessage());
+                return false;
+            }
             if (e.status == 401 || "invalid_credential".equals(e.code)) {
                 clearCredential();
                 notifyCredentialInvalid();
-            }
-            if (e.status == 409 || "device_revoked".equals(e.code)) {
-                clearCredential();
-                notifyCredentialInvalid();
-                device = null;
-                store.put(K_DEVICE_ID, null);
-                store.saveIfDirty();
             }
             lastError = "设备续期失败：" + e.getMessage();
             log.w("session", lastError);
@@ -866,7 +954,6 @@ public final class Session {
 
     public Map<String, Object> status() {
         Map<String, Object> out = new LinkedHashMap<String, Object>();
-        out.put("state", !running ? "stopped" : (online ? "online" : "offline"));
         out.put("server", api.server().isEmpty() ? cfg.server : api.server());
         out.put("username", cfg.username);
         out.put("device_id", device == null ? (deviceId() == null ? "" : deviceId()) : device.deviceId);
@@ -883,6 +970,9 @@ public final class Session {
         out.put("auth", hasCredential() ? "credential" : "token");
         out.put("credential_expires_at", Long.valueOf(credentialExp));
         out.put("im_authorized", Boolean.valueOf(hasCredential()));
+        // 终态：面板据此显示「已在 App 中撤销推送权限」并给出重新授权入口。
+        out.put("revoked", Boolean.valueOf(revoked));
+        out.put("state", revoked ? "revoked" : (!running ? "stopped" : (online ? "online" : "offline")));
         return out;
     }
 

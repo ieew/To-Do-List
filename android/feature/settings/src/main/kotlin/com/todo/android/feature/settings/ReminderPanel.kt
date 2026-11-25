@@ -5,7 +5,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -31,6 +33,8 @@ import com.todo.android.core.dsh.DshMode
 internal fun ReminderPanel(state: SettingsUiState, viewModel: SettingsViewModel) {
     val colors = TodoTheme.colors
     var windowOpen by remember { mutableStateOf(false) }
+    var revokeOpen by remember { mutableStateOf(false) }
+    var reenableOpen by remember { mutableStateOf(false) }
 
     SettingsGroup(title = "通知") {
         SettingRow(
@@ -180,6 +184,36 @@ internal fun ReminderPanel(state: SettingsUiState, viewModel: SettingsViewModel)
             title = "设备",
             description = "App ${dsh.appDeviceId.ifBlank { "未注册" }} · 输入法 ${dsh.imeDeviceId.ifBlank { "未授权" }}",
         )
+        SettingDivider()
+        if (!dsh.imeRevoked) {
+            SettingRow(
+                title = "撤销输入法权限",
+                description = "通知推送与剪贴板同步一起停止；撤销是终态，恢复要重新启用并换新设备",
+                danger = true,
+                onClick = { revokeOpen = true },
+            )
+        } else {
+            SettingRow(
+                title = if (dsh.imeRevokePending) "已撤销 · 待同步到服务端" else "已在 App 中撤销推送权限",
+                description = if (dsh.imeRevokePending) {
+                    "本机已停发，但服务端还没收到 —— 这期间被偷的凭证仍然有效，点此重试同步"
+                } else {
+                    "服务端已吊销：插件下次续期会被拒绝，并进入「已在 App 中撤销」终态"
+                },
+                danger = dsh.imeRevokePending,
+                onClick = if (dsh.imeRevokePending) ({ viewModel.retryImeRevoke() }) else null,
+            )
+            SettingDivider()
+            SettingRow(
+                title = "重新启用输入法通道",
+                description = if (dsh.imeRevokePending) {
+                    "先完成撤销同步；否则会出现旧设备没撤干净就发了新凭证"
+                } else {
+                    "会生成一个新的输入法设备，旧设备永久失效"
+                },
+                onClick = if (dsh.imeRevokePending) null else ({ reenableOpen = true }),
+            )
+        }
     }
 
     Box(
@@ -216,6 +250,61 @@ internal fun ReminderPanel(state: SettingsUiState, viewModel: SettingsViewModel)
             },
         )
     }
+
+    if (revokeOpen) {
+        ConfirmDialog(
+            title = "撤销输入法通道？",
+            body = "通知推送与剪贴板同步会一起停止。撤销后服务端会吊销这台设备，插件下次续期会被拒绝并进入「已撤销」终态。\n\n撤销是终态：恢复需要重新启用，并生成一个新的输入法设备。",
+            confirmLabel = "撤销",
+            danger = true,
+            onConfirm = {
+                revokeOpen = false
+                viewModel.revokeIme()
+            },
+            onDismiss = { revokeOpen = false },
+        )
+    }
+
+    if (reenableOpen) {
+        ConfirmDialog(
+            title = "重新启用输入法通道？",
+            body = "会生成一个新的输入法设备并重新签发凭证；旧设备保持已撤销状态、永久失效。\n\n启用后请在输入法面板确认通道已恢复。",
+            confirmLabel = "重新启用",
+            danger = false,
+            onConfirm = {
+                reenableOpen = false
+                viewModel.reenableIme()
+            },
+            onDismiss = { reenableOpen = false },
+        )
+    }
+}
+
+/** 两按钮确认框：危险操作把确认键标红，取消始终在右侧。 */
+@Composable
+private fun ConfirmDialog(
+    title: String,
+    body: String,
+    confirmLabel: String,
+    danger: Boolean,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val colors = TodoTheme.colors
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = colors.card,
+        title = { Text(title, style = Tokens.Type.pageTitle, color = colors.text) },
+        text = { Text(body, style = Tokens.Type.body, color = colors.text2) },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text(confirmLabel, color = if (danger) colors.danger else colors.primary)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消", color = colors.text3) }
+        },
+    )
 }
 
 /** 提前提醒可选分钟数（0 = 准点）。 */

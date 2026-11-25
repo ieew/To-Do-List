@@ -455,6 +455,41 @@ class SettingsViewModel @Inject constructor(
         local.value = local.value.copy(toast = "正在重建数据通道…")
     }
 
+    /** 撤销输入法通道：成功即服务端已吊销；失败则停在「待同步」，由下次联网补调。 */
+    fun revokeIme() {
+        viewModelScope.launch {
+            val ok = dshManager.revokeIme()
+            local.value = local.value.copy(
+                toast = if (ok) {
+                    "已撤销输入法通道（推送与剪贴板一起停止）"
+                } else {
+                    "已在本机停止，待联网后同步到服务端"
+                },
+            )
+            if (ok) dshManager.refreshNow()
+        }
+    }
+
+    /** 重新启用：撤销是终态，必须显式操作，且会生成一个新的输入法设备。 */
+    fun reenableIme() {
+        viewModelScope.launch {
+            val ok = dshManager.reenableIme()
+            local.value = local.value.copy(
+                toast = if (ok) "已重新启用输入法通道，请在输入法面板确认" else "重新启用失败，请检查网络或先完成撤销",
+            )
+        }
+    }
+
+    /** 断网撤销的补调：成功后界面的「待同步」才会变成「已撤销」。 */
+    fun retryImeRevoke() {
+        viewModelScope.launch {
+            val ok = dshManager.retryPendingRevoke()
+            local.value = local.value.copy(
+                toast = if (ok) "服务端已确认撤销" else "服务端还没确认，请检查网络后重试",
+            )
+        }
+    }
+
     fun showToast(message: String?) {
         local.value = local.value.copy(toast = message)
     }

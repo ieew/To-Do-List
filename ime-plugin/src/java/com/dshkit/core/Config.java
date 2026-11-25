@@ -73,7 +73,11 @@ public final class Config {
         return !username.isEmpty() && !password.isEmpty();
     }
 
-    /** 首次能自动登录的条件；只有 refresh_token 的情况由 Session 自己判断。 */
+    /**
+     * @deprecated §5.5 起废弃：账号密码是明文、且权限比设备凭证大，撤销时管不住它。
+     * 插件只走设备凭证一条路；这里保留方法只为兼容旧调用点。
+     */
+    @Deprecated
     public boolean autoLogin() {
         return hasServer() && hasCredentials();
     }
@@ -111,6 +115,12 @@ public final class Config {
             Map<String, Object> merged = new LinkedHashMap<String, Object>();
             merged.putAll(raw);
             merged.putAll(mqtt);
+            if (log != null
+                    && (!Json.str(merged, "username", "").isEmpty()
+                    || !Json.str(merged, "password", "").isEmpty())) {
+                log.w("config", "config.json 里的 username/password 已废弃且是明文保存："
+                        + "请删除这两项，改用待办 App 的「授权输入法通道」");
+            }
             return new Config(
                     Json.str(merged, "server", ""),
                     Json.str(merged, "username", ""),

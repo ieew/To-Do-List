@@ -14,6 +14,9 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.inputmethod.EditorInfo;
 import android.widget.Button;
+
+import com.dshkit.Kit;
+import com.dshkit.core.Session;
 import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.FrameLayout;
@@ -77,6 +80,7 @@ public final class TodoPanelView {
     private TextView status;
     private EditText input;
     private Button addButton;
+    private View reauthButton;
     private volatile boolean refreshing;
     private View gripBar;
     private boolean gripDot;
@@ -206,6 +210,15 @@ public final class TodoPanelView {
                 refresh();
             }
         }));
+
+        reauthButton = touchButton("重新授权", new Runnable() {
+            @Override
+            public void run() {
+                reauthorize();
+            }
+        });
+        reauthButton.setVisibility(View.GONE);
+        bar.addView(reauthButton);
 
         bar.addView(touchButton("关闭", new Runnable() {
             @Override
@@ -363,7 +376,16 @@ public final class TodoPanelView {
         if (root == null) return;
         lastWaiting = waiting;
         lastUpcoming = upcoming;
-        status.setVisibility(View.GONE);
+        Session session = sessionOrNull();
+        boolean revoked = session != null && session.isRevoked();
+        if (reauthButton != null) reauthButton.setVisibility(revoked ? View.VISIBLE : View.GONE);
+        if (revoked) {
+            status.setText("已在 App 中撤销推送权限 · 点「重新授权」恢复");
+            status.setTextColor(DANGER);
+            status.setVisibility(View.VISIBLE);
+        } else {
+            status.setVisibility(View.GONE);
+        }
         waitingBox.removeViews(1, Math.max(0, waitingBox.getChildCount() - 1));
         upcomingBox.removeViews(1, Math.max(0, upcomingBox.getChildCount() - 1));
 
@@ -386,6 +408,32 @@ public final class TodoPanelView {
             }
             if (upcoming.size() > MAX_ROWS) upcomingBox.addView(moreLine(upcoming.size() - MAX_ROWS));
         }
+    }
+
+    /** 插件单例里的会话；拿不到就当作「没有撤销信息」，不影响面板其他功能。 */
+    private Session sessionOrNull() {
+        try {
+            Kit kit = Kit.boot();
+            return kit == null ? null : kit.session();
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    private void reauthorize() {
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                Session session = sessionOrNull();
+                if (session != null) session.reauthorize();
+                main.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        refresh();
+                    }
+                });
+            }
+        }).start();
     }
 
     private View taskRow(final TodoClient.Task task) {

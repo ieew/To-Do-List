@@ -767,12 +767,43 @@ IPv6-only 客户端连不上。现在的约定：
 - **App**：`DshMqtt.connect` 先做 TCP 探活（1.5 秒），把可达地址写字面量进 MQTT URI
   （IPv6 带方括号），避免 Paho 再次解析出不可用地址。
 
-### 21.2 凭证失效自愈
+### 21.2 凭证失效与撤销终态
 
-插件 `refresh` 返回 401 `invalid_credential` / 409 `device_revoked` 时：
+插件续期（`POST /v1/dsh/devices/refresh`）的两种失败必须分开处理，混在一起会让撤销失效：
+
+**401 `invalid_credential` —— 可自愈。** 凭证轮换后旧值失效，属于正常竞态：
 
 1. 插件清本地凭证，并通过 provider `dsh_credential_update` 回写**空凭证**；
 2. App 的 `updateImeCredential("")` 删除 `dsh_ime_credential` / `_exp` 映射；
 3. 插件下一次 `dsh_authorize` 时 App 发现无凭证，用自身 Bearer 重新签发。
 
-这样凭证轮换/吊销后不会卡在「旧凭证 → 401 → 重试」死循环。
+**409 `device_revoked` —— 终态，禁止再加自愈。** 用户在 App 里撤销后，服务端对这台设备的
+注册、签发、续期一律 `409`，重试只会变成每 60 秒打一次服务端：
+
+1. 清本地凭证**与 `device_id`**，停连接、停一切定时任务（退避重连不再排队）；
+2. 进入 `revoked` 终态，`status()` 返回 `{"state":"revoked","revoked":true}`；
+3. 面板显示「已在 App 中撤销推送权限」，并给出「重新授权」入口；
+4. 退出终态只有两条路：用户在面板点「重新授权」，或输入法重启后 `start()` 主动问一次
+   `dsh_authorize` —— App 重新启用后那里才有新凭证。
+
+MQTT 侧会先于 HTTP 感知到吊销（broker 的 revoked 集合直接拒绝连接，Paho 报
+`Not authorized` / `code=5`）。这条错误本身不带 409，插件在**节流 30 秒**的前提下主动调一次
+`refresh` 求证：确实是撤销就进终态，是别的网络问题就照常退避重连。
+
+#### 插件不得持有比设备凭证更大的凭证
+
+设备凭证可以被撤销，账号级凭证不能 —— 所以插件只走设备凭证一条路（破坏性变更）：
+
+| 旧行为 | 现在 |
+| --- | --- |
+| `prefs.json` 明文存 `refresh`（账号级 refresh_token） | 不再落盘；升级后首次启动清除旧值，`saveTokens()` 只写 access |
+| `config.json` 明文存 `username`/`password`，`autoLogin()` 自动登录 | 废弃。读到就警告一次「已废弃且是明文保存，请删除，改用 App 授权」；`ensureToken()` 不再主动登录 |
+
+否则偷到 `refresh_token` 或密码的人可以换 access、自己注册新设备、直接拉全量数据，
+撤销那台 `dsh-ime-*` 毫无意义。
+
+#### 撤销的范围
+
+推送与剪贴板共用同一张设备凭证，**撤销是整体的**：通知推送和剪贴板同步一起停，
+没有「只停推送保留剪贴板」的粒度。App 的确认框必须写明这一点。
+

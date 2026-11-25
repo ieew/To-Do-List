@@ -797,6 +797,17 @@ sequenceDiagram
 吊销返回 `{"device_id":…, "revoked": true, "changed": …, "kicked": <踢掉的连接数>}`；
 吊销后票据立即失效，重连被拒，且该 `device_id` 不能再次注册（换新设备注册）。
 
+**客户端处理约束（§5.5）**：
+
+- 吊销的权威只在服务端。客户端**不要**额外记「已撤销」拦截标记 —— 撤销之后插件的每条自救路径
+  （注册 / 签发 / 续期 / MQTT 鉴权）都会撞墙，拦截是多余的。
+- App 侧清 `credential` / `credential_exp` / `ime_status`，但**不得删除 `dsh_ime_device_id`**：
+  删了下次启动会生成一台全新设备并重新签发，撤销当场失效。
+- 断网时点撤销要区分两态：`revoke_pending=1`（「已撤销 · 待同步到服务端」，凭证仍然有效）与
+  `revoked_at`（服务端已确认）。pending 进重试队列，且**pending 期间不允许重新启用**。
+- 重新启用会生成新的 `dsh-ime-*`（旧设备永久 revoked）；推送与剪贴板共用同一张设备凭证，
+  撤销是整体的，没有分项粒度。
+
 ### 15.5 `POST /v1/dsh/push`
 
 ```json

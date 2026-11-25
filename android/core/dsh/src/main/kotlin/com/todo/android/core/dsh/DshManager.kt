@@ -105,6 +105,8 @@ class DshManager @Inject constructor(
                 CURSOR,
                 LAST_PULL_AT,
                 IME_STATUS,
+                IME_REVOKED_AT,
+                IME_REVOKE_PENDING,
             ).forEach { metaDao.delete(it) }
             _status.value = DshStatus()
         }
@@ -150,18 +152,137 @@ class DshManager @Inject constructor(
         return rowId > 0
     }
 
+    // ------------------------------------------------------------ 撤销输入法通道（§5.5）
+
+    /**
+     * 撤销输入法通道。权威在服务端：本地先停发、再调 revoke。
+     *
+     * 顺序不能反：先断本地（清凭证、写 pending）再请求服务端，这样即使请求失败，
+     * 插件也拿不到新凭证；失败时状态停在 [DshStatus.imeRevokePending]，由下次联网补调。
+     *
+     * **绝不删除 [IME_DEVICE_ID]**：删了下次启动会造一台全新设备并重新签发，撤销当场失效。
+     */
+    suspend fun revokeIme(): Boolean {
+        val deviceId = metaDao.get(IME_DEVICE_ID).orEmpty().takeIf { it.isNotBlank() }
+        stopImeLocally()
+        metaDao.put(MetaEntity(IME_REVOKE_PENDING, "1"))
+        refreshRevokeState()
+        if (deviceId == null) {
+            // 本地没有设备记录时没有可吊销的远端对象，但用户的意图是「关掉这条通道」：
+            // 必须落 revoked_at，否则 authorizePayload 的 closed 判断不成立，
+            // 插件下一个 dsh_authorize 还能拿到新凭证 —— 点了撤销却什么都没停。
+            metaDao.delete(IME_REVOKE_PENDING)
+            metaDao.put(MetaEntity(IME_REVOKED_AT, System.currentTimeMillis().toString()))
+            refreshRevokeState()
+            return true
+        }
+        return when (val result = apiCall(json) { api.revoke(deviceId) }) {
+            is ApiResult.Success -> {
+                metaDao.delete(IME_REVOKE_PENDING)
+                metaDao.put(MetaEntity(IME_REVOKED_AT, System.currentTimeMillis().toString()))
+                refreshRevokeState()
+                true
+            }
+            is ApiResult.Failure -> {
+                // 服务端大概率已经有这条设备，404 说明它本来就不存在 —— 也算撤干净。
+                if (result.failure.httpStatus == 404) {
+                    metaDao.delete(IME_REVOKE_PENDING)
+                    metaDao.put(MetaEntity(IME_REVOKED_AT, System.currentTimeMillis().toString()))
+                    refreshRevokeState()
+                    true
+                } else {
+                    _status.value = _status.value.copy(lastError = result.failure.message)
+                    false
+                }
+            }
+        }
+    }
+
+    /** 断网撤销的补调入口；成功后才落 revoked_at，进而在界面上从「待同步」变「已撤销」。 */
+    suspend fun retryPendingRevoke(): Boolean {
+        if (metaDao.get(IME_REVOKE_PENDING) != "1") return false
+        val deviceId = metaDao.get(IME_DEVICE_ID).orEmpty().takeIf { it.isNotBlank() } ?: run {
+            metaDao.delete(IME_REVOKE_PENDING)
+            refreshRevokeState()
+            return true
+        }
+        return when (val result = apiCall(json) { api.revoke(deviceId) }) {
+            is ApiResult.Success -> {
+                metaDao.delete(IME_REVOKE_PENDING)
+                metaDao.put(MetaEntity(IME_REVOKED_AT, System.currentTimeMillis().toString()))
+                refreshRevokeState()
+                true
+            }
+            is ApiResult.Failure -> {
+                if (result.failure.httpStatus == 404) {
+                    metaDao.delete(IME_REVOKE_PENDING)
+                    metaDao.put(MetaEntity(IME_REVOKED_AT, System.currentTimeMillis().toString()))
+                    refreshRevokeState()
+                    true
+                } else {
+                    false
+                }
+            }
+        }
+    }
+
+    /**
+     * 重新启用：旧的 `dsh-ime-*` 已 revoked 且不能再次注册（409），所以必须换新 device_id。
+     * pending 期间禁止调用 —— 否则会出现「旧设备没撤干净又发了一张新凭证」的空档。
+     */
+    suspend fun reenableIme(): Boolean {
+        // 注意：不要在这里拿 deviceLock —— ensureImeDevice() 自己会拿，Mutex 不可重入。
+        if (metaDao.get(IME_REVOKE_PENDING) == "1") return false
+        metaDao.delete(IME_DEVICE_ID)
+        metaDao.delete(IME_REVOKED_AT)
+        metaDao.delete(IME_CREDENTIAL)
+        metaDao.delete(IME_CREDENTIAL_EXP)
+        metaDao.delete(IME_STATUS)
+        refreshRevokeState()
+        ensureImeDevice()
+        return metaDao.get(IME_CREDENTIAL)?.isNotBlank() == true
+    }
+
+    /** 撤销时本地先停：凭证、过期时间、状态一律清掉；device_id 保留。 */
+    private suspend fun stopImeLocally() {
+        metaDao.delete(IME_CREDENTIAL)
+        metaDao.delete(IME_CREDENTIAL_EXP)
+        metaDao.delete(IME_STATUS)
+        _status.value = _status.value.copy(connected = false)
+    }
+
+    private suspend fun refreshRevokeState() {
+        _status.value = _status.value.copy(
+            imeRevokedAt = metaDao.get(IME_REVOKED_AT)?.toLongOrNull() ?: 0L,
+            imeRevokePending = metaDao.get(IME_REVOKE_PENDING) == "1",
+        )
+    }
+
+    private suspend fun imeChannelClosed(): Boolean {
+        val pending = metaDao.get(IME_REVOKE_PENDING) == "1"
+        val revoked = (metaDao.get(IME_REVOKED_AT)?.toLongOrNull() ?: 0L) > 0L
+        return pending || revoked
+    }
+
     /** 插件授权信息（provider 的 `dsh_authorize` 直接拿这个）。 */
     suspend fun authorizePayload(): Map<String, Any?> {
         runGuarded { ensureImeDevice() }
         val settings = settingsStore.current()
         val session = sessionManager.load()
+        val closed = imeChannelClosed()
         return mapOf(
-            DshContract.EXTRA_AVAILABLE to (session?.hasCredentials == true && _status.value.imeDeviceId.isNotEmpty()),
+            DshContract.EXTRA_AVAILABLE to (
+                !closed && session?.hasCredentials == true && _status.value.imeDeviceId.isNotEmpty()
+                ),
             DshContract.EXTRA_SERVER to (session?.serverUrl ?: settings.serverUrl),
             DshContract.EXTRA_USER_ID to (session?.userId ?: ""),
             DshContract.EXTRA_DEVICE_ID to _status.value.imeDeviceId,
-            DshContract.EXTRA_CREDENTIAL to (metaDao.get(IME_CREDENTIAL) ?: ""),
-            DshContract.EXTRA_CREDENTIAL_EXP to (metaDao.get(IME_CREDENTIAL_EXP)?.toLongOrNull() ?: 0L),
+            DshContract.EXTRA_CREDENTIAL to if (closed) "" else (metaDao.get(IME_CREDENTIAL) ?: ""),
+            DshContract.EXTRA_CREDENTIAL_EXP to if (closed) {
+                0L
+            } else {
+                metaDao.get(IME_CREDENTIAL_EXP)?.toLongOrNull() ?: 0L
+            },
             DshContract.EXTRA_DND_ENABLED to settings.dndEnabled,
             DshContract.EXTRA_DND_START to settings.dndStart,
             DshContract.EXTRA_DND_END to settings.dndEnd,
@@ -202,7 +323,17 @@ class DshManager @Inject constructor(
         val session = sessionManager.load()
         if (!settings.dshChannelEnabled || session?.hasCredentials != true) {
             mqtt.disconnect()
-            _status.value = _status.value.copy(enabled = false, mode = DshMode.OFF, connected = false)
+            _status.value = _status.value.copy(
+                enabled = false,
+                mode = DshMode.OFF,
+                connected = false,
+                // 通道关着也要显示真实的设备号：否则界面上永远是「未授权」，
+                // 撤销时到底有没有可吊销的对象就看不出来了。
+                appDeviceId = metaDao.get(APP_DEVICE_ID).orEmpty(),
+                imeDeviceId = metaDao.get(IME_DEVICE_ID).orEmpty(),
+            )
+            // 通道关着也可能已经撤销过（撤销是终态），界面要能显示出来。
+            refreshRevokeState()
             return
         }
         val cursor = metaDao.get(CURSOR)?.toLongOrNull() ?: 0L
@@ -213,6 +344,9 @@ class DshManager @Inject constructor(
             cursor = cursor,
             lastPullAt = metaDao.get(LAST_PULL_AT)?.toLongOrNull() ?: 0L,
         )
+        // 断网撤销的补调：先于任何签发动作，避免在「服务端还没吊销」时又续出一张新凭证。
+        runGuarded { retryPendingRevoke() }
+        refreshRevokeState()
 
         // 无论哪种形态，App 都要自己 pull/ack（插件只提供 nudge 与剪贴板）。
         ensureAppDevice()
@@ -279,6 +413,11 @@ class DshManager @Inject constructor(
 
     /** 输入法设备：App 首次注册 + 签发凭证；之后插件自主续期，App 只在过期时补签。 */
     private suspend fun ensureImeDevice() = deviceLock.withLock {
+        // 已撤销（或撤销待同步）的设备不能再签发：服务端会 409，本地也不该留凭证。
+        if (imeChannelClosed()) {
+            _status.value = _status.value.copy(imeDeviceId = metaDao.get(IME_DEVICE_ID).orEmpty())
+            return@withLock
+        }
         val storedId = metaDao.get(IME_DEVICE_ID)?.takeIf { it.isNotBlank() }
         val deviceId = storedId ?: "dsh-ime-" + randomSuffix()
         val session = sessionManager.load() ?: return@withLock
@@ -429,6 +568,8 @@ class DshManager @Inject constructor(
         const val CURSOR = "dsh_cursor"
         const val LAST_PULL_AT = "dsh_last_pull_at"
         const val IME_STATUS = "dsh_ime_status"
+        const val IME_REVOKED_AT = "dsh_ime_revoked_at"
+        const val IME_REVOKE_PENDING = "dsh_ime_revoke_pending"
         const val APP_MQTT = "dsh_app_mqtt"
 
         private const val POLL_INTERVAL_MS = 60_000L
