@@ -42,7 +42,7 @@ uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
 | `TODO_SERVER_RESTORE_MAX_OPS` | 5000 | 单次恢复生成 op 上限 |
 | `TODO_SERVER_AUTH_RATE_LIMIT` | 10 | 鉴权接口每分钟每 IP 上限；0 关闭 |
 | `TODO_SERVER_DSH_MQTT_ENABLED` | true | dsh 推送通道（内嵌 MQTT broker）总开关 |
-| `TODO_SERVER_DSH_MQTT_BIND` / `_PORT` | `0.0.0.0` / `1883` | broker 监听地址；`0` 表示随机端口（测试用） |
+| `TODO_SERVER_DSH_MQTT_BIND` / `_PORT` | `[::]` / `1883` | broker 监听地址；`[::]` 时自动额外监听 `0.0.0.0`（Windows/macOS 的 `[::]` 是 v6-only）；`0` 表示随机端口（测试用） |
 | `TODO_SERVER_DSH_MQTT_PUBLIC_HOST` | 空 | 返回给客户端的 broker 地址；留空时用 bind 值，通配地址回退 `127.0.0.1` |
 | `TODO_SERVER_DSH_MQTT_TLS_CERT` / `_KEY` | 空 | 都填才启用 TLS（8883 常用） |
 | `TODO_SERVER_DSH_TICKET_TTL_MIN` | 10 | 设备 MQTT 票据有效期（分钟） |

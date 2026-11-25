@@ -778,7 +778,10 @@ sequenceDiagram
 - 复用自己已注册的 `device_id` → `action="updated"`，同时续期票据。
 - 别人的 `device_id` → `404 device_not_found`（不暴露存在性）；已吊销 → `409 device_revoked`。
 - `mqtt.host` 取 `TODO_SERVER_DSH_MQTT_PUBLIC_HOST`，留空时用 bind 值；通配地址回退 `127.0.0.1`。
-- `TODO_SERVER_DSH_MQTT_BIND` 默认 `[::]`（Linux 双栈，同一端口同时收 IPv4/IPv6）；没有 IPv6 栈的环境 broker 绑定失败会自动回退 `0.0.0.0` 并记 warning。裸 IPv6（如 `::`）会被自动补成 `[::]`；只想监听 IPv4 时显式配 `0.0.0.0`。
+- `TODO_SERVER_DSH_MQTT_BIND` 默认 `[::]`；因为 Windows/macOS 的 `[::]` 往往是 v6-only，
+  端口固定时服务端会**额外再绑一个 `0.0.0.0:<port>`**，保证同一端口同时收 IPv4/IPv6
+  （`ipv4` listener）。没有 IPv6 栈的环境启动失败会自动降级到 `0.0.0.0` 并记 warning。
+  裸 IPv6（如 `::`）会被自动补成 `[::]`；只想监听 IPv4 时显式配 `0.0.0.0`。
 
 ### 15.4 `GET /v1/dsh/devices` / `POST /v1/dsh/devices/{id}/revoke`
 

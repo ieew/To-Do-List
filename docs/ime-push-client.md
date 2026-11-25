@@ -759,8 +759,9 @@ end
 没监听 IPv6 → `ECONNREFUSED`（Paho 报 `code=32103`、message 为空）；只连 IPv4 时
 IPv6-only 客户端连不上。现在的约定：
 
-- **服务端**：`TODO_SERVER_DSH_MQTT_BIND` 默认 `[::]`，Linux 上双栈；没有 IPv6 栈时
-  broker 启动失败自动回退 `0.0.0.0` 并记 warning。裸 IPv6 自动补方括号。
+- **服务端**：`TODO_SERVER_DSH_MQTT_BIND` 默认 `[::]`；由于 Windows/macOS 的 `[::]`
+  通常是 v6-only，端口固定时会额外绑 `0.0.0.0:<port>`（`ipv4` listener），保证局域网
+  IPv4 设备也能连。没有 IPv6 栈时启动失败自动降级到 `0.0.0.0` 并记 warning。裸 IPv6 自动补方括号。
 - **插件**：`DualStackNetworkModule` 替换 Paho 的 TCP network module，按 IPv6 优先、
   逐地址尝试（每个最多 3 秒），任一可用即用；全部失败抛最后一个异常。
 - **App**：`DshMqtt.connect` 先做 TCP 探活（1.5 秒），把可达地址写字面量进 MQTT URI

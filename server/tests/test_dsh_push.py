@@ -788,3 +788,40 @@ async def test_op_push_emits_sync_signal(client: AsyncClient, app) -> None:
         assert payload["t"] == "sync"
         assert payload["seq"] >= 1
         assert payload["ws"] == [workspace_id]
+
+
+def _runtime_for_bind(tmp_path: Path, bind: str, port: int):
+    from app.features.dsh.broker import DshRuntime
+
+    return DshRuntime(
+        settings=ServerSettings(
+            db_path=tmp_path / "bind.sqlite3",
+            jwt_secret="test-secret-" + "x" * 40,
+            dsh_mqtt_bind=bind,
+            dsh_mqtt_port=port,
+        ),
+        services=None,  # type: ignore[arg-type]
+    )
+
+
+def test_broker_config_adds_ipv4_listener(tmp_path: Path) -> None:
+    """`[::]` 在 Windows/macOS 上是 v6-only，必须额外监听 0.0.0.0。
+
+    否则局域网里的手机（IPv4）连 broker 会被直接拒绝，实时同步全线失效。
+    这里同时防住 amqtt 的坑：BrokerConfig.from_dict 会用 default 覆盖
+    「恰好等于字段默认值」的项，`0.0.0.0:<port>` 正好是默认字面量。
+    """
+    config = _runtime_for_bind(tmp_path, "[::]", 1883)._broker_config()
+    assert config.listeners["default"].bind == "[::]:1883"
+    assert config.listeners["ipv4"].bind == "0.0.0.0:1883"
+
+
+def test_broker_config_skips_ipv4_listener_on_random_port(tmp_path: Path) -> None:
+    config = _runtime_for_bind(tmp_path, "[::]", 0)._broker_config()
+    assert "ipv4" not in config.listeners
+
+
+def test_broker_config_keeps_explicit_ipv4_bind(tmp_path: Path) -> None:
+    config = _runtime_for_bind(tmp_path, "127.0.0.1", 1883)._broker_config()
+    assert config.listeners["default"].bind == "127.0.0.1:1883"
+    assert "ipv4" not in config.listeners

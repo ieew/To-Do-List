@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from amqtt.broker import Broker
-from amqtt.contexts import Action
+from amqtt.contexts import Action, BrokerConfig
 from amqtt.plugins.base import BaseAuthPlugin, BaseTopicPlugin
 
 from app.config import ServerSettings
@@ -129,21 +129,43 @@ class DshRuntime:
         global _ACTIVE_RUNTIME
 
         self._revoked = await self._load_revoked()
-        config = self._broker_config()
-        broker = Broker(config)
-        # 先挂上句柄：start 半途失败时 stop() 还能去关监听。
-        self._broker = broker
-        try:
-            await broker.start()
-        except Exception as exc:  # noqa: BLE001 - 没有 IPv6 栈的环境回退到只监听 IPv4
-            bind = str(config["listeners"]["default"]["bind"])
-            if not bind.startswith("["):
-                raise
-            logger.warning("dsh broker 绑定 %s 失败（%s），回退到 0.0.0.0", bind, exc)
-            config = self._broker_config("0.0.0.0")  # noqa: S104 - 回退时必须监听全部网卡
+        configured_bind = (self._settings.dsh_mqtt_bind or "").strip()
+        # 监听策略逐级降级：双栈 → 仅 IPv6 → 仅 IPv4。
+        # Windows/macOS 的 `[::]` 往往是 v6-only，单纯依赖它会让 IPv4 客户端全部连不上。
+        attempts: list[tuple[str, BrokerConfig]] = [("双栈", self._broker_config())]
+        if configured_bind.startswith("["):
+            attempts.append(("IPv6-only", self._broker_config(dual_stack=False)))
+        if configured_bind != "0.0.0.0":  # noqa: S104 - 兜底时必须有 IPv4 通配
+            attempts.append(
+                ("IPv4-only", self._broker_config("0.0.0.0", dual_stack=False))  # noqa: S104
+            )
+
+        last_exc: BaseException | None = None
+        for label, config in attempts:
             broker = Broker(config)
+            # 先挂上句柄：start 半途失败时 stop() 还能去关监听。
             self._broker = broker
-            await broker.start()
+            try:
+                await broker.start()
+            except Exception as exc:  # noqa: BLE001 - 换一种监听方式再试
+                last_exc = exc
+                with contextlib.suppress(Exception):
+                    await broker.shutdown()
+                for server in getattr(broker, "_servers", {}).values():
+                    with contextlib.suppress(Exception):
+                        await server.close_instance()
+                logger.warning("dsh broker 以 %s 方式监听失败（%s），换一种方式重试", label, exc)
+                continue
+            logger.info(
+                "dsh broker 监听方式=%s bind=%s",
+                label,
+                config.listeners["default"].bind,
+            )
+            break
+        else:
+            self._broker = None
+            raise RuntimeError(f"dsh broker 无法绑定端口：{last_exc}") from last_exc
+
         self._started = True
         self._error = None
         _ACTIVE_RUNTIME = self
@@ -201,13 +223,11 @@ class DshRuntime:
             _ACTIVE_RUNTIME = None
         logger.info("dsh broker 已停止")
 
-    def _broker_config(self, bind: str | None = None) -> dict[str, Any]:
+    def _listener_config(self, bind: str) -> dict[str, Any]:
         settings = self._settings
         listener: dict[str, Any] = {
             "type": "tcp",
-            "bind": _format_bind(
-                bind if bind is not None else settings.dsh_mqtt_bind, settings.dsh_mqtt_port
-            ),
+            "bind": bind,
             "max_connections": 0,
         }
         if settings.dsh_mqtt_tls_cert and settings.dsh_mqtt_tls_key:
@@ -218,11 +238,31 @@ class DshRuntime:
                     "keyfile": settings.dsh_mqtt_tls_key,
                 }
             )
-        return {
-            "listeners": {"default": listener},
-            # 显式给 plugins，避免 amqtt 默认塞进 AnonymousAuthPlugin（允许匿名）。
-            "plugins": {"app.features.dsh.broker.DshBrokerPlugin": {}},
-        }
+        return listener
+
+    def _broker_config(self, bind: str | None = None, *, dual_stack: bool = True) -> BrokerConfig:
+        settings = self._settings
+        port = settings.dsh_mqtt_port
+        primary = _format_bind(bind if bind is not None else settings.dsh_mqtt_bind, port)
+        config = BrokerConfig.from_dict(
+            {
+                "listeners": {"default": self._listener_config(primary)},
+                # 显式给 plugins，避免 amqtt 默认塞进 AnonymousAuthPlugin（允许匿名）。
+                "plugins": {"app.features.dsh.broker.DshBrokerPlugin": {}},
+            }
+        )
+        # `[::]` 在 Windows/macOS 上通常是 v6-only（IPV6_V6ONLY=1），IPv4 客户端
+        # （127.0.0.1、局域网 192.168.x.x）根本连不上；端口固定时额外加一个 IPv4 listener。
+        #
+        # 必须直接往 listeners 里塞对象：BrokerConfig.from_dict 会用 default 的字段
+        # 覆盖其它 listener 中「恰好等于字段默认值」的项，而 `0.0.0.0:<port>` 正好是
+        # ListenerConfig.bind 的默认字面量，走 dict 配置会被 default 的 `[::]` 反向覆盖。
+        if dual_stack and primary.startswith("[") and port != 0:
+            ipv4_bind = _format_bind("0.0.0.0", port)  # noqa: S104 - 局域网的手机只走 IPv4
+            config.listeners["ipv4"] = BrokerConfig.from_dict(
+                {"listeners": {"default": self._listener_config(ipv4_bind)}}
+            ).listeners["default"]
+        return config
 
     # ------------------------------------------------------------ 鉴权 / ACL 回调
 
