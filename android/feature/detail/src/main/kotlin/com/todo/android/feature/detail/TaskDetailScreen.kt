@@ -124,6 +124,7 @@ fun TaskDetailScreen(
                     TitleCard(
                         state = state,
                         onTitleChange = viewModel::onTitleChange,
+                        onToggleDone = viewModel::toggleDone,
                         onNewTipVisible = state.isNew,
                     )
                 }
@@ -300,6 +301,7 @@ fun TaskDetailScreen(
 private fun TitleCard(
     state: TaskDetailUiState,
     onTitleChange: (String) -> Unit,
+    onToggleDone: (Boolean) -> Unit,
     onNewTipVisible: Boolean,
 ) {
     val colors = TodoTheme.colors
@@ -313,11 +315,11 @@ private fun TitleCard(
             .border(1.dp, colors.border2, RoundedCornerShape(Tokens.Radius.lg))
             .padding(16.dp),
     ) {
-        Row(verticalAlignment = Alignment.Top) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
             if (!state.isNew) {
                 TodoCheckbox(
                     checked = task?.done == true,
-                    onCheckedChange = { },
+                    onCheckedChange = onToggleDone,
                     contentDescription = "任务完成状态",
                 )
                 Spacer(Modifier.width(4.dp))

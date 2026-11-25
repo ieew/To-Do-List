@@ -249,6 +249,19 @@ class TaskDetailViewModel @Inject constructor(
         }
     }
 
+    /**
+     * 详情页完成勾选：与列表页右滑完成是同一条 op 管道，
+     * 立即写 `status`，投影刷新后复选框自然跟着变。
+     */
+    fun toggleDone(done: Boolean) {
+        val state = local.value
+        val taskId = state.taskId ?: return
+        if (state.isNew) return
+        viewModelScope.launch {
+            commands.setDone(taskId, projectionHolder.projection.value.activeWorkspaceId, done)
+        }
+    }
+
     fun save() {
         val state = local.value
         val title = state.title.trim()
