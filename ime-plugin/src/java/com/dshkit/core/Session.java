@@ -42,6 +42,9 @@ public final class Session {
 
         /** 收到 nudge，让 App 立刻 pull（App 负责通知与提醒）。 */
         void nudge();
+
+        /** 数据变更信号：seq 与受影响工作区（逗号分隔），让 App 立即跑 op 同步。 */
+        void sync(long seq, String workspacesCsv);
     }
 
     private static final int PAGE_SIZE = 100;
@@ -706,11 +709,24 @@ public final class Session {
         }
         // 数据变更信号：插件自己不跑 op 同步，转给 App 让它立即 pull。
         if (raw.indexOf("\"t\":\"sync\"") >= 0) {
-            log.i("session", "收到数据变更信号，转给 App");
+            long seq = 0L;
+            StringBuilder ws = new StringBuilder();
+            try {
+                Map<String, Object> obj = Json.asObject(Json.parse(raw));
+                seq = Json.lng(obj, "seq", 0L);
+                for (Object item : Json.asArray(obj.get("ws"))) {
+                    if (!(item instanceof String) || ((String) item).isEmpty()) continue;
+                    if (ws.length() > 0) ws.append(',');
+                    ws.append((String) item);
+                }
+            } catch (Throwable t) {
+                log.w("session", "解析 sync 信号失败：" + t.getMessage());
+            }
+            log.i("session", "收到数据变更信号 seq=" + seq + " ws=" + ws);
             Authorizer a = authorizer;
             if (a != null) {
                 try {
-                    a.nudge();
+                    a.sync(seq, ws.toString());
                 } catch (Throwable t) {
                     log.w("session", "转发同步信号失败：" + t.getMessage());
                 }

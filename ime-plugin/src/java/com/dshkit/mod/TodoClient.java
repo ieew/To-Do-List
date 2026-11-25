@@ -160,6 +160,14 @@ public final class TodoClient {
         dshCall("dsh_nudge", new Bundle());
     }
 
+    /** 数据变更信号：把 seq 与受影响工作区转给 App，由它跑 op 同步。 */
+    public void dshSync(long seq, String workspacesCsv) {
+        Bundle input = new Bundle();
+        input.putLong("sync_seq", seq);
+        input.putString("sync_ws", workspacesCsv == null ? "" : workspacesCsv);
+        dshCall("dsh_sync", input);
+    }
+
     /**
      * 展示提醒前认领：抢到返回 true，说明另一方（App）已经弹过，插件应跳过。
      * provider 不可用时返回 true（插件自己兜底展示）。

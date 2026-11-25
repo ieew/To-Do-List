@@ -87,6 +87,9 @@ class AppViewModel @Inject constructor(
     private val _sync = MutableStateFlow(SyncState())
     val sync: StateFlow<SyncState> = _sync.asStateFlow()
 
+    /** 最近一次应用的周期同步间隔（分钟），避免设置每次 emit 都重排 Worker。 */
+    private var periodicMinutes = 0
+
     private val noticeChannel = Channel<SyncNotice>(Channel.BUFFERED)
     val notices = noticeChannel.receiveAsFlow()
 
@@ -99,7 +102,10 @@ class AppViewModel @Inject constructor(
         runCatching { dshReminderBridge.start() }
         // 其它设备改了数据：dsh 只发一个 sync 信号，这里合并短时间内的多条后立即同步。
         viewModelScope.launch {
-            dsh.syncSignals.conflate().collect {
+            dsh.syncSignals.conflate().collect { signal ->
+                val cursor = syncEngine.state.value.cursor
+                // seq 是服务端 push 后的全局游标：已经拉到这个位置就不必再跑一轮。
+                if (signal.seq > 0 && signal.seq <= cursor) return@collect
                 delay(400)
                 runCatching { syncEngine.runOnce() }
             }
@@ -108,6 +114,7 @@ class AppViewModel @Inject constructor(
             settingsStore.observe().collect {
                 _settings.value = it
                 if (it.dshChannelEnabled) dsh.start() else dsh.stop()
+                applySyncInterval(it)
             }
         }
         viewModelScope.launch {
@@ -143,10 +150,25 @@ class AppViewModel @Inject constructor(
                 runCatching { reminderScheduler.rescheduleAll() }
                 runCatching { syncEngine.runOnce() }
                 // 后台任务放到首帧之后，避免启动期就碰 WorkManager / 闹钟。
-                runCatching { syncScheduler.schedulePeriodic(SyncScheduler.DEFAULT_INTERVAL_MINUTES) }
+                applySyncInterval(settingsStore.current())
                 runCatching { keepAliveManager.bootstrap() }
             }
         }
+    }
+
+    /**
+     * 阶段三：有实时通道时轮询只做 15 分钟安全兜底（WorkManager 最小周期），
+     * 关闭通道则按用户设置的间隔跑（下限同样是 15 分钟）。
+     */
+    private fun applySyncInterval(settings: AppSettings) {
+        val minutes = if (settings.dshChannelEnabled) {
+            SyncScheduler.DEFAULT_INTERVAL_MINUTES
+        } else {
+            settings.syncIntervalMinutes.coerceAtLeast(SyncScheduler.DEFAULT_INTERVAL_MINUTES)
+        }
+        if (minutes == periodicMinutes) return
+        periodicMinutes = minutes
+        runCatching { syncScheduler.schedulePeriodic(minutes) }
     }
 
     /**

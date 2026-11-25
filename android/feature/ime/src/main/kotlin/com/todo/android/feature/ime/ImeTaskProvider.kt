@@ -206,8 +206,17 @@ class ImeTaskProvider : ContentProvider() {
 
             ImeContract.METHOD_DSH_NUDGE -> {
                 manager.pullNow("nudge")
-                // 插件收到 sync 信号时也走这里：App 在 IME 模式下不连 MQTT，靠它唤醒同步。
-                manager.requestDataSync()
+                out.putBoolean(ImeContract.EXTRA_OK, true)
+            }
+
+            ImeContract.METHOD_DSH_SYNC -> {
+                val seq = extras?.getLong(ImeContract.EXTRA_SYNC_SEQ, 0L) ?: 0L
+                val workspaces = extras?.getString(ImeContract.EXTRA_SYNC_WS)
+                    .orEmpty()
+                    .split(',')
+                    .map { it.trim() }
+                    .filter { it.isNotEmpty() }
+                manager.requestDataSync(seq, workspaces)
                 out.putBoolean(ImeContract.EXTRA_OK, true)
             }
 

@@ -84,7 +84,7 @@ pub enum MqttPayload {
     Nudge { seq: i64 },
     Clip { id: String, text: String, fp: String },
     /// 其它设备提交了 op：收到后立即跑一次 `sync/pull`。不落库、不动 dsh 游标。
-    Sync,
+    Sync { seq: i64, workspaces: Vec<String> },
 }
 
 /// 剪贴板 payload 有三种形态：
@@ -177,7 +177,20 @@ pub fn parse_mqtt_payload(bytes: &[u8]) -> Option<MqttPayload> {
                 .unwrap_or_default()
                 .to_string(),
         }),
-        "sync" => Some(MqttPayload::Sync),
+        "sync" => Some(MqttPayload::Sync {
+            seq: value.get("seq").and_then(Value::as_i64).unwrap_or(0),
+            workspaces: value
+                .get("ws")
+                .and_then(Value::as_array)
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .map(str::to_string)
+                        .collect()
+                })
+                .unwrap_or_default(),
+        }),
         _ => None,
     }
 }
@@ -279,10 +292,21 @@ mod tests {
 
     #[test]
     fn parses_data_change_signal() {
-        // 其它设备提交 op 后，服务端只发一个极小的 sync 信号；不带 seq、不落库。
+        // 其它设备提交 op 后，服务端发 sync 信号，带全局 server_seq 与受影响工作区。
+        assert_eq!(
+            parse_mqtt_payload(br#"{"t":"sync","seq":42,"ws":["ws-1"]}"#),
+            Some(MqttPayload::Sync {
+                seq: 42,
+                workspaces: vec!["ws-1".into()],
+            })
+        );
+        // 旧服务端只发 {"t":"sync"}：也要能识别
         assert_eq!(
             parse_mqtt_payload(br#"{"t":"sync"}"#),
-            Some(MqttPayload::Sync)
+            Some(MqttPayload::Sync {
+                seq: 0,
+                workspaces: Vec::new(),
+            })
         );
     }
 

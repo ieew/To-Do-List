@@ -1,10 +1,15 @@
-//! 后台同步循环：登录后按 `settings.sync_interval` 轮询，本地写入或手动同步用 Notify 立即唤醒。
+//! 后台同步循环：登录后按 `settings.sync_interval` 轮询；本地写入、手动同步、
+//! 以及 dsh 数据变更信号（`{"t":"sync"}`）都会用 Notify 立即唤醒。
+//! 实时通道在线时轮询只做 30 分钟安全兜底，不再按用户设置的小间隔空转。
 
 use super::{emit_state, engine, publish, SyncStatus};
 use crate::storage;
 use crate::AppState;
 use std::time::Duration;
 use tauri::{AppHandle, Manager};
+
+/// 实时通道在线时的安全兜底周期：正常靠信号唤醒，这里只防“信号全丢”。
+const REALTIME_FALLBACK_SECS: u64 = 1800;
 
 pub fn start(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
@@ -24,11 +29,23 @@ pub fn start(app: AppHandle) {
                 continue;
             }
 
-            let interval_secs = state
+            let base_interval = state
                 .db
                 .lock()
                 .map(|conn| storage::load_settings(&conn).sync_interval.max(1) as u64 * 60)
                 .unwrap_or(300);
+            // dsh MQTT 已连上：数据变更会有信号唤醒，轮询降为安全兜底。
+            let realtime = state
+                .dsh
+                .runtime
+                .lock()
+                .map(|runtime| runtime.status.mqtt_connected)
+                .unwrap_or(false);
+            let interval_secs = if realtime {
+                base_interval.max(REALTIME_FALLBACK_SECS)
+            } else {
+                base_interval
+            };
 
             if let Some(delay) = retry_after.take() {
                 // 退避到期后立即重试，不再叠加一个轮询间隔；手动同步可提前唤醒。

@@ -29,6 +29,16 @@ data class DshStatus(
     val lastError: String = "",
 )
 
+/**
+ * 服务端 `{"t":"sync","seq":N,"ws":[...]}`：
+ * `seq` 是 push 后的全局 server_seq（可比本地游标决定是否跳过），
+ * `ws` 是受影响工作区（客户端可只拉这些；当前仍走全局 pull，保留给后续优化）。
+ */
+data class DshSyncSignal(
+    val seq: Long = 0,
+    val workspaces: List<String> = emptyList(),
+)
+
 /** 与输入法插件共用的常量（provider authority 在 feature:ime 也有同名定义）。 */
 object DshContract {
     const val AUTHORITY = "com.todo.android.ime"

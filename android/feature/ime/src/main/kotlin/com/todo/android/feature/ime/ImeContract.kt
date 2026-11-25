@@ -55,6 +55,8 @@ object ImeContract {
     const val METHOD_DSH_STATUS = "dsh_status"
     /** 插件收到 nudge，唤醒 App 立即 pull。 */
     const val METHOD_DSH_NUDGE = "dsh_nudge"
+    /** 插件收到数据变更信号：唤醒 App 立即跑 op 同步（带 seq / ws）。 */
+    const val METHOD_DSH_SYNC = "dsh_sync"
     /** 插件展示提醒前先认领，抢不到就不弹（防止与 App 重复提醒）。 */
     const val METHOD_DSH_CLAIM = "dsh_claim_reminder"
 
@@ -75,6 +77,8 @@ object ImeContract {
     const val EXTRA_DND_END = "dnd_end"
     const val EXTRA_REMINDER_LEAD = "reminder_lead"
     const val EXTRA_NOTIFICATIONS = "notifications"
+    const val EXTRA_SYNC_SEQ = "sync_seq"
+    const val EXTRA_SYNC_WS = "sync_ws"
 
     const val ARG_TASK_ID = "task_id"
     const val EXTRA_DONE = "done"

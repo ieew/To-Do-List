@@ -100,22 +100,26 @@ async def push(
 
         for workspace_id in {op.workspace_id for op in ops}:
             history_usecase.schedule_snapshot_if_due(services, workspace_id)
-        await _signal_data_change(services, user_id)
+        await _signal_data_change(services, user_id, ops, server_seq)
 
     return 200, {"server_hlc": server_hlc, "server_seq": server_seq, "results": results}
 
 
-async def _signal_data_change(services: Services, user_id: str) -> None:
-    """告诉同账号在线设备「有新数据」，让它们立即 pull。
+async def _signal_data_change(
+    services: Services, user_id: str, ops: list[Op], server_seq: int
+) -> None:
+    """告诉同账号在线设备「哪个工作区有新数据」，让它们立即 pull。
 
-    MQTT 只发一个 `{"t":"sync"}`，不携带任何业务内容；不新增消息行、不影响游标。
-    通道未启用/未连上时静默跳过；任何异常都不能让本次 push 失败。
+    MQTT 只发 `{"t":"sync","seq":N,"ws":[...]}`，不携带任何业务内容；
+    不新增消息行、不影响游标。通道未启用/未连上时静默跳过；
+    任何异常都不能让本次 push 失败。
     """
     runtime = getattr(services, "dsh", None)
     if runtime is None:
         return
+    workspaces = sorted({op.workspace_id for op in ops})
     try:
-        await runtime.publish_sync(user_id=user_id)
+        await runtime.publish_sync(user_id=user_id, workspaces=workspaces, seq=server_seq)
     except Exception:  # noqa: BLE001 - 旁路信号
         logger.warning("数据变更信号广播失败", exc_info=True)
 

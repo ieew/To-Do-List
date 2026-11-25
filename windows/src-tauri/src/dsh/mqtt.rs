@@ -11,7 +11,10 @@ pub enum MqttEvent {
     Connected,
     Nudge,
     /// 其它设备写了数据：让同步 worker 立即 pull。
-    Sync,
+    Sync {
+        seq: i64,
+        workspaces: Vec<String>,
+    },
     Clip {
         id: String,
         text: String,
@@ -57,8 +60,12 @@ pub async fn run(
                             return Ok(());
                         }
                     }
-                    Some(MqttPayload::Sync) => {
-                        if events.send(MqttEvent::Sync).await.is_err() {
+                    Some(MqttPayload::Sync { seq, workspaces }) => {
+                        if events
+                            .send(MqttEvent::Sync { seq, workspaces })
+                            .await
+                            .is_err()
+                        {
                             return Ok(());
                         }
                     }

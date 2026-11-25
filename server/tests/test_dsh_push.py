@@ -785,4 +785,6 @@ async def test_op_push_emits_sync_signal(client: AsyncClient, app) -> None:
         assert any(item["status"] == "accepted" for item in response.json()["results"])
 
         payload = await next_payload(mqtt, wait_s=5.0)
-        assert payload == {"t": "sync"}
+        assert payload["t"] == "sync"
+        assert payload["seq"] >= 1
+        assert payload["ws"] == [workspace_id]

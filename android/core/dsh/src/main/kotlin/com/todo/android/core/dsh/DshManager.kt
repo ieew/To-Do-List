@@ -64,7 +64,7 @@ class DshManager @Inject constructor(
     val messages = _messages.asSharedFlow()
 
     /** 「其它设备写了数据」的信号：上层收到后立即 `syncEngine.runOnce()`。 */
-    private val _syncSignals = MutableSharedFlow<Unit>(
+    private val _syncSignals = MutableSharedFlow<DshSyncSignal>(
         extraBufferCapacity = 8,
         onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST,
     )
@@ -127,8 +127,8 @@ class DshManager @Inject constructor(
     }
 
     /** 数据变更信号：让 op 同步立即跑一轮（由 AppViewModel 收集）。 */
-    fun requestDataSync() {
-        _syncSignals.tryEmit(Unit)
+    fun requestDataSync(seq: Long = 0L, workspaces: List<String> = emptyList()) {
+        _syncSignals.tryEmit(DshSyncSignal(seq = seq, workspaces = workspaces))
     }
 
     /**
@@ -327,7 +327,7 @@ class DshManager @Inject constructor(
                     ticket = appTicket,
                     keepAliveSeconds = 60,
                     onNudge = { pullNow("nudge") },
-                    onSync = { requestDataSync() },
+                    onSync = { signal -> requestDataSync(signal.seq, signal.workspaces) },
                     onState = { connected, detail ->
                         _status.value = _status.value.copy(
                             connected = connected,

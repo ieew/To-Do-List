@@ -496,6 +496,7 @@ ContentResolver.call(content://com.todo.android.ime/tasks, "delete_task", taskId
 | `dsh_credential_update` | 插件 | `{credential, credential_expires_at}`；App 只接受不更旧的过期时间 |
 | `dsh_status` | 插件 | `{connected, error}` → 写入 meta，设置页展示 |
 | `dsh_nudge` | 插件 | 无；触发 App 立即 pull |
+| `dsh_sync` | 插件 | `{sync_seq, sync_ws}`；数据变更信号的 seq 与受影响工作区（逗号分隔），App 据此跑 op 同步 |
 | `dsh_claim_reminder` | 插件 | `{task_id, workspace_id, remind_at}` → `{claimed}`；`claimed=false` 表示 App 已展示 |
 
 - 认领表在 App 的 Room `dsh_claim`，键为 `workspace_id|task_id|remind_at`；

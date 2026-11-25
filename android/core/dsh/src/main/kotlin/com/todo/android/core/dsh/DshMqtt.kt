@@ -7,6 +7,11 @@ import java.net.InetSocketAddress
 import java.net.Socket
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken
 import org.eclipse.paho.client.mqttv3.MqttAsyncClient
 import org.eclipse.paho.client.mqttv3.MqttCallback
@@ -21,7 +26,9 @@ import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence
  * 与输入法插件用的是同一套协议（`dsh/v1/{user}/dev/{device}/in|out`）。
  */
 @Singleton
-class DshMqtt @Inject constructor() {
+class DshMqtt @Inject constructor(
+    private val json: Json,
+) {
 
     private companion object {
         const val PROBE_TIMEOUT_MS = 1500
@@ -40,7 +47,7 @@ class DshMqtt @Inject constructor() {
         ticket: String,
         keepAliveSeconds: Int,
         onNudge: () -> Unit,
-        onSync: () -> Unit,
+        onSync: (DshSyncSignal) -> Unit,
         onState: (connected: Boolean, detail: String) -> Unit,
     ) {
         disconnect()
@@ -62,9 +69,12 @@ class DshMqtt @Inject constructor() {
 
                 override fun messageArrived(topic: String?, message: MqttMessage?) {
                     val text = message?.payload?.toString(Charsets.UTF_8).orEmpty()
-                    when {
-                        text.contains("\"t\":\"sync\"") -> onSync()
-                        text.contains("\"nudge\"") -> onNudge()
+                    val type = runCatching {
+                        json.parseToJsonElement(text).jsonObject["t"]?.jsonPrimitive?.content
+                    }.getOrNull()
+                    when (type) {
+                        "sync" -> onSync(parseSyncSignal(text))
+                        "nudge" -> onNudge()
                     }
                 }
 
@@ -100,6 +110,18 @@ class DshMqtt @Inject constructor() {
     }
 
     /**
+     * `{"t":"sync","seq":42,"ws":["ws-1"]}` → [DshSyncSignal]；旧服务端的 `{"t":"sync"}` 也能解析。
+     */
+    private fun parseSyncSignal(text: String): DshSyncSignal = runCatching {
+        val obj = json.parseToJsonElement(text).jsonObject
+        val seq = obj["seq"]?.jsonPrimitive?.longOrNull ?: 0L
+        val workspaces = obj["ws"]?.jsonArray
+            ?.mapNotNull { item -> runCatching { item.jsonPrimitive.content }.getOrNull() }
+            ?: emptyList()
+        DshSyncSignal(seq = seq, workspaces = workspaces)
+    }.getOrElse { DshSyncSignal() }
+
+    /**
      * 双栈地址选择：IPv6 优先，TCP 探活不通再回落 IPv4；全部失败返回原 host 让 Paho 自己解析。
      * 探测只是 TCP 握手，连上立刻关掉，不算一次 MQTT 会话。
      */
@@ -121,8 +143,7 @@ class DshMqtt @Inject constructor() {
     private fun literalHost(host: String): String = if (':' in host) "[$host]" else host
 
     @Synchronized
-    fun disconnect() {
-        connected = false
+    fun disconnect() {        connected = false
         val mqtt = client ?: return
         client = null
         runCatching { mqtt.disconnectForcibly(0, 0, false) }

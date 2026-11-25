@@ -209,6 +209,8 @@ async fn run(app: AppHandle) {
                         mqtt_backoff = 2;
                         mqtt_retry_at = 0;
                         next_pull = 0;
+                        // 断线期间可能错过 sync 信号：连上先补一次 op 同步。
+                        state.sync.wake();
                         if let Ok(mut runtime) = state.dsh.runtime.lock() {
                             runtime.status.mqtt_enabled = true;
                             runtime.status.mqtt_connected = true;
@@ -221,10 +223,16 @@ async fn run(app: AppHandle) {
                     Some(MqttEvent::Nudge) => {
                         next_pull = 0;
                     }
-                    Some(MqttEvent::Sync) => {
+                    Some(MqttEvent::Sync { seq, workspaces }) => {
                         // 其它设备写了 op：立刻唤醒同步 worker，不等到下个轮询周期。
                         state.sync.wake();
-                        logging::info("dsh", "收到数据变更信号，立即同步");
+                        logging::info(
+                            "dsh",
+                            format!(
+                                "收到数据变更信号 seq={seq} ws={}，立即同步",
+                                workspaces.join(",")
+                            ),
+                        );
                     }
                     Some(MqttEvent::Clip { id, text, fp }) => {
                         apply_clip_event(&app, &state, &id, &text, &fp).await;

@@ -148,6 +148,11 @@ public final class Kit {
             public void nudge() {
                 todoClient.dshNudge();
             }
+
+            @Override
+            public void sync(long seq, String workspacesCsv) {
+                todoClient.dshSync(seq, workspacesCsv);
+            }
         });
         this.notifyModule.setTodoClient(todoClient);
         this.todoOverlay = new TodoOverlay(ctx, todoClient, log);

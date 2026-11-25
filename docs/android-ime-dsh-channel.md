@@ -208,6 +208,7 @@ Android 后台限制决定了 App 无法在切后台后持续监听剪贴板，�
 | `dsh_credential_update` | 插件 → App | 续期轮换后回写新凭证；App 只接受不更旧的过期时间 |
 | `dsh_status` | 插件 → App | 回写 MQTT 连接状态与错误，供设置页展示 |
 | `dsh_nudge` | 插件 → App | 收到 nudge 后唤醒 App 立即 pull |
+| `dsh_sync` | 插件 → App | 转发 `{"t":"sync","seq","ws"}`：App 立即跑 op 同步，并按 `seq` 去重 |
 | `dsh_claim_reminder` | 插件 → App | 展示前认领 `workspace|task|remind_at`，`claimed=false` 表示已被 App 展示 |
 
 安全边界不变：仍按 `Binder.getCallingUid()` 校验调用方包名为 `com.nirenr.trime`。

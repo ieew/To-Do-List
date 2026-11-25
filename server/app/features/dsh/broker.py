@@ -306,18 +306,28 @@ class DshRuntime:
             nudged = self._enqueue(topic_in(user_id, target), payload) or nudged
         return nudged
 
-    async def publish_sync(self, *, user_id: str) -> int:
-        """数据变更信号：给该用户所有在线设备发 `{"t":"sync"}`，不落库、不动游标。
+    async def publish_sync(
+        self, *, user_id: str, workspaces: list[str] | None = None, seq: int = 0
+    ) -> int:
+        """数据变更信号：给该用户所有在线设备发 `{"t":"sync","seq":N,"ws":[...]}`。
 
-        客户端收到后立即走自己的 `sync/pull`；它只是「去拉一下」的提示，
-        丢了也不影响正确性（下次轮询/本地写入仍会同步）。
+        - `seq`：本次 push 后的全局 `server_seq`，客户端可比自己的游标决定是否跳过；
+        - `ws`：受影响的工作区（去重），客户端可只拉这些工作区；
+        - 不落库、不动 dsh 游标；丢了也不影响正确性（轮询仍会同步）。
         """
         if not self.online:
             return 0
         targets = [device for device in self._online_devices_of(user_id) if self.is_online(device)]
         if not targets:
             return 0
-        body = b'{"t":"sync"}'
+        body = json.dumps(
+            {
+                "t": "sync",
+                "seq": int(seq),
+                "ws": sorted({workspace for workspace in (workspaces or []) if workspace}),
+            },
+            separators=(",", ":"),
+        ).encode("utf-8")
         sent = 0
         for target in targets:
             if self._enqueue(topic_in(user_id, target), body):
