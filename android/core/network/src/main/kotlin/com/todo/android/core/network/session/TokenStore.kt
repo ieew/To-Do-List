@@ -34,7 +34,17 @@ data class SessionTokens(
     val displayName: String? = null,
     val serverUrl: String = BaseUrl.DEFAULT,
     val deviceId: String = "",
-)
+) {
+    /**
+     * 是否还持有可用凭证。
+     *
+     * 服务端明确判定 refresh token 失效后，只清令牌、保留 userId/serverUrl 等身份信息，
+     * 于是 `hasCredentials == false` 但仍然「认识这个账号」—— 设置页据此显示
+     * 「登录已过期 · N 条修改待推送」而不是退回「未登录」（A17）。
+     */
+    val hasCredentials: Boolean
+        get() = accessToken.isNotBlank() || refreshToken.isNotBlank()
+}
 
 /**
  * 登录态存取的最小接口。

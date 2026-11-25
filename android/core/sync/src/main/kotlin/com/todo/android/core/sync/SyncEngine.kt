@@ -54,7 +54,13 @@ class SyncEngine @Inject constructor(
         val session = sessionManager.load()
         val counts = repository.counts()
         val next = SyncState(
-            status = if (session == null) SyncStatus.SIGNED_OUT else SyncStatus.SYNCED,
+            status = when {
+                session == null -> SyncStatus.SIGNED_OUT
+                // 令牌被服务端判定失效、但身份还在：这是「登录过期」，不是「未登录」，
+                // 必须让界面显示 A17 的常驻横幅与待推送条数。
+                !session.hasCredentials -> SyncStatus.AUTH_REQUIRED
+                else -> SyncStatus.SYNCED
+            },
             account = session?.toAccount(),
             pendingCount = counts.pending,
             rejectedCount = counts.rejected,

@@ -10,6 +10,7 @@ import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -109,14 +110,23 @@ class SessionManagerTest {
     }
 
     @Test
-    fun `invalid_refresh_token 才清凭证`() = runBlocking {
+    fun `invalid_refresh_token 只作废令牌、保留账号身份`() = runBlocking {
         val store = MemorySessionStore(tokens())
         val manager = manager(store, authApi())
         server.enqueue(errorResponse(401, "invalid_refresh_token"))
 
         assertEquals(RefreshResult.INVALID, manager.refresh(force = true))
-        assertNull(store.session)
-        assertEquals(1, store.clears)
+        // A17：会话记录必须留着，界面才能显示「登录已过期 · N 条待推送」；
+        // 判「是否已登录」看的是有没有可用令牌，不是会话在不在。
+        val session = store.session
+        assertNotNull(session)
+        // A17：会话记录必须留着，界面才能显示「登录已过期 · N 条待推送」；
+        // 判「是否已登录」看的是有没有可用令牌，不是会话在不在。
+        assertFalse(session!!.hasCredentials)
+        assertEquals("", session.accessToken)
+        assertEquals("", session.refreshToken)
+        assertEquals("u-1", session.userId)
+        assertEquals(0, store.clears)
     }
 
     @Test
@@ -166,15 +176,16 @@ class SessionManagerTest {
         assertEquals("access-forced", store.session?.accessToken)
     }
 
-    /** 拿不到 refresh token 时无法恢复，视为失效（但没有可删的凭证）。 */
+    /** 拿不到 refresh token 时无法恢复，视为失效；access 也一并作废，但会话与身份保留。 */
     @Test
     fun `refresh token 为空视为失效`() = runBlocking {
-        val store = MemorySessionStore(tokens(refresh = ""))
+        val store = MemorySessionStore(tokens(refresh = "", access = ""))
         val manager = manager(store, authApi())
 
         assertEquals(RefreshResult.INVALID, manager.refresh(force = true))
         assertEquals(0, server.requestCount)
-        assertTrue(store.session == null)
+        assertFalse(store.session?.hasCredentials ?: true)
+        assertEquals(0, store.clears)
     }
 
     private class MemorySessionStore(var session: SessionTokens? = null) : SessionStore {

@@ -156,7 +156,7 @@ class DshManager @Inject constructor(
         val settings = settingsStore.current()
         val session = sessionManager.load()
         return mapOf(
-            DshContract.EXTRA_AVAILABLE to (session != null && _status.value.imeDeviceId.isNotEmpty()),
+            DshContract.EXTRA_AVAILABLE to (session?.hasCredentials == true && _status.value.imeDeviceId.isNotEmpty()),
             DshContract.EXTRA_SERVER to (session?.serverUrl ?: settings.serverUrl),
             DshContract.EXTRA_USER_ID to (session?.userId ?: ""),
             DshContract.EXTRA_DEVICE_ID to _status.value.imeDeviceId,
@@ -200,7 +200,7 @@ class DshManager @Inject constructor(
     private suspend fun boot(forceReconnect: Boolean = false) {
         val settings = settingsStore.current()
         val session = sessionManager.load()
-        if (!settings.dshChannelEnabled || session == null) {
+        if (!settings.dshChannelEnabled || session?.hasCredentials != true) {
             mqtt.disconnect()
             _status.value = _status.value.copy(enabled = false, mode = DshMode.OFF, connected = false)
             return

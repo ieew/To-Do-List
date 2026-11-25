@@ -142,8 +142,8 @@ class AccountManager @Inject constructor(
         // 保留本地数据与 sync_account，仅清除登录态。
     }
 
-    /** 启动时恢复登录态：有令牌即视为已登录，同步由 SyncEngine 负责。 */
-    suspend fun restore(): Boolean = sessionManager.load() != null
+    /** 启动时恢复登录态：有可用令牌才算已登录（被判定失效的会话只是「登录过期」）。 */
+    suspend fun restore(): Boolean = sessionManager.load()?.hasCredentials == true
 
     /**
      * 凭证已校验：判断是否需要换账号。

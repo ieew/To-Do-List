@@ -91,7 +91,7 @@ class SessionManager @Inject constructor(
         val session = cached ?: store.current()?.also { cached = it } ?: return@withLock RefreshResult.INVALID
         if (!force && isFresh(session, System.currentTimeMillis())) return@withLock RefreshResult.SUCCESS
         if (session.refreshToken.isBlank()) {
-            clear()
+            markInvalidLocked(session)
             return@withLock RefreshResult.INVALID
         }
         val result = apiCall(json) { authApi.get().refresh(RefreshRequest(session.refreshToken, session.deviceId)) }
@@ -117,13 +117,33 @@ class SessionManager @Inject constructor(
                 // unauthorized 是通用 401 —— 这两个都**不能**当作 refresh 失效，
                 // 否则网络抖动/网关误判一次就删掉有效 refresh token（A18）。
                 "invalid_refresh_token", "invalid_token", "invalid_grant" -> {
-                    clear()
+                    markInvalidLocked(session)
                     RefreshResult.INVALID
                 }
 
                 else -> RefreshResult.NETWORK
             }
         }
+    }
+
+    /**
+     * 服务端明确判定 refresh token 失效时调用。
+     *
+     * 这里**故意不 [clear]**：清掉整个会话会让 `bootstrap()` 判成 `SIGNED_OUT`，
+     * 界面退回「未登录」，A17 要求的「登录已过期 · N 条修改待推送」横幅就没有依据，
+     * 用户也看不到自己还有多少改动没推上去。
+     * 只作废令牌、保留 userId/serverUrl/username 这些身份信息，
+     * 由 [SessionTokens.hasCredentials] 为假来表达「需要重新登录」。
+     */
+    private suspend fun markInvalidLocked(session: SessionTokens) {
+        val next = session.copy(
+            accessToken = "",
+            refreshToken = "",
+            accessExpiresAt = 0L,
+            refreshExpiresAt = 0L,
+        )
+        store.save(next)
+        cached = next
     }
 
     private fun isFresh(session: SessionTokens, nowMs: Long): Boolean =

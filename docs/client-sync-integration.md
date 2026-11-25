@@ -97,7 +97,7 @@ flowchart LR
 - 请求前 60 秒主动刷新；**只有** `invalid_refresh_token` 才清除登录态并提示重新登录。
 - refresh token 每次刷新都会轮换，客户端必须保存新值。
 
-### 账号态的四条硬规则（App 与桌面端同构，见设计文档 §9）
+### 账号态的五条硬规则（App 与桌面端同构，见设计文档 §9）
 
 1. **清库与记住账户同事务**：换账户时把新 `sync_account` 写进清库的同一个事务。
    分两次写会留下「库已清空、`sync_account` 仍为空」的中间态，下次登录再清一遍，
@@ -109,6 +109,11 @@ flowchart LR
    才允许丢弃，并且要给用户可见的提示（A19）。
 4. **登录过期必须常驻可见**：状态为 `auth_required` 时在界面常驻一条「登录已过期 · N 条修改待推送」，
    N 取真实待推送计数；不要只用一次性 Toast（A17）。
+5. **过期只作废令牌、保留账号身份**：服务端判定 refresh token 失效时，把 access/refresh token
+   与两个过期时间清空，但保留 `user_id`、`server_url`、`username`、`device_id`。
+   整个会话删掉会让客户端判成「未登录」（`signed_out`），第 4 条的横幅就失去依据，
+   用户也看不到还有多少改动没推上去。判定「是否已登录」看的是**有没有可用令牌**，
+   不是会话记录在不在（App 侧即 `SessionTokens.hasCredentials`）。
 
 ## 五、事件与 DTO
 
