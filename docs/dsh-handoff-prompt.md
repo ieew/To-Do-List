@@ -91,50 +91,42 @@ cd windows/src-tauri && cargo test
 
 ### 签名文件（构建前必须先解决）
 
-当前 `android/app/build.gradle.kts:25` 让 release 复用 **debug 签名**
-（`signingConfig = signingConfigs.getByName("debug")`），这是为了让更新能覆盖安装而不清数据。
+`android/app/build.gradle.kts` 里 debug 与 release **共用同一个 keystore**（`signingConfigs.dsh`），
+保证两者能互相覆盖安装。
 
-但 debug 签名是**每台构建机各自生成**的。手机上已安装的 App 证书是：
+**使用的证书**（`qianxue.jks`，JKS 格式）：
 
 ```
-DN:      C=US, O=Android, CN=Android Debug
-SHA-256: 54583c8bb9dde64d51d0bf77beb4b59dd1c7100df756c7f2a6d03a373720b044
-SHA-1:   aa73baf804afa1a2bd6823011a9b17612f2d0593
+alias:   qianxue
+SHA-256: 47:37:B2:F7:22:C4:81:75:46:3E:60:9A:A7:24:BA:3F:7F:BE:39:06:A1:90:E6:F9:B0:EC:00:3B:E8:AF:A3:4E
 ```
 
-**如果换一台机器构建、用它自动生成的 debug.keystore，签名会不同，APK 装不上去**
-（提示「应用未安装」或要求先卸载 —— 卸载会清掉本地数据库，丢掉未同步的修改）。
+**keystore 文件不进仓库**（`android/.gitignore` 已忽略 `*.jks`）。构建方需要拿到文件本身，
+或者用环境变量指向自己机器上的副本：
 
-所以：**必须使用产生上述证书的那个 `debug.keystore`**，不能各自生成。
-它通常在最初构建那台机器的 `~/.android/debug.keystore`（Windows 是
-`%USERPROFILE%\.android\debug.keystore`），密码固定为：
+| 变量 | 作用 | 默认 |
+| --- | --- | --- |
+| `DSH_KEYSTORE` | keystore 绝对路径或相对项目根的路径 | `/storage/emulated/0/MT2/keystore/qianxue.jks` |
+| `DSH_KEYSTORE_PASS` | store 密码 | 见 `build.gradle.kts` |
+| `DSH_KEY_ALIAS` | 别名 | `qianxue` |
+| `DSH_KEY_PASS` | key 密码 | 同 store 密码 |
 
-| 项 | 值 |
-| --- | --- |
-| keystore 密码 | `android` |
-| alias | `androiddebugkey` |
-| key 密码 | `android` |
+也可以写在 `android/local.properties`（不进 git）：
 
-拿到后建议改成显式配置，别依赖隐式默认位置：
-
-```kotlin
-// 放在 android/keystore/dsh.jks（不进 git），local.properties 里写 sdk 之外的路径
-val storeFile = rootProject.file("keystore/dsh.jks")
-signingConfigs {
-    create("dsh") {
-        storeFile = storeFile
-        storePassword = System.getenv("DSH_KEYSTORE_PASS") ?: "android"
-        keyAlias = System.getenv("DSH_KEY_ALIAS") ?: "androiddebugkey"
-        keyPassword = System.getenv("DSH_KEY_PASS") ?: "android"
-    }
-}
+```properties
+dsh.keystore=/absolute/path/to/qianxue.jks
 ```
 
-构建后**必须验证签名一致**，否则别发布：
+**换过签名意味着旧版本无法覆盖安装**：手机上已装的旧 APK（证书 `CN=Android Debug`，
+SHA-256 `54583c8b...`）必须卸载后才能装新的，而卸载会清掉本地数据库。
+卸载前务必把未同步的修改推完。
+
+构建后必须验证：
 
 ```bash
 apksigner verify --print-certs app-release.apk | grep SHA-256
-# 期望：54583c8bb9dde64d51d0bf77beb4b59dd1c7100df756c7f2a6d03a373720b044
+# 期望：47:37:b2:f7:22:c4:81:75:46:3e:60:9a:a7:24:ba:3f:
+#       7f:be:39:06:a1:90:e6:f9:b0:ec:00:3b:e8:af:a3:4e
 ```
 
 ### 已知的坑（都是审设计时踩出来的）
