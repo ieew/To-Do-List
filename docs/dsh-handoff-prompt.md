@@ -89,6 +89,54 @@ cd android && ./gradlew assembleRelease
 cd windows/src-tauri && cargo test
 ```
 
+### 签名文件（构建前必须先解决）
+
+当前 `android/app/build.gradle.kts:25` 让 release 复用 **debug 签名**
+（`signingConfig = signingConfigs.getByName("debug")`），这是为了让更新能覆盖安装而不清数据。
+
+但 debug 签名是**每台构建机各自生成**的。手机上已安装的 App 证书是：
+
+```
+DN:      C=US, O=Android, CN=Android Debug
+SHA-256: 54583c8bb9dde64d51d0bf77beb4b59dd1c7100df756c7f2a6d03a373720b044
+SHA-1:   aa73baf804afa1a2bd6823011a9b17612f2d0593
+```
+
+**如果换一台机器构建、用它自动生成的 debug.keystore，签名会不同，APK 装不上去**
+（提示「应用未安装」或要求先卸载 —— 卸载会清掉本地数据库，丢掉未同步的修改）。
+
+所以：**必须使用产生上述证书的那个 `debug.keystore`**，不能各自生成。
+它通常在最初构建那台机器的 `~/.android/debug.keystore`（Windows 是
+`%USERPROFILE%\.android\debug.keystore`），密码固定为：
+
+| 项 | 值 |
+| --- | --- |
+| keystore 密码 | `android` |
+| alias | `androiddebugkey` |
+| key 密码 | `android` |
+
+拿到后建议改成显式配置，别依赖隐式默认位置：
+
+```kotlin
+// 放在 android/keystore/dsh.jks（不进 git），local.properties 里写 sdk 之外的路径
+val storeFile = rootProject.file("keystore/dsh.jks")
+signingConfigs {
+    create("dsh") {
+        storeFile = storeFile
+        storePassword = System.getenv("DSH_KEYSTORE_PASS") ?: "android"
+        keyAlias = System.getenv("DSH_KEY_ALIAS") ?: "androiddebugkey"
+        keyPassword = System.getenv("DSH_KEY_PASS") ?: "android"
+    }
+}
+```
+
+构建后**必须验证签名一致**，否则别发布：
+
+```bash
+apksigner verify --print-certs app-release.apk | grep SHA-256
+# 期望：54583c8bb9dde64d51d0bf77beb4b59dd1c7100df756c7f2a6d03a373720b044
+```
+
 ### 已知的坑（都是审设计时踩出来的）
 
 1. **提醒索引 UPSERT 必须带 `COALESCE`**：`WHERE excluded.remind_hlc > COALESCE(t.remind_hlc,'')`。
