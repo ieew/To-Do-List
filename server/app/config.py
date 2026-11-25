@@ -49,7 +49,9 @@ class ServerSettings(BaseSettings):
     dsh_mqtt_public_host: str = ""
     dsh_mqtt_tls_cert: str = ""
     dsh_mqtt_tls_key: str = ""
-    dsh_ticket_ttl_min: int = 10
+    # §5.1：60 分钟。MQTT 只在 CONNECT 时校验票据，连接存续期间不受影响，
+    # 60 分钟足以覆盖常规重连，同时让「冷启动未过期」成为常态（省掉一次 HTTP 续期）。
+    dsh_ticket_ttl_min: int = 60
     dsh_msg_ttl_hours: int = 72
     dsh_msg_max_pending: int = 1000
     dsh_push_rate: int = 30

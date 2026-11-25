@@ -55,6 +55,10 @@ public final class Session {
     private static final long SAFETY_PULL_MS = 120_000L;
 
     private static final String K_DEVICE_ID = "device_id";
+    /** §5.1：device_id + 票据 + 过期时刻 + broker 端点，加密后落盘，冷启动免一次 HTTP。 */
+    private static final String K_TICKET = "device_ticket";
+    /** §5.2：退避带 jitter，连续失败这么多次就认定票据层可能有问题，强制走一次完整续期。 */
+    private static final int FAIL_FORCE_REFRESH = 3;
     private static final String K_CURSOR = "cursor";
     private static final String K_ACCESS = "access";
     private static final String K_ACCESS_EXP = "access_exp";
@@ -101,6 +105,8 @@ public final class Session {
     private volatile long appliedCount;
     private volatile long ackedCount;
     private volatile long reconnectDelay = 2000L;
+    /** 连续连接失败次数：成功一次归零（§5.2/§5.3）。 */
+    private volatile int failStreak;
     /**
      * 终态：服务端已吊销本设备（`device_revoked`）。此时重试没有意义，只会每 60 秒打一次服务端。
      * 进终态后停止连接与一切定时任务，只有用户显式重新授权才离开（见 §5.5）。
@@ -305,6 +311,7 @@ public final class Session {
         refreshToken = null;
         device = null;
         store.put(K_DEVICE_ID, null);
+        store.put(K_TICKET, null);
         store.put(K_ACCESS, null);
         store.put(K_ACCESS_EXP, null);
         store.put(K_REFRESH, null);
@@ -457,10 +464,12 @@ public final class Session {
         if (!attempting.compareAndSet(false, true)) return;
         try {
             if (!ensureAuth()) {
+                failStreak++;
                 scheduleReconnect();
                 return;
             }
             if (!ensureDevice()) {
+                failStreak++;
                 scheduleReconnect();
                 return;
             }
@@ -515,6 +524,7 @@ public final class Session {
         } catch (Throwable t) {
             lastError = t.getClass().getSimpleName() + ": " + t.getMessage();
             log.e("session/attempt", t);
+            failStreak++;
             scheduleReconnect();
         } finally {
             attempting.set(false);
@@ -530,6 +540,7 @@ public final class Session {
         }
         online = true;
         reconnectDelay = 2000L;
+        failStreak = 0;
         lastError = "";
         log.i("session", "MQTT 已连接 " + (device == null ? "" : device.host + ":" + device.port));
         fireStatus();
@@ -561,8 +572,11 @@ public final class Session {
         // 终态下不再排队重连：撤销是永久的，重试只会每 60 秒打一次服务端。
         if (revoked || !running || online) return;
         if (!reconnectPending.compareAndSet(false, true)) return;
-        long delay = reconnectDelay;
+        // §5.2：delay = min(base * 2^n, 60s) * (0.7 + random*0.6)
+        // jitter 是为了让「服务端重启后所有设备同时重连」摊开，避免每次故障都踩同一个尖峰
+        long base = reconnectDelay;
         reconnectDelay = Math.min(reconnectDelay * 2, 60_000L);
+        long delay = (long) (base * (0.7 + Math.random() * 0.6));
         log.i("session", "将在 " + delay + "ms 后重连");
         reconnectFuture = sched.delayFuture(new Runnable() {
             @Override
@@ -662,6 +676,53 @@ public final class Session {
         return false;
     }
 
+    /**
+     * §5.1：票据持久化。device_id + 票据 + 过期时刻 + broker 端点整段加密存 prefs。
+     *
+     * 目的只有一个：正常冷启动（票据还没过期）不要再打一次 HTTP 续期。MQTT 只在 CONNECT
+     * 时校验票据，连接存续期间不受影响，所以 60 分钟的票足以覆盖常规重连。
+     */
+    private void saveTicket(HttpApi.Device d) {
+        if (d == null || d.ticket == null || d.ticket.isEmpty()) return;
+        Map<String, Object> m = Json.obj(
+                "device_id", d.deviceId,
+                "ticket", Secret.seal(d.ticket),
+                "exp", Long.valueOf(d.ticketExpiresAt),
+                "host", d.host,
+                "port", Integer.valueOf(d.port),
+                "tls", Boolean.valueOf(d.tls),
+                "username", d.username,
+                "topic_in", d.topicIn,
+                "topic_out", d.topicOut);
+        store.put(K_TICKET, m);
+        store.saveIfDirty();
+    }
+
+    /** 从 prefs 恢复上次的票据；票还剩 60 秒以上才算可用。 */
+    @SuppressWarnings("unchecked")
+    private boolean restoreTicket() {
+        Object raw = store.snapshot().get(K_TICKET);
+        if (!(raw instanceof Map)) return false;
+        Map<String, Object> m = (Map<String, Object>) raw;
+        long exp = Json.lng(m, "exp", 0);
+        if (exp - System.currentTimeMillis() <= TICKET_MARGIN_MS) return false;
+        String ticket = Secret.open(Json.str(m, "ticket", ""));
+        String id = Json.str(m, "device_id", "");
+        String host = Json.str(m, "host", "");
+        if (ticket == null || ticket.isEmpty() || id.isEmpty() || host.isEmpty()) return false;
+        device = new HttpApi.Device(id, ticket, exp, host,
+                Json.integer(m, "port", 1883), Json.bool(m, "tls", false),
+                Json.str(m, "username", ""), Json.str(m, "topic_in", ""),
+                Json.str(m, "topic_out", ""));
+        log.i("session", "复用上次的票据（" + (exp - System.currentTimeMillis()) / 1000 + "s 后过期），跳过续期");
+        return true;
+    }
+
+    private void clearTicket() {
+        store.put(K_TICKET, null);
+        store.saveIfDirty();
+    }
+
     /** 只持久化 access，**不落盘 refresh_token**：账号级凭证不进插件目录（§5.5）。 */
     private void saveTokens(HttpApi.Tokens t) {
         access = t.access;
@@ -675,7 +736,12 @@ public final class Session {
     private boolean ensureDevice() {
         HttpApi.Device d = device;
         long now = System.currentTimeMillis();
-        if (d != null && d.ticketExpiresAt - now > TICKET_MARGIN_MS) return true;
+        if (d == null && failStreak < FAIL_FORCE_REFRESH) restoreTicket();
+        d = device;
+        // 连续失败到阈值时不再信本地票：票可能已被服务端提前作废，续一次拿到确定的答案
+        if (failStreak < FAIL_FORCE_REFRESH && d != null && d.ticketExpiresAt - now > TICKET_MARGIN_MS) {
+            return true;
+        }
 
         // 凭证优先：不需要账号密码，也不占用账号 refresh token。
         if (hasCredential()) {
@@ -693,6 +759,7 @@ public final class Session {
             device = d;
             store.put(K_DEVICE_ID, d.deviceId);
             store.saveIfDirty();
+            saveTicket(d);
             log.i("session", "设备就绪（账号票据）：" + d.deviceId + " broker=" + d.host + ":" + d.port);
             return true;
         } catch (HttpApi.ApiException e) {
@@ -711,6 +778,7 @@ public final class Session {
                 log.w("session", "设备注册被拒(" + e.code + ")，换新 device_id");
                 device = null;
                 store.put(K_DEVICE_ID, null);
+                clearTicket();
                 store.saveIfDirty();
             }
             lastError = "设备注册失败：" + e.getMessage();
@@ -732,6 +800,7 @@ public final class Session {
             device = c.endpoint;
             store.put(K_DEVICE_ID, c.deviceId);
             store.saveIfDirty();
+            saveTicket(c.endpoint);
             log.i("session", "设备续期成功：" + c.deviceId + " broker="
                     + c.endpoint.host + ":" + c.endpoint.port);
             return true;

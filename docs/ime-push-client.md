@@ -231,7 +231,7 @@ kit.call(action: string, argsJson: string) -> string   // 返回 JSON 或纯文�
 | --- | --- | --- |
 | 连上先 pull | 一次 | 覆盖离线期间的消息 |
 | 定时兜底 pull | 120s | 防 nudge 丢失/漏收 |
-| 断线重连 | 2s 起，×2，上限 60s | 每次重连前重新注册设备拿新票 |
+| 断线重连 | 2s 起，×2，上限 60s，**带 ±30% jitter** | 自己接管，不用 Paho 的 `isAutomaticReconnect`（§5.3） |
 | 重连单飞 | — | 同一时刻只挂一个退避任务；手动重连/网络回调的重复触发合并成一次；`kick` 会作废排队的旧退避 |
 | HTTP 超时 | 连接 6s / 读 10s | 服务端不可达时快速失败、快速退避，不会一次卡 20s |
 | MQTT keepalive | `config.keep_alive`（默认 60s，限 15–600） | 与 Paho 的 ping 对应 |
@@ -240,6 +240,14 @@ kit.call(action: string, argsJson: string) -> string   // 返回 JSON 或纯文�
 
 - **access token**（由设备凭证换取的短票据）存私有 `prefs.json`；**refresh token 不再落盘**
   （插件只持设备凭证，见 §21.2）；`config.json` 里的 username/password 已废弃，读到会告警。
+- **设备票据持久化**（§5.1）：`device_id`、票据、过期时刻、broker 端点整段用 `Secret` 加密存
+  `prefs.json` 的 `device_ticket`。冷启动先试这张旧票，票据可用（剩余 > 60 秒）就直接连，
+  不再打一次 `POST /v1/dsh/devices/.../refresh`。票据 TTL 已从 10 分钟提到 60 分钟，
+  正常重启几乎总能命中。票不可用才走 HTTP 续期，续期成功立刻覆盖本地缓存。
+- **连续失败三次强制续期**（§5.3）：连续 3 次连不上就不再信本地票（它可能已被服务端提前作废），
+  强制走一次完整续期拿确定答案；成功连上后计数归零。
+- **退避带 jitter**（§5.2）：`delay = min(2s * 2^n, 60s) * (0.7 + random*0.6)`。
+  抖动是为了摊开「服务端重启 → 所有设备同一秒回来」的尖峰，不是装饰。
 - **设备是一等公民**：`POST /v1/dsh/devices/register` 返回 `device_id` + 短票据（默认 10 分钟）+ MQTT 参数。
 - **设备票据只放内存**，不落盘；每次重连重新注册续期。
 - 吊销（`POST /v1/dsh/devices/{id}/revoke`）后票据立即失效、连接被踢，重新注册返回 `409`；

@@ -75,6 +75,10 @@ class DshManager @Inject constructor(
     /** boot() 可能被多处并发触发；注册/签凭证串行化，避免一次启动注册出两个设备。 */
     private val deviceLock = Mutex()
     private var appTicket: String = ""
+    /** §5.3：自管重连的退避状态。 */
+    private var reconnectJob: Job? = null
+    @Volatile
+    private var failStreak: Int = 0
     private var appTicketExpiresAt: Long = 0L
 
     /** 由 Application / KeepAliveService 调用；重复调用只会重新确认一次状态。 */
@@ -89,6 +93,9 @@ class DshManager @Inject constructor(
         started = false
         pollJob?.cancel()
         pollJob = null
+        reconnectJob?.cancel()
+        reconnectJob = null
+        failStreak = 0
         mqtt.disconnect()
         _status.value = _status.value.copy(enabled = false, mode = DshMode.OFF, connected = false)
     }
@@ -458,7 +465,15 @@ class DshManager @Inject constructor(
     private fun connectMqtt() {
         scope.launch {
             runGuarded {
-                if (appTicket.isBlank()) return@runGuarded
+                if (!started) return@runGuarded
+                // 每次重连前先看票还在不在：Paho 不会替我们续期，带着过期票一定是 421/401
+                if (appTicket.isBlank() || appTicketExpiresAt - System.currentTimeMillis() < TICKET_MARGIN_MS) {
+                    ensureAppDevice()
+                }
+                if (appTicket.isBlank()) {
+                    scheduleReconnect()
+                    return@runGuarded
+                }
                 val endpoint = lastEndpoint() ?: return@runGuarded
                 mqtt.connect(
                     endpoint = endpoint,
@@ -472,9 +487,35 @@ class DshManager @Inject constructor(
                             connected = connected,
                             lastError = if (connected) "" else detail,
                         )
+                        if (connected) {
+                            failStreak = 0
+                            reconnectJob?.cancel()
+                            reconnectJob = null
+                        } else if (started) {
+                            scheduleReconnect()
+                        }
                     },
                 )
             }
+        }
+    }
+
+    /**
+     * §5.2/§5.3：自己接管重连。
+     *
+     * delay = min(2s * 2^n, 60s) * (0.7 + random*0.6)。jitter 不是装饰：服务端重启时所有设备
+     * 会在同一秒掉线，没有抖动就会在同一秒一起回来，把一次重启放大成一次雪崩。
+     */
+    @Synchronized
+    private fun scheduleReconnect() {
+        if (!started) return
+        if (reconnectJob?.isActive == true) return
+        val base = 2_000L * (1L shl failStreak.coerceIn(0, 5))
+        val delayMs = (minOf(base, 60_000L) * (0.7 + kotlin.random.Random.nextDouble() * 0.6)).toLong()
+        failStreak += 1
+        reconnectJob = scope.launch {
+            delay(delayMs)
+            connectMqtt()
         }
     }
 
@@ -571,6 +612,9 @@ class DshManager @Inject constructor(
         const val IME_REVOKED_AT = "dsh_ime_revoked_at"
         const val IME_REVOKE_PENDING = "dsh_ime_revoke_pending"
         const val APP_MQTT = "dsh_app_mqtt"
+
+        /** §5.3：票据剩余不足这么久就先续期，留出一次握手的时间。 */
+        const val TICKET_MARGIN_MS = 60_000L
 
         private const val POLL_INTERVAL_MS = 60_000L
         private const val PAGE_SIZE = 100

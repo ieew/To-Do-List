@@ -81,7 +81,9 @@ class DshMqtt @Inject constructor(
                 override fun deliveryComplete(token: IMqttDeliveryToken?) = Unit
             })
             val options = MqttConnectOptions().apply {
-                isAutomaticReconnect = true
+                // §5.3（T3，P0）：Paho 的自动重连会复用建连时的票据，票一过期就永远 421/401，
+                // 而我们这边看起来只是「在重连」。改成自己接管：断线回调 → 退避（带 jitter）→ 先续期再连。
+                isAutomaticReconnect = false
                 isCleanSession = true
                 connectionTimeout = 10
                 keepAliveInterval = keepAliveSeconds.coerceIn(15, 600)
