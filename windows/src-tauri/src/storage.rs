@@ -518,7 +518,14 @@ pub fn sync_account(conn: &Connection) -> Option<String> {
 
 /// 登录到新的云端账户前，把当前库整库备份，然后清空本地 op 与同步游标。
 /// 返回备份文件路径；本地没有任何 op 时不备份。
-pub fn reset_for_account(conn: &Connection, backup_dir: &Path) -> Result<Option<PathBuf>> {
+///
+/// `account_json` 为新区账户标识：必须与清库在**同一事务**内写入，
+/// 否则「库已清空但 sync_account 为空」的中间态会让下次登录再清一遍（A15）。
+pub fn reset_for_account(
+    conn: &Connection,
+    backup_dir: &Path,
+    account_json: Option<&str>,
+) -> Result<Option<PathBuf>> {
     let count: i64 = conn.query_row("SELECT COUNT(*) FROM op_log", [], |row| row.get(0))?;
     let mut backup_path = None;
     if count > 0 {
@@ -532,15 +539,33 @@ pub fn reset_for_account(conn: &Connection, backup_dir: &Path) -> Result<Option<
         backup_path = Some(target);
     }
 
-    conn.execute("DELETE FROM op_log", [])?;
-    conn.execute("DELETE FROM meta", [])?;
+    let tx = conn.unchecked_transaction()?;
+    tx.execute("DELETE FROM op_log", [])?;
+    tx.execute("DELETE FROM meta", [])?;
     // dsh 消息去重记录也属于旧账户；不清会让新账户同 msg_id 被误判为已处理。
-    conn.execute("DELETE FROM dsh_seen", [])?;
-    conn.execute(
+    tx.execute("DELETE FROM dsh_seen", [])?;
+    tx.execute(
         "UPDATE local_hlc SET physical_ms = ?1, counter = 0 WHERE id = 1",
         params![now_ms()],
     )?;
+    if let Some(raw) = account_json {
+        tx.execute(
+            "INSERT INTO meta (key, value) VALUES ('sync_account', ?1)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![raw],
+        )?;
+    }
+    tx.commit()?;
     Ok(backup_path)
+}
+
+/// 把被拒的 op 放回待推送队列（A19：标记保留 + 批量重试），返回重回队列条数。
+pub fn retry_rejected(conn: &Connection) -> Result<i64> {
+    let changed = conn.execute(
+        "UPDATE op_log SET sync_state = 'pending', sync_error = NULL WHERE sync_state = 'rejected'",
+        [],
+    )?;
+    Ok(changed as i64)
 }
 
 pub fn next_hlc(conn: &Connection) -> Result<Hlc> {
@@ -1439,7 +1464,7 @@ mod tests {
             "todo-backup-test-{}",
             Uuid::new_v4().to_string()[..8].to_string()
         ));
-        let backup = reset_for_account(&conn, &dir).expect("重置失败");
+        let backup = reset_for_account(&conn, &dir, Some("{\"user_id\":\"u1\"}")).expect("重置失败");
 
         let backup = backup.expect("应当生成备份");
         assert!(backup.exists(), "备份文件不存在: {}", backup.display());

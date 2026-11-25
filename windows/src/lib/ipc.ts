@@ -131,6 +131,8 @@ export const ipc = {
 
   syncPreflight: () => invoke<SyncPreflight>('sync_preflight'),
 
+  retryRejected: () => invoke<number>('retry_rejected'),
+
   createList: (name: string, color?: string | null) =>
     invoke<string>('create_list', { name, color: color ?? null }),
 

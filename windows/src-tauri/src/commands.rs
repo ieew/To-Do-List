@@ -1394,7 +1394,10 @@ fn prepare_account(
         if let Some(previous_account) = previous.as_ref() {
             let _ = session::clear_tokens(previous_account);
         }
-        storage::reset_for_account(conn, &backup_dir(state)).map_err(|error| error.to_string())?
+        // 新账户标识与清库同一事务写入：分开写会留下「已清库但没记住账户」的中间态（A15）。
+        let account_json = serde_json::to_string(account).map_err(|error| error.to_string())?;
+        storage::reset_for_account(conn, &backup_dir(state), Some(&account_json))
+            .map_err(|error| error.to_string())?
     };
 
     // 换账户会清空 op_log，缓存必须整体失效。
@@ -1570,6 +1573,22 @@ pub async fn sync_now(
         .map_err(|error| error.message)?;
     sync::publish(&app, &state, &outcome);
     Ok(sync::snapshot_for(&state))
+}
+
+/// A19：把被拒的 op 放回待推送队列并立刻重试一次；返回重新排队的条数。
+#[tauri::command]
+#[specta::specta]
+pub async fn retry_rejected(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<usize, String> {
+    let count = with_db(&state, |conn| Ok(storage::retry_rejected(conn)?))?;
+    if count > 0 {
+        if let Ok(outcome) = engine::run_once(&state).await {
+            sync::publish(&app, &state, &outcome);
+        }
+    }
+    Ok(count as usize)
 }
 
 #[tauri::command]

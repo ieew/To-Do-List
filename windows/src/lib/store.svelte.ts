@@ -1905,6 +1905,23 @@ class TodoStore {
     }
   }
 
+  /** A19：被拒的 op 只标记不删除，这里批量放回待推送队列并立刻重试。 */
+  async retryRejected(): Promise<void> {
+    if (!isTauri) {
+      this.showToast('浏览器预览不连接服务端', 'info');
+      return;
+    }
+    try {
+      const count = await ipc.retryRejected();
+      this.showToast(
+        count > 0 ? `已重新排队 ${count} 条，正在重试` : '没有被拒绝的操作',
+        'info'
+      );
+    } catch (error) {
+      this.showToast(String(error), 'error');
+    }
+  }
+
   async syncNow(): Promise<void> {
     if (!isTauri) {
       this.showToast('浏览器预览不连接服务端', 'info');

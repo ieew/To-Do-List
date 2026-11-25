@@ -824,12 +824,26 @@
                     <RefreshCw size="13" />
                     立即同步
                   </button>
+                  {#if store.sync.rejectedCount > 0}
+                    <button class="btn" onclick={() => store.retryRejected()}>
+                      <RefreshCw size="13" />
+                      重试被拒操作（{store.sync.rejectedCount}）
+                    </button>
+                  {/if}
                   <button class="btn danger-outline" onclick={logout} disabled={authBusy}>
                     <LogOut size="13" />
                     退出登录
                   </button>
                 </div>
               </div>
+              {#if store.sync.status === 'auth_required'}
+                <div class="info-banner warning">
+                  <Info size="13" class="info-icon" />
+                  <span>
+                    登录已过期 · {store.sync.pendingCount} 条修改待推送，重新登录后自动推送
+                  </span>
+                </div>
+              {/if}
               {#if store.sync.lastError}
                 <div class="info-banner warning">
                   <Info size="13" class="info-icon" />

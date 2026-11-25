@@ -118,6 +118,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::auth_logout,
         commands::sync_now,
         commands::sync_preflight,
+        commands::retry_rejected,
         commands::create_list,
         commands::update_list_field,
         commands::delete_list,
