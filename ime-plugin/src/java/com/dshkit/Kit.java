@@ -15,6 +15,7 @@ import com.dshkit.core.Json;
 import com.dshkit.core.Levels;
 import com.dshkit.core.Log;
 import com.dshkit.core.MqttTransport;
+import com.dshkit.core.Queue;
 import com.dshkit.core.Scheduler;
 import com.dshkit.core.Session;
 import com.dshkit.core.Store;
@@ -46,6 +47,7 @@ public final class Kit {
     private final TrimeHost host;
     private final KitLog log;
     private final Store store;
+    private final Queue queue;
     private volatile Config config;
     private final Scheduler sched;
     private final EventBus bus;
@@ -86,6 +88,7 @@ public final class Kit {
         this.host = host;
         this.log = new KitLog(host.context());
         this.store = new Store(new File(base, "prefs.json"));
+        this.queue = new Queue(base, log);
         this.config = Config.load(new File(Config.DEFAULT_PATH), log);
 
         this.sched = new Scheduler("dsh-kit", log);
@@ -96,6 +99,7 @@ public final class Kit {
         Context ctx = host.context();
         this.notifySink = new NotifySink(ctx, log);
         this.notifyModule = new NotifyModule(store, notifySink, log, config.defaultLevel);
+        this.notifyModule.setQueue(queue);
 
         this.session = new Session(config, api, transport, store, sched, log,
                 new Session.Applier() {
@@ -107,7 +111,7 @@ public final class Kit {
                         }
                         return notifyModule.apply(kind, msgId, payloadJson, live);
                     }
-                });
+                }, queue);
         this.notifyModule.setSession(session);
 
         this.clipSource = new ClipSource(ctx, log, config.ignoreApps,

@@ -5,6 +5,8 @@ import com.dshkit.core.Fingerprint;
 import com.dshkit.core.Json;
 import com.dshkit.core.Levels;
 import com.dshkit.core.Protocol;
+import com.dshkit.core.Queue;
+import com.dshkit.core.Log;
 import com.dshkit.core.Store;
 
 import java.io.File;
@@ -26,6 +28,10 @@ public final class CoreTest {
         testJsonEscapes();
         testJsonErrors();
         testStorePersist();
+        testQueueAppendAndReplay();
+        testQueueSurvivesHalfLine();
+        testQueueDoneIsIdempotent();
+        testQueueWriteVolume();
         testProtocolNudge();
         testProtocolClip();
         testProtocolEnvelope();
@@ -211,6 +217,110 @@ public final class CoreTest {
     }
 
     // ------------------------------------------------------------ 断言
+
+
+    // ------------------------------------------------------------ Queue（§7.3）
+
+    private static void testQueueAppendAndReplay() throws Exception {
+        File dir = new File(System.getProperty("java.io.tmpdir"), "dsh-queue-" + System.nanoTime());
+        Log log = new Log(dir);
+        Queue q = new Queue(dir, log);
+        check("q.append", q.append(11, "m-11", "notify", "{\"title\":\"a\"}"));
+        check("q.append2", q.append(12, "m-12", "notify", "{\"title\":\"b\"}"));
+        check("q.pending-two", q.pending().size() == 2);
+        check("q.contains", q.contains("m-11"));
+
+        q.markDone("m-11", true);
+        check("q.pending-one", q.pending().size() == 1);
+        check("q.pending-seq", q.pending().get(0).seq == 12L);
+
+        // 重开：模拟进程被杀后冷启动，未完成的那条必须还在
+        Queue again = new Queue(dir, log);
+        check("q.replay-pending", again.pending().size() == 1);
+        check("q.replay-seq", again.pending().get(0).seq == 12L);
+        check("q.replay-payload", again.pending().get(0).payload.indexOf("b") > 0);
+        check("q.recent-one", again.recent(10).size() == 1);
+        check("q.recent-shown", again.recent(10).get(0).shown);
+    }
+
+    private static void testQueueSurvivesHalfLine() throws Exception {
+        File dir = new File(System.getProperty("java.io.tmpdir"), "dsh-queue-half-" + System.nanoTime());
+        Log log = new Log(dir);
+        Queue q = new Queue(dir, log);
+        q.append(21, "m-21", "notify", "{}");
+        // 掉电写到一半：手动追加一段不完整 JSON
+        File[] files = new File(dir, "queue").listFiles();
+        java.io.FileWriter fw = new java.io.FileWriter(files[0], true);
+        fw.write("{\"op\":\"msg\",\"seq\":22,\"id\":\"m-2");
+        fw.close();
+        Queue again = new Queue(dir, log);
+        check("q.half-line-keeps-good", again.pending().size() == 1);
+        check("q.half-line-ok-seq", again.pending().get(0).seq == 21L);
+    }
+
+    private static void testQueueDoneIsIdempotent() throws Exception {
+        File dir = new File(System.getProperty("java.io.tmpdir"), "dsh-queue-done-" + System.nanoTime());
+        Log log = new Log(dir);
+        Queue q = new Queue(dir, log);
+        q.append(31, "m-31", "notify", "{}");
+        q.markDone("m-31", true);
+        q.markDone("m-31", true); // 重复调用不应写第二行
+        File f = new File(dir, "queue").listFiles()[0];
+        int lines = 0;
+        java.io.BufferedReader r = new java.io.BufferedReader(new java.io.FileReader(f));
+        while (r.readLine() != null) lines++;
+        r.close();
+        check("q.done-idempotent", lines == 2);
+        check("q.done-no-pending", q.pending().isEmpty());
+    }
+
+
+    /**
+     * §7.3 验收：连收 20 条通知，写盘量应远低于「每轮全量重写 prefs.json」。
+     * 旧实现每条消息写两次整份文件（notify_seen + notify_inbox），且文件随条数线性变长；
+     * 队列每条只追加一行，写入量与已积累的条数无关。
+     */
+    private static void testQueueWriteVolume() throws Exception {
+        File dir = new File(System.getProperty("java.io.tmpdir"), "dsh-qvol-" + System.nanoTime());
+        Log log = new Log(dir);
+        Queue q = new Queue(dir, log);
+        long queueBytes = 0;
+        for (int i = 0; i < 20; i++) {
+            long before = dirSize(new File(dir, "queue"));
+            q.append(100 + i, "vol-" + i, "notify",
+                    "{\"title\":\"提醒 " + i + "\",\"body\":\"该喝水了，顺便看看今天的三个待办\"}");
+            queueBytes += dirSize(new File(dir, "queue")) - before;
+        }
+        // 旧方案：seen + inbox 各写一次整份 JSON
+        File oldDir = new File(System.getProperty("java.io.tmpdir"), "dsh-oldvol-" + System.nanoTime());
+        Store st = new Store(new File(oldDir, "prefs.json"));
+        List<Object> seen = new java.util.ArrayList<Object>();
+        List<Object> inbox = new java.util.ArrayList<Object>();
+        long storeBytes = 0;
+        File pj = new File(oldDir, "prefs.json");
+        for (int i = 0; i < 20; i++) {
+            seen.add("vol-" + i);
+            inbox.add(Json.obj("id", "vol-" + i, "level", Integer.valueOf(2),
+                    "title", "提醒 " + i, "body", "该喝水了，顺便看看今天的三个待办",
+                    "shown", Boolean.TRUE, "at", Long.valueOf(System.currentTimeMillis())));
+            st.put("notify_seen", seen);
+            st.put("notify_inbox", inbox);
+            st.saveIfDirty();
+            // 旧实现每次都是「整份文件覆盖写」，写入量 = 当前完整 JSON 的长度
+            storeBytes += Json.write(st.snapshot()).length();
+        }
+        System.out.println("  [指标] 20 条通知写盘：队列 " + queueBytes + " B，旧方案 " + storeBytes + " B");
+        check("q.volume-less", queueBytes < storeBytes);
+        check("q.volume-linear", queueBytes < 20L * 400L);
+    }
+
+    private static long dirSize(File d) {
+        File[] fs = d.listFiles();
+        if (fs == null) return 0L;
+        long n = 0L;
+        for (File f : fs) n += f.length();
+        return n;
+    }
 
     private static void check(String name, boolean ok) {
         if (ok) {

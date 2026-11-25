@@ -3,6 +3,7 @@ package com.dshkit.mod;
 import com.dshkit.core.Json;
 import com.dshkit.core.Levels;
 import com.dshkit.core.Log;
+import com.dshkit.core.Queue;
 import com.dshkit.core.Session;
 import com.dshkit.core.Store;
 
@@ -21,15 +22,16 @@ import java.util.Map;
  */
 public final class NotifyModule {
 
-    private static final String K_SEEN = "notify_seen";
-    private static final String K_INBOX = "notify_inbox";
-    private static final int SEEN_LIMIT = 200;
+    /** 旧版本的键，只用于一次性迁移到队列，不再写入。 */
+    private static final String K_SEEN_LEGACY = "notify_seen";
+    private static final String K_INBOX_LEGACY = "notify_inbox";
     private static final int INBOX_LIMIT = 50;
 
     private final Store store;
     private final NotifySink sink;
     private final Log log;
     private final int defaultLevel;
+    private Queue queue;
     private Session session;
     private TodoClient todoClient;
     private volatile Map<String, Object> last;
@@ -44,6 +46,26 @@ public final class NotifyModule {
     /** 构造顺序原因：Session 先建、模块后建，再回填。 */
     public void setSession(Session session) {
         this.session = session;
+    }
+
+    /**
+     * 接上 append-only 队列（§7.3）。幂等与留档都从「每次全量重写 prefs.json」
+     * 搬到队列文件上：收消息一次 append，展示完一次 done。
+     */
+    public void setQueue(Queue queue) {
+        this.queue = queue;
+        if (queue == null) return;
+        // 迁移旧版的 notify_seen：老用户重装后不该把几十条旧通知再弹一遍。
+        List<Object> legacy = Json.asArray(store.snapshot().get(K_SEEN_LEGACY));
+        if (!legacy.isEmpty()) {
+            for (Object id : legacy) {
+                if (id instanceof String) queue.markDone((String) id, true);
+            }
+            store.put(K_SEEN_LEGACY, null);
+            store.put(K_INBOX_LEGACY, null);
+            store.saveIfDirty();
+            log.i("notify", "已把旧版权重为 " + legacy.size() + " 条的 notify_seen 迁进队列");
+        }
     }
 
     /** 提醒去重：展示前通过 provider 向 App 认领，避免两边都弹。 */
@@ -100,8 +122,7 @@ public final class NotifyModule {
 
         // 服务端提醒：App 与插件只允许一方展示。
         if (reminder && !shouldShowReminder(taskId, workspaceId, remindAt)) {
-            markSeen(msgId);
-            record(msgId, level, title, body, false);
+            markDone(msgId, false);
             last = Json.obj("level", level, "title", title, "shown", false);
             log.i("notify", "提醒已由 App 展示，插件跳过 tag=" + tag);
             if (session != null) session.noteApplied();
@@ -109,8 +130,7 @@ public final class NotifyModule {
         }
 
         boolean shown = sink.show(tag, title, body, level, url);
-        markSeen(msgId);
-        record(msgId, level, title, body, shown);
+        markDone(msgId, shown);
         last = Json.obj("level", level, "title", title, "shown", shown);
         String mode = Levels.unimportant(level)
                 ? "静默进通知中心"
@@ -162,7 +182,6 @@ public final class NotifyModule {
         int lv = Levels.clamp(level);
         boolean shown = sink.show("dsh-selftest",
                 "dsh-kit 测试 L" + lv, Levels.describe(lv), lv, "");
-        record("selftest", lv, "dsh-kit 测试 L" + lv, Levels.describe(lv), shown);
         last = Json.obj("level", lv, "title", "测试", "shown", shown);
     }
 
@@ -170,41 +189,47 @@ public final class NotifyModule {
         return last == null ? Json.obj() : last;
     }
 
+    /**
+     * 最近收到的消息，按入队时间正序。数据来自队列文件尾部，
+     * 不再单独维护一份 `notify_inbox` —— 两份真相迟早会不一致。
+     */
     public List<Object> inbox() {
-        return Json.asArray(store.snapshot().get(K_INBOX));
+        List<Object> out = new ArrayList<Object>();
+        Queue q = queue;
+        if (q == null) return out;
+        for (Queue.Entry e : q.recent(INBOX_LIMIT)) {
+            Map<String, Object> payload = Json.obj();
+            try {
+                payload = Json.asObject(Json.parse(e.payload));
+            } catch (Throwable ignored) {
+            }
+            String title = Json.str(payload, "title", "通知");
+            String body = Json.str(payload, "body", Json.str(payload, "text",
+                    Json.str(payload, "message", "")));
+            int level = Levels.fromPayload(payload, defaultLevel);
+            if (payload.get("level") == null && Json.bool(payload, "silent", false)) level = 1;
+            Map<String, Object> item = new LinkedHashMap<String, Object>();
+            item.put("id", e.msgId);
+            item.put("level", Integer.valueOf(level));
+            item.put("title", title);
+            item.put("body", body);
+            item.put("shown", Boolean.valueOf(e.shown));
+            item.put("at", Long.valueOf(e.at));
+            out.add(item);
+        }
+        return out;
     }
 
     // ------------------------------------------------------------ 去重 / 留档
 
     private boolean alreadySeen(String msgId) {
-        for (Object item : Json.asArray(store.snapshot().get(K_SEEN))) {
-            if (msgId.equals(item)) return true;
-        }
-        return false;
+        Queue q = queue;
+        return q != null && q.contains(msgId);
     }
 
-    private void markSeen(String msgId) {
-        if (msgId == null || msgId.isEmpty()) return;
-        List<Object> seen = new ArrayList<Object>(Json.asArray(store.snapshot().get(K_SEEN)));
-        seen.add(msgId);
-        while (seen.size() > SEEN_LIMIT) seen.remove(0);
-        store.put(K_SEEN, seen);
-        store.saveIfDirty();
-    }
-
-    /** 所有等级都留档（含 0 级），保证「不提醒」不等于「没收到」。 */
-    private void record(String msgId, int level, String title, String body, boolean shown) {
-        List<Object> inbox = new ArrayList<Object>(Json.asArray(store.snapshot().get(K_INBOX)));
-        Map<String, Object> item = new LinkedHashMap<String, Object>();
-        item.put("id", msgId == null ? "" : msgId);
-        item.put("level", Integer.valueOf(level));
-        item.put("title", title);
-        item.put("body", body);
-        item.put("shown", Boolean.valueOf(shown));
-        item.put("at", Long.valueOf(System.currentTimeMillis()));
-        inbox.add(item);
-        while (inbox.size() > INBOX_LIMIT) inbox.remove(0);
-        store.put(K_INBOX, inbox);
-        store.saveIfDirty();
+    /** 展示完成（或明确跳过）：在队列里写 done，重启后不会重复处理。 */
+    private void markDone(String msgId, boolean shown) {
+        Queue q = queue;
+        if (q != null) q.markDone(msgId, shown);
     }
 }

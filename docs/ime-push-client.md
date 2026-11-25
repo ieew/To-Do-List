@@ -212,8 +212,10 @@ kit.call(action: string, argsJson: string) -> string   // 返回 JSON 或纯文�
 
 铁律：
 
-1. **顺序固定为「应用 → ack → 推进游标」**：ack 失败则本轮重试；重试幂等（`msg_id` 去重），
-   不会因为重试重复弹通知，也不会丢消息。
+1. **顺序固定为「落盘 → 应用 → ack → 推进游标」**（§7.3 之后新增第一步）：收到的每条消息先写进
+   本地 append-only 队列并 `fsync`，写失败就**不 ack**、留给服务端补投；落盘成功才去展示。
+   理由是不对称的——「ack 了却没存下」是永久丢失，「展示了却没 ack」只是重复投递，
+   而重投靠 `msg_id` 幂等。重试幂等（`msg_id` 去重），不会重复弹通知，也不会丢消息。
 2. **数据库是唯一真相源**：nudge 只带 `{t,seq,n}`，丢了不影响正确性。
 3. pull 分页 100，最多 20 页；每页应用完再取下一页。
 4. 未知 `kind` 也要 ack 掉（否则堵住队列），只记日志不弹通知。
@@ -236,23 +238,50 @@ kit.call(action: string, argsJson: string) -> string   // 返回 JSON 或纯文�
 
 ### 7.3 凭据生命周期
 
-- **access token**（待办 JWT，15 分钟）与 **refresh token** 存私有 `prefs.json`；
-  密码只在首次登录用，`config.json` 里可以留，但**建议登录一次后删掉**。
+- **access token**（由设备凭证换取的短票据）存私有 `prefs.json`；**refresh token 不再落盘**
+  （插件只持设备凭证，见 §21.2）；`config.json` 里的 username/password 已废弃，读到会告警。
 - **设备是一等公民**：`POST /v1/dsh/devices/register` 返回 `device_id` + 短票据（默认 10 分钟）+ MQTT 参数。
 - **设备票据只放内存**，不落盘；每次重连重新注册续期。
 - 吊销（`POST /v1/dsh/devices/{id}/revoke`）后票据立即失效、连接被踢，重新注册返回 `409`；
   恢复要换新 `device_id`。
 
-### 7.4 本地状态（`prefs.json`）
+### 7.4 本地状态（`prefs.json` 与消息队列）
+
+`prefs.json` 只放「小、可丢、可重建」的元信息：
 
 | 键 | 含义 |
 | --- | --- |
 | `device_id` | 本机设备 id（`dsh-xxxxxxxx`） |
 | `cursor` | pull 游标（已确认的最大 seq） |
-| `access` / `access_exp` | 待办 access token 与过期时间 |
-| `refresh` / `refresh_exp` | refresh token 与过期时间 |
+| `access` / `access_exp` | 由设备凭证换来的 access token 与过期时间 |
+| `credential` / `credential_exp` | 设备凭证（加密）与过期时间 |
 
 原子写：写临时文件 → `rename`。损坏时备份为 `prefs.json.bad` 并重建。
+
+消息本身不进 `prefs.json`，走 append-only 队列（§7.5）。
+
+### 7.5 消息队列（append-only JSONL）
+
+`files/dsh-kit/queue/YYYYMMDD.jsonl`，每行一条记录：
+
+```
+{"op":"msg","seq":123,"id":"msg-…","kind":"notify","payload":{…},"at":…}
+{"op":"done","id":"msg-…","seq":0,"shown":true,"at":…}
+```
+
+- **写入**：收消息 = 一次 append + `fsync`（O(1)）；写完才进入展示与 ack。
+- **重放**：冷启动时读当天与前一天的队列文件重建内存状态（`done` 覆盖 `msg`），
+  未 `done` 的逐条重新交给模块处理，处理成功才补 ack（ack 与下一轮 pull 合并发送）。
+- **留档**：「最近 50 条通知」直接从队列尾部读，不再单独维护 `notify_inbox`；
+  幂等判据也从 `notify_seen` 的 200 个 id 换成「队列里有没有这条记录」。
+- **清理**：已完成且超过 24 小时的文件删除；仍有未完成记录的文件一律保留。
+- **迁移**：升级前 `prefs.json` 里的 `notify_seen` 会一次性写成 `done` 记录，
+  老用户重装后不会把几十条旧通知再弹一遍。
+
+为什么是 JSONL 而不是 SQLite：插件是注入输入法进程的 dex，多一个依赖就多一个加载失败点；
+而队列只需要「追加」和「顺序重放」，这两个动作 JSONL 都能做，且写入量与已积累的条数无关——
+旧实现每条消息要把 `notify_seen`(200) 与 `notify_inbox`(50) 两份数组各全量重写一次，
+条数越多写得越多；现在每条固定一行。实测 20 条通知的写盘量：队列 3,420 B，旧方案 23,105 B。
 
 ## 八、通知：0–7 级
 

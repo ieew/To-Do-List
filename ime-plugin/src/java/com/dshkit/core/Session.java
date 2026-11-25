@@ -71,6 +71,9 @@ public final class Session {
     private final Scheduler sched;
     private final Log log;
     private final Applier applier;
+    private final Queue queue;
+    /** 已展示但还没 ack 的 seq（队列重放产生的）。下一次 ack 一并带上。 */
+    private final java.util.List<Long> replayAcks = new java.util.ArrayList<Long>();
 
     private volatile boolean running;
     private volatile boolean pulling;
@@ -113,7 +116,7 @@ public final class Session {
     private volatile int reminderLead;
 
     public Session(Config cfg, HttpApi api, Transport transport, Store store, Scheduler sched,
-                   Log log, Applier applier) {
+                   Log log, Applier applier, Queue queue) {
         this.cfg = cfg;
         this.api = api;
         this.transport = transport;
@@ -121,6 +124,7 @@ public final class Session {
         this.sched = sched;
         this.log = log;
         this.applier = applier;
+        this.queue = queue;
         this.cursor = store.getLong(K_CURSOR, 0);
         this.access = store.getString(K_ACCESS, null);
         this.accessExp = store.getLong(K_ACCESS_EXP, 0);
@@ -835,6 +839,33 @@ public final class Session {
         log.w("session", "未知消息，忽略（" + raw.length() + "B）");
     }
 
+    /**
+     * 重放队列里没 done 的消息（§7.3）。覆盖的是「落盘成功、还没展示就被杀」
+     * 这个窗口：acked 但没展示会丢，展示但没 ack 只会重投，所以先落盘、后 ack。
+     */
+    private void replayPending() {
+        if (queue == null) return;
+        java.util.List<Queue.Entry> pending = queue.pending();
+        if (pending.isEmpty()) return;
+        log.i("session", "队列重放 " + pending.size() + " 条未完成消息");
+        for (Queue.Entry e : pending) {
+            boolean applied = false;
+            try {
+                applied = applier == null || applier.apply(e.kind, e.msgId, e.payload, false);
+            } catch (Throwable t) {
+                log.e("session/replay", t);
+            }
+            if (!applied) {
+                log.w("session", "重放未处理 seq=" + e.seq + "，留在队列里下次再试");
+                break;
+            }
+            if (queue != null) queue.markDone(e.msgId, true);
+            synchronized (replayAcks) {
+                if (e.seq > 0) replayAcks.add(Long.valueOf(e.seq));
+            }
+        }
+    }
+
     private void pullNow(String reason) {
         if (pulling) {
             log.i("session", "pull(" + reason + ") 跳过：上一轮还在跑");
@@ -849,6 +880,7 @@ public final class Session {
         try {
             boolean deviceTicket = device.ticket != null && !device.ticket.isEmpty();
             if (!deviceTicket && !ensureToken()) return;
+            replayPending();
             for (int page = 0; page < MAX_PAGES; page++) {
                 HttpApi.Page result;
                 try {
@@ -881,23 +913,37 @@ public final class Session {
                 List<Long> ackSeqs = new ArrayList<Long>();
                 long maxSeq = cursor;
                 for (HttpApi.Message m : result.messages) {
+                    if (m.seq > maxSeq) maxSeq = m.seq;
+                    // §7.3：先落盘、再处理、最后 ack。队列写不进去就整条跳过，
+                    // 让服务端下次补投 —— 「ack 了却没存下来」是主通道唯一不能出的错。
+                    if (queue != null && !queue.append(m.seq, m.msgId, m.kind, m.payloadJson)) {
+                        log.w("session", "队列写入失败，跳过 seq=" + m.seq + "（不 ack，等服务端补投）");
+                        continue;
+                    }
                     boolean applied = false;
                     try {
                         applied = applier == null || applier.apply(m.kind, m.msgId, m.payloadJson, false);
                     } catch (Throwable t) {
                         log.e("session/apply", t);
                     }
-                    if (m.seq > maxSeq) maxSeq = m.seq;
                     if (applied) {
+                        // 通知会自己写 done（带 shown），剪贴板不写，这里统一兜一次。
+                        if (queue != null) queue.markDone(m.msgId, true);
                         ackSeqs.add(Long.valueOf(m.seq));
                     }
                 }
                 pulledCount += result.messages.size();
                 // 顺序：先 ack 再推进游标。ack 幂等，崩在中间最多重复投递，不会丢。
+                synchronized (replayAcks) {
+                    if (!replayAcks.isEmpty()) ackSeqs.addAll(replayAcks);
+                }
                 if (!ackSeqs.isEmpty()) {
                     ackedCount += deviceTicket
                             ? api.ackAsDevice(device.deviceId, device.ticket, ackSeqs)
                             : api.ack(access, device.deviceId, ackSeqs);
+                    synchronized (replayAcks) {
+                        replayAcks.clear();
+                    }
                 }
                 setCursor(Math.max(result.nextSeq, maxSeq));
                 if (!result.hasMore) break;

@@ -62,7 +62,8 @@ public final class E2E {
             this.store = new Store(new File(dir, "prefs-" + tag + ".json"));
             this.sched = new Scheduler("dsh-e2e-" + tag, log);
             this.transport = new MqttTransport(log);
-            this.session = new Session(cfg, api, transport, store, sched, log, applier);
+            this.session = new Session(cfg, api, transport, store, sched, log, applier,
+                    new com.dshkit.core.Queue(new File(dir, "queue-" + tag), log));
             session.start();
         }
 
