@@ -313,13 +313,26 @@ class DshManager @Inject constructor(
     }
 
     /** 插件把 MQTT 连接状态回写，设置页据此显示「已连接 / 未连接」。 */
-    suspend fun noteImeStatus(connected: Boolean, error: String) {
+    suspend fun noteImeStatus(
+        connected: Boolean,
+        error: String,
+        version: String = "",
+        protocol: Int = 0,
+    ) {
         metaDao.put(
-            MetaEntity(IME_STATUS, json.encodeToString(ImeStatus.serializer(), ImeStatus(connected, error))),
+            MetaEntity(
+                IME_STATUS,
+                json.encodeToString(
+                    ImeStatus.serializer(),
+                    ImeStatus(connected, error, version, protocol),
+                ),
+            ),
         )
         _status.value = _status.value.copy(
             connected = connected,
             lastError = if (connected) "" else error,
+            imeVersion = version,
+            imeProtocol = protocol,
         )
     }
 
@@ -366,6 +379,8 @@ class DshManager @Inject constructor(
             _status.value = _status.value.copy(
                 connected = known?.connected == true,
                 lastError = known?.error.orEmpty(),
+                imeVersion = known?.version.orEmpty(),
+                imeProtocol = known?.protocol ?: 0,
             )
             runGuarded { ensureImeDevice() }
         } else if (forceReconnect || !mqtt.connected) {
@@ -600,7 +615,13 @@ class DshManager @Inject constructor(
     }
 
     @Serializable
-    private data class ImeStatus(val connected: Boolean, val error: String)
+    private data class ImeStatus(
+        val connected: Boolean,
+        val error: String,
+        /** 旧版本存下来的记录没有这两个字段，给默认值才能反序列化（协议只增不改）。 */
+        val version: String = "",
+        val protocol: Int = 0,
+    )
     companion object {
         const val APP_DEVICE_ID = "dsh_app_device_id"
         const val IME_DEVICE_ID = "dsh_ime_device_id"

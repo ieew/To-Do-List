@@ -69,6 +69,8 @@ public final class Kit {
     /** 进程级主实例：每个 Lua 入口会新建 DexClassLoader，宿主缓存又存不了 Java 对象，
      *  所以同时可能有几个 Kit。只让第一个启动网络/剪贴板/通知，其余当空壳。 */
     private final boolean primary;
+    /** §3.0.1：插件靠 App 发凭证，App 没装就别空转。启动时查一次，查不到就停在未授权。 */
+    private final boolean appInstalled;
     private BroadcastReceiver cmdReceiver;
     private Ui ui;
 
@@ -91,6 +93,7 @@ public final class Kit {
         this.queue = new Queue(base, log);
         this.config = Config.load(new File(Config.DEFAULT_PATH), log);
 
+        this.appInstalled = isPackageInstalled(host.context(), "com.todo.android");
         this.sched = new Scheduler("dsh-kit", log, primary);
         this.bus = new EventBus(sched.executor(), log);
         this.api = new HttpApi(log);
@@ -145,7 +148,7 @@ public final class Kit {
 
             @Override
             public void report(boolean connected, String error) {
-                todoClient.dshReport(connected, error);
+                todoClient.dshReport(connected, error, VERSION, Session.PROTOCOL);
             }
 
             @Override
@@ -259,7 +262,10 @@ public final class Kit {
         INSTANCE.log.i("probe", h.probe());
         INSTANCE.log.i("config", "source=" + INSTANCE.config.source
                 + " server=" + INSTANCE.config.server + " user=" + INSTANCE.config.username);
-        if (INSTANCE.primary) {
+        if (INSTANCE.primary && !INSTANCE.appInstalled) {
+            // 反复重试授权只会刷日志、耗电，而且用户看不出原因。
+            INSTANCE.log.w("boot", "未检测到待办 App（com.todo.android）：停在未授权状态，不建连接");
+        } else if (INSTANCE.primary) {
             INSTANCE.session.start();
             // 剪贴板：config.json 的 clip_enabled 与工具页开关取交（默认开）
             INSTANCE.clipOn = INSTANCE.config.clipEnabled
@@ -271,6 +277,20 @@ public final class Kit {
             INSTANCE.log.i("boot", "附加实例：不启动网络/剪贴板/通知（由主实例负责）");
         }
         return INSTANCE;
+    }
+
+    /** App 是否安装：只查包管理器，不扫描文件系统（§3.0.1）。 */
+    public boolean appInstalled() {
+        return appInstalled;
+    }
+
+    private static boolean isPackageInstalled(Context ctx, String pkg) {
+        try {
+            ctx.getPackageManager().getPackageInfo(pkg, 0);
+            return true;
+        } catch (Throwable t) {
+            return false;
+        }
     }
 
     /** 工具入口用：把状态面板显示在 Activity 里（而不是顶掉键盘）。 */

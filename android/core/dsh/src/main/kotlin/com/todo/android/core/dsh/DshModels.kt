@@ -31,9 +31,25 @@ data class DshStatus(
     val imeRevokedAt: Long = 0,
     /** 本地已停发但服务端还没收到（断网撤销）：被偷的凭证这期间仍然有效。 */
     val imeRevokePending: Boolean = false,
+    /** 插件上报的 dex 版本与协议版本（§3.0.1）；空/0 表示插件太旧、根本没上报。 */
+    val imeVersion: String = "",
+    val imeProtocol: Int = 0,
 ) {
     /** 撤销的两种状态都算「输入法通道已停」，但只有 pending 为假时才算真正撤干净。 */
     val imeRevoked: Boolean get() = imeRevokedAt > 0 || imeRevokePending
+
+    /** 插件讲的协议比 App 旧：降级使用，提示升级 dex。0 视为「没上报」，也按旧处理。 */
+    val imeProtocolOutdated: Boolean
+        get() = imeProtocol in 0 until DshProtocol.VERSION
+
+    /** 插件讲的协议比 App 新：App 侧忽略不认识的能力，提示升级 App。 */
+    val appProtocolOutdated: Boolean get() = imeProtocol > DshProtocol.VERSION
+}
+
+/** §3.0.1：协议只增不改。新能力放新字段/新方法，旧端不认识就跳过。 */
+object DshProtocol {
+    /** App 期望的插件协议版本。插件 status() 里的 `protocol` 与它比对。 */
+    const val VERSION = 1
 }
 
 /**

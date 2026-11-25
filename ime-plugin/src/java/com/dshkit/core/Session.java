@@ -1067,6 +1067,9 @@ public final class Session {
 
     // ------------------------------------------------------------ 状态
 
+    /** 当前插件实现的协议版本；只增不改，新能力走新字段（§3.0.1）。 */
+    public static final int PROTOCOL = 1;
+
     public Map<String, Object> status() {
         Map<String, Object> out = new LinkedHashMap<String, Object>();
         out.put("server", api.server().isEmpty() ? cfg.server : api.server());
@@ -1087,6 +1090,9 @@ public final class Session {
         out.put("im_authorized", Boolean.valueOf(hasCredential()));
         // 终态：面板据此显示「已在 App 中撤销推送权限」并给出重新授权入口。
         out.put("revoked", Boolean.valueOf(revoked));
+        // §3.0.1 版本协商：App 据此判断插件是偏旧还是偏新，决定提示哪一侧升级。
+        out.put("version", com.dshkit.Kit.VERSION);
+        out.put("protocol", Integer.valueOf(PROTOCOL));
         out.put("state", revoked ? "revoked" : (!running ? "stopped" : (online ? "online" : "offline")));
         return out;
     }

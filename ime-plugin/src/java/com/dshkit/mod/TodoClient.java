@@ -147,11 +147,13 @@ public final class TodoClient {
         dshCall("dsh_credential_update", input);
     }
 
-    /** 回写 MQTT 连接状态（设置页展示）。 */
-    public void dshReport(boolean connected, String error) {
+    /** 回写 MQTT 连接状态与版本（设置页展示 + §3.0.1 版本协商）。 */
+    public void dshReport(boolean connected, String error, String version, int protocol) {
         Bundle input = new Bundle();
         input.putBoolean("connected", connected);
         input.putString("error", error == null ? "" : error);
+        input.putString("version", version == null ? "" : version);
+        input.putInt("protocol", protocol);
         dshCall("dsh_status", input);
     }
 

@@ -184,6 +184,22 @@ internal fun ReminderPanel(state: SettingsUiState, viewModel: SettingsViewModel)
             title = "设备",
             description = "App ${dsh.appDeviceId.ifBlank { "未注册" }} · 输入法 ${dsh.imeDeviceId.ifBlank { "未授权" }}",
         )
+        // §3.0.1 版本协商：插件独立安装，版本会漂移。偏旧就降级使用并提示更新，
+        // 偏新就忽略不认识的能力——两种都不报错，也不阻断（协议只增不改）。
+        if (dsh.imeProtocolOutdated && dsh.imeDeviceId.isNotBlank()) {
+            SettingRow(
+                title = "输入法插件版本过旧" + if (dsh.imeVersion.isNotBlank()) "（v${dsh.imeVersion}）" else "",
+                description = "仍可收通知，但新能力不生效。请把最新 dsh-kit.dex 放到 /sdcard/Documents/rime/scripts/ 后重启输入法",
+                danger = true,
+            )
+        }
+        if (dsh.appProtocolOutdated) {
+            SettingRow(
+                title = "App 版本过旧",
+                description = "插件协议 v${dsh.imeProtocol} 比 App 支持的 v${com.todo.android.core.dsh.DshProtocol.VERSION} 新，请更新 App",
+                danger = true,
+            )
+        }
         SettingDivider()
         if (!dsh.imeRevoked) {
             SettingRow(

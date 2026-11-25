@@ -200,7 +200,10 @@ class ImeTaskProvider : ContentProvider() {
             ImeContract.METHOD_DSH_STATUS -> {
                 val connected = extras?.getBoolean(ImeContract.EXTRA_CONNECTED, false) ?: false
                 val error = extras?.getString(ImeContract.EXTRA_ERROR).orEmpty()
-                runBlocking { manager.noteImeStatus(connected, error) }
+                // §3.0.1 版本协商：旧插件不带这两个字段，读到空/0 就按「偏旧」处理。
+                val version = extras?.getString(ImeContract.EXTRA_VERSION).orEmpty()
+                val protocol = extras?.getInt(ImeContract.EXTRA_PROTOCOL, 0) ?: 0
+                runBlocking { manager.noteImeStatus(connected, error, version, protocol) }
                 out.putBoolean(ImeContract.EXTRA_OK, true)
             }
 

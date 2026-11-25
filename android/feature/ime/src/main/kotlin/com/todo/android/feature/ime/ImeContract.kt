@@ -68,6 +68,8 @@ object ImeContract {
     const val EXTRA_CREDENTIAL = "credential"
     const val EXTRA_CREDENTIAL_EXP = "credential_expires_at"
     const val EXTRA_CONNECTED = "connected"
+    const val EXTRA_VERSION = "version"
+    const val EXTRA_PROTOCOL = "protocol"
     const val EXTRA_ERROR = "error"
     const val EXTRA_WORKSPACE_ID = "workspace_id"
     const val EXTRA_REMIND_AT = "remind_at"
