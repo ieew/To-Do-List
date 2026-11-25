@@ -9,6 +9,7 @@ import com.todo.android.core.network.ApiResult
 import com.todo.android.core.network.ServerConfig
 import com.todo.android.core.network.api.SyncApi
 import com.todo.android.core.network.apiCall
+import com.todo.android.core.network.session.RefreshResult
 import com.todo.android.core.network.session.SessionManager
 import com.todo.android.core.network.session.SessionTokens
 import com.todo.android.core.network.wire.PushRequest
@@ -92,12 +93,13 @@ class SyncEngine @Inject constructor(
         }
         publish(SyncStatus.SYNCING, session)
 
+        // ensureFresh 失败返回 null（不再回落到过期令牌），这里直接判定为需要重新登录。
         session = sessionManager.ensureFresh()
         if (session == null) {
             return publish(SyncStatus.AUTH_REQUIRED, error = "登录已过期，请重新登录")
         }
 
-        val pushStep = pushAll(session)
+        val pushStep = pushAll()
         if (pushStep is Step.Stop) return pushStep.state
 
         val pullStep = pullAll()
@@ -122,15 +124,20 @@ class SyncEngine @Inject constructor(
         return op.copy(value = JsonPrimitive(raw / 1_000_000.0))
     }
 
-    private suspend fun pushAll(session: SessionTokens): Step {
+    private suspend fun pushAll(): Step {
         var batchLimit = PUSH_BATCH
+        // 401 只给一次「强制刷新后重试」的机会：刷新也救不回来才判定掉线。
+        var authRetried = false
         while (true) {
             val pending = repository.pendingOps(batchLimit)
             if (pending.isEmpty()) return Step.Continue
 
-            val deviceId = repository.deviceId()
+            // 每批都重新取会话：上一轮可能刚刷新过令牌。
+            val session = sessionManager.ensureFresh()
+                ?: return Step.Stop(publish(SyncStatus.AUTH_REQUIRED, null, error = "登录已过期，请重新登录"))
+
             val request = PushRequest(
-                deviceId = deviceId,
+                deviceId = repository.deviceId(),
                 ops = pending.map { WireMapper.toOut(normalizeLegacyOrder(it.op)) },
             )
             when (val result = apiCall(json) { syncApi.push(request) }) {
@@ -143,8 +150,9 @@ class SyncEngine @Inject constructor(
                             "rejected" -> {
                                 val code = item.error?.code ?: "rejected"
                                 val message = item.error?.message ?: "操作未生效"
+                                // A19：标记保留（行不删、错误可查），用户可在设置里重试或导出。
                                 repository.markRejected(item.opId, "$code: $message")
-                                notifyRejection(code, message)
+                                notifyRejection(code, message, 1)
                             }
                         }
                     }
@@ -156,8 +164,32 @@ class SyncEngine @Inject constructor(
                     val failure = result.failure
                     when {
                         failure.code in AUTH_CODES -> {
-                            sessionManager.clear()
-                            return Step.Stop(publish(SyncStatus.AUTH_REQUIRED, null, error = failure.message))
+                            if (!authRetried) {
+                                authRetried = true
+                                when (sessionManager.refresh(force = true)) {
+                                    // 刷新成功：换新令牌重推同一批（服务端按 op_id 去重）。
+                                    RefreshResult.SUCCESS -> continue
+
+                                    RefreshResult.NETWORK -> {
+                                        val status =
+                                            if (failure.httpStatus == 0) SyncStatus.OFFLINE else SyncStatus.RETRYING
+                                        return Step.Stop(publish(status, null, error = failure.message))
+                                    }
+
+                                    RefreshResult.INVALID -> {
+                                        return Step.Stop(
+                                            publish(
+                                                SyncStatus.AUTH_REQUIRED,
+                                                null,
+                                                error = "登录已过期，请重新登录",
+                                            ),
+                                        )
+                                    }
+                                }
+                            }
+                            // 刷新也救不回来：只作废 access token，refresh token 留到服务端明确失效为止。
+                            sessionManager.invalidateAccess()
+                            return Step.Stop(publish(SyncStatus.AUTH_REQUIRED, session, error = failure.message))
                         }
 
                         failure.code == "hlc_too_far_ahead" -> {
@@ -169,19 +201,21 @@ class SyncEngine @Inject constructor(
                             if (batchLimit > 1) {
                                 batchLimit = maxOf(1, batchLimit / 2)
                             } else {
-                                pending.forEach {
-                                    repository.markRejected(it.op.opId, "${failure.code}: ${failure.message}")
-                                }
-                                notice(NoticeKind.ERROR, failure.code, "同步数据过大，已跳过无法提交的操作")
+                                val ids = pending.map { it.op.opId }
+                                repository.markRejectedAll(ids, "${failure.code}: ${failure.message}")
+                                notice(
+                                    NoticeKind.ERROR,
+                                    failure.code,
+                                    "同步数据过大，${ids.size} 条修改未被接受，已保留在本地（可在设置中重试或导出）",
+                                )
                                 return Step.Continue
                             }
                         }
 
                         failure.httpStatus == 400 || failure.httpStatus == 403 -> {
-                            pending.forEach {
-                                repository.markRejected(it.op.opId, "${failure.code}: ${failure.message}")
-                            }
-                            notifyRejection(failure.code, failure.message)
+                            val ids = pending.map { it.op.opId }
+                            repository.markRejectedAll(ids, "${failure.code}: ${failure.message}")
+                            notifyRejection(failure.code, failure.message, ids.size)
                             return Step.Continue
                         }
 
@@ -191,10 +225,9 @@ class SyncEngine @Inject constructor(
                         }
 
                         else -> {
-                            pending.forEach {
-                                repository.markRejected(it.op.opId, "${failure.code}: ${failure.message}")
-                            }
-                            notifyRejection(failure.code, failure.message)
+                            val ids = pending.map { it.op.opId }
+                            repository.markRejectedAll(ids, "${failure.code}: ${failure.message}")
+                            notifyRejection(failure.code, failure.message, ids.size)
                             return Step.Continue
                         }
                     }
@@ -205,6 +238,7 @@ class SyncEngine @Inject constructor(
 
     private suspend fun pullAll(): Step {
         var page = 0
+        var authRetried = false
         while (page < MAX_PULL_PAGES) {
             val cursor = repository.syncCursor()
             when (val result = apiCall(json) { syncApi.pull(sinceSeq = cursor, limit = PULL_LIMIT) }) {
@@ -224,12 +258,29 @@ class SyncEngine @Inject constructor(
 
                 is ApiResult.Failure -> {
                     val failure = result.failure
-                    return when {
-                        failure.code in AUTH_CODES -> {
-                            sessionManager.clear()
-                            Step.Stop(publish(SyncStatus.AUTH_REQUIRED, null, error = failure.message))
-                        }
+                    if (failure.code in AUTH_CODES) {
+                        if (!authRetried) {
+                            authRetried = true
+                            when (sessionManager.refresh(force = true)) {
+                                RefreshResult.SUCCESS -> continue
 
+                                RefreshResult.NETWORK -> {
+                                    val status =
+                                        if (failure.httpStatus == 0) SyncStatus.OFFLINE else SyncStatus.RETRYING
+                                    return Step.Stop(publish(status, null, error = failure.message))
+                                }
+
+                                RefreshResult.INVALID -> {
+                                    return Step.Stop(
+                                        publish(SyncStatus.AUTH_REQUIRED, null, error = "登录已过期，请重新登录"),
+                                    )
+                                }
+                            }
+                        }
+                        sessionManager.invalidateAccess()
+                        return Step.Stop(publish(SyncStatus.AUTH_REQUIRED, null, error = failure.message))
+                    }
+                    return when {
                         failure.retryable -> {
                             val status = if (failure.httpStatus == 0) SyncStatus.OFFLINE else SyncStatus.RETRYING
                             Step.Stop(publish(status, null, error = failure.message))
@@ -275,9 +326,14 @@ class SyncEngine @Inject constructor(
         return next
     }
 
-    private fun notifyRejection(code: String, message: String) {
+    private fun notifyRejection(code: String, message: String, count: Int = 0) {
         val kind = if (code == "hlc_too_far_ahead") NoticeKind.WARNING else NoticeKind.ERROR
-        notice(kind, code, message)
+        val text = if (count > 0) {
+            "$message（$count 条修改已被服务端拒绝，已保留在本地，可在设置里重试或导出）"
+        } else {
+            message
+        }
+        notice(kind, code, text)
     }
 
     private fun notice(kind: NoticeKind, code: String, message: String) {

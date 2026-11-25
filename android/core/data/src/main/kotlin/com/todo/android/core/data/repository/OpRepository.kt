@@ -29,6 +29,19 @@ data class OpCounts(
     val rejected: Int,
 )
 
+/** 被服务端拒绝、但仍保留在本地库里的 op（A19：标记保留，可重试/可导出）。 */
+data class RejectedOp(
+    val opId: String,
+    val error: String?,
+    val createdAt: Long,
+)
+
+/** 换账号清库的结果：备份路径必须能被用户看到，否则「清库」是静默的数据丢失。 */
+data class ResetResult(
+    val backupPath: String?,
+    val removedOps: Int,
+)
+
 /** 数据层只声明"需要触发一次同步"，具体实现由 core:sync 提供，避免反向依赖。 */
 fun interface SyncTrigger {
     fun requestSync()
@@ -68,6 +81,14 @@ interface OpRepository {
 
     suspend fun markRejected(opId: String, error: String)
 
+    /** 整批标记被拒：HTTP 级失败时一次响应覆盖一整批 op。 */
+    suspend fun markRejectedAll(opIds: List<String>, error: String)
+
+    suspend fun rejectedOps(limit: Int = 200): List<RejectedOp>
+
+    /** 把被拒 op 放回待推送队列，返回重回队列的条数。 */
+    suspend fun retryRejected(): Int
+
     suspend fun applyPulled(ops: List<PulledOp>, nextSeq: Long, serverHlc: Hlc?): Int
 
     suspend fun importOps(ops: List<Op>): ImportResult
@@ -84,7 +105,15 @@ interface OpRepository {
 
     suspend fun setSyncAccount(account: String?)
 
-    suspend fun resetForAccount(): String?
+    /**
+     * 换账号：整库备份 + 清空 op_log/meta，并在**同一个事务**内写入新 accountKey。
+     *
+     * 先清后写会留下「库已清空但 sync_account 为空」的中间态，下次登录再清一次（A15）。
+     */
+    suspend fun resetForAccount(accountKey: String?): ResetResult
+
+    /** 手动导出备份（登录前确认框的「先导出备份」）。 */
+    suspend fun backupNow(): String?
 
     suspend fun deviceId(): String
 

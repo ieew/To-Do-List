@@ -29,7 +29,8 @@ class TokenAuthenticator @Inject constructor(
         if (request.isAuthEndpoint()) return null
         if (responseCount(response) >= 2) return null
 
-        if (!runBlocking { sessionManager.refresh() }) return null
+        // 401 说明服务端不认这个 access token，必须强制刷新（本地过期时间可能还没到）。
+        if (runBlocking { sessionManager.refresh(force = true) } != RefreshResult.SUCCESS) return null
         val token = sessionManager.cachedToken() ?: return null
         val previous = request.header("Authorization")
         if (previous == "Bearer $token") return null

@@ -79,6 +79,7 @@ fun TasksScreen(
     onOpenDetail: (String?) -> Unit,
     onOpenAi: () -> Unit,
     onOpenMembers: (String) -> Unit,
+    onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: TasksViewModel = viewModel(),
 ) {
@@ -107,6 +108,17 @@ fun TasksScreen(
                 onSearchClick = { searchOpen = !searchOpen },
                 onAiClick = onOpenAi,
             )
+
+            // A17：登录过期是常驻状态，不是一次性 Toast；条数取真实的待推送计数。
+            if (state.sync.status == SyncStatus.AUTH_REQUIRED) {
+                InlineWarning(
+                    text = "登录已过期 · ${state.sync.pendingCount} 条修改待推送，点此重新登录",
+                    modifier = Modifier
+                        .padding(start = 16.dp, end = 16.dp, top = 4.dp)
+                        .clip(RoundedCornerShape(Tokens.Radius.sm))
+                        .clickable { onOpenSettings() },
+                )
+            }
 
             if (searchOpen || state.search.isNotEmpty()) {
                 SearchRow(

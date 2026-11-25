@@ -135,8 +135,10 @@ class TasksViewModel @Inject constructor(
                 refreshing = false,
                 toast = when (result.status) {
                     SyncStatus.SYNCED -> "已同步"
-                    SyncStatus.SIGNED_OUT -> "未登录，本地修改会稍后推送"
-                    SyncStatus.AUTH_REQUIRED -> "登录已过期，请重新登录"
+                    // 文案只在「重新登录后确实会自动推送」成立时才这么写（A19 修好后成立）。
+                    SyncStatus.SIGNED_OUT -> "未登录：修改已保存在本地，登录后自动推送"
+                    SyncStatus.AUTH_REQUIRED ->
+                        "登录已过期：${result.pendingCount} 条修改待推送，重新登录后自动推送"
                     else -> result.lastError ?: "网络不稳定，稍后重试"
                 },
             )

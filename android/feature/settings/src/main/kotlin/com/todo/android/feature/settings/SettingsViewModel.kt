@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import android.content.Context
 import dagger.hilt.android.qualifiers.ApplicationContext
 import com.todo.android.core.data.ProjectionHolder
+import com.todo.android.core.data.repository.OpRepository
 import com.todo.android.core.ai.AiKeyStore
 import com.todo.android.core.data.backup.BackupService
 import com.todo.android.core.data.backup.ImportPreview
@@ -26,6 +27,8 @@ import com.todo.android.core.reminder.KeepAliveManager
 import com.todo.android.core.reminder.KeepAliveStats
 import com.todo.android.core.reminder.ReminderScheduler
 import com.todo.android.core.sync.AccountManager
+import com.todo.android.core.sync.LoginOutcome
+import com.todo.android.core.sync.SwitchPreview
 import com.todo.android.core.sync.SyncEngine
 import com.todo.android.core.sync.SyncState
 import com.todo.android.core.sync.SyncStatus
@@ -54,6 +57,8 @@ data class SettingsUiState(
     val batteryWhitelisted: Boolean = false,
     val keepAliveLastBeatMs: Long? = null,
     val keepAliveBeatCount: Long = 0L,
+    /** 非空时显示「换账号会清空本地未推送修改」确认框，默认取消。 */
+    val switchPreview: SwitchPreview? = null,
 ) {
     val signedIn: Boolean get() = sync.status != SyncStatus.SIGNED_OUT
     val accountName: String get() = sync.account?.displayName ?: sync.account?.username ?: "未登录"
@@ -69,6 +74,7 @@ class SettingsViewModel @Inject constructor(
     private val reminderScheduler: ReminderScheduler,
     private val keepAliveManager: KeepAliveManager,
     private val backupService: BackupService,
+    private val repository: OpRepository,
     private val serverConfig: ServerConfig,
     private val authApi: AuthApi,
     private val sessionManager: SessionManager,
@@ -86,6 +92,7 @@ class SettingsViewModel @Inject constructor(
     private data class LocalState(
         val toast: String? = null,
         val busy: Boolean = false,
+        val switchPreview: SwitchPreview? = null,
     )
 
     private data class LocalBundle(
@@ -125,6 +132,7 @@ class SettingsViewModel @Inject constructor(
             batteryWhitelisted = bundle.keepAlive.batteryWhitelisted,
             keepAliveLastBeatMs = bundle.keepAlive.lastBeatMs,
             keepAliveBeatCount = bundle.keepAlive.beatCount,
+            switchPreview = bundle.local.switchPreview,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsUiState())
 
@@ -268,20 +276,73 @@ class SettingsViewModel @Inject constructor(
     fun login(serverUrl: String, username: String, password: String, register: Boolean) {
         viewModelScope.launch {
             local.value = local.value.copy(busy = true)
-            val result = if (register) {
+            val outcome = if (register) {
                 accountManager.register(username, password, null, serverUrl)
             } else {
                 accountManager.login(username, password, serverUrl)
             }
-            local.value = local.value.copy(
-                busy = false,
-                toast = when (result) {
-                    is ApiResult.Success ->
-                        if (register) "注册成功，已同步" else "登录成功，已同步"
+            applyLoginOutcome(outcome, register)
+        }
+    }
 
-                    is ApiResult.Failure -> result.failure.message
-                },
+    /** 换账号确认框点「仍然切换」：清库（同事务记住新 accountKey）后完成登录。 */
+    fun confirmAccountSwitch() {
+        viewModelScope.launch {
+            local.value = local.value.copy(busy = true, switchPreview = null)
+            applyLoginOutcome(accountManager.confirmSwitch(), register = false)
+        }
+    }
+
+    /** 默认动作：取消切换，本地库与会话都不动。 */
+    fun cancelAccountSwitch() {
+        accountManager.cancelSwitch()
+        local.value = local.value.copy(switchPreview = null, toast = "已取消切换，本地数据未改动")
+    }
+
+    /** 确认框里的「先导出备份」：不切换账号，只落盘一份当前库。 */
+    fun exportBackupBeforeSwitch() {
+        viewModelScope.launch {
+            val path = accountManager.exportBackup()
+            local.value = local.value.copy(
+                toast = if (path == null) "已导出备份" else "已导出备份：$path",
             )
+        }
+    }
+
+    /** A19：把被拒 op 放回待推送队列并立刻重试一次。 */
+    fun retryRejected() {
+        viewModelScope.launch {
+            val count = repository.retryRejected()
+            local.value = local.value.copy(
+                busy = true,
+                toast = if (count == 0) "没有被拒的操作" else "已重新排队 $count 条，正在重试",
+            )
+            if (count > 0) syncEngine.runOnce()
+            local.value = local.value.copy(busy = false)
+        }
+    }
+
+    private fun applyLoginOutcome(outcome: LoginOutcome, register: Boolean) {
+        when (outcome) {
+            is LoginOutcome.Success -> {
+                val reset = outcome.reset
+                val base = if (register) "注册成功，已同步" else "登录成功，已同步"
+                local.value = local.value.copy(
+                    busy = false,
+                    switchPreview = null,
+                    toast = if (reset?.backupPath != null) {
+                        "$base（原账号 ${reset.removedOps} 条 op 已备份到 ${reset.backupPath}）"
+                    } else {
+                        base
+                    },
+                )
+            }
+
+            is LoginOutcome.NeedsConfirm ->
+                local.value = local.value.copy(busy = false, switchPreview = outcome.preview)
+
+            is LoginOutcome.Failure ->
+                local.value = local.value.copy(busy = false, toast = outcome.failure.message)
         }
     }
 

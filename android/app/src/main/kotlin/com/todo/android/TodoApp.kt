@@ -116,6 +116,7 @@ fun TodoApp(
                                 onOpenDetail = viewModel::openDetail,
                                 onOpenAi = { viewModel.navigate(Screen.Ai) },
                                 onOpenMembers = viewModel::openMembers,
+                                onOpenSettings = { viewModel.navigate(Screen.Settings) },
                             )
                         }
 

@@ -46,6 +46,18 @@ interface OpLogDao {
     @Query("UPDATE op_log SET sync_state = 'rejected', sync_error = :error WHERE op_id = :opId")
     suspend fun markRejected(opId: String, error: String)
 
+    /** 整批被拒（HTTP 级错误只有一条响应体）：一次事务内标记，避免部分成功。 */
+    @Query("UPDATE op_log SET sync_state = 'rejected', sync_error = :error WHERE op_id IN (:opIds)")
+    suspend fun markRejectedAll(opIds: List<String>, error: String)
+
+    /** 被拒但保留在库里的 op，供「重试被拒操作」入口展示与导出。 */
+    @Query("SELECT * FROM op_log WHERE sync_state = 'rejected' ORDER BY created_at, row_id LIMIT :limit")
+    suspend fun loadRejected(limit: Int): List<OpLogEntity>
+
+    /** 被拒 op 重新进入待推送队列；错误信息随之清空。 */
+    @Query("UPDATE op_log SET sync_state = 'pending', sync_error = NULL WHERE sync_state = 'rejected'")
+    suspend fun retryRejected(): Int
+
     @Query("DELETE FROM op_log")
     suspend fun deleteAll()
 

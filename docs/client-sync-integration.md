@@ -84,6 +84,7 @@ flowchart LR
 5. 状态置为 `offline` 后立刻执行一次全量 pull（`since_seq=0` 或本地游标）。
 
 `sync_preflight` 返回本地 op 总数与备份目录，设置页在有本地数据时要求二次确认。
+备份路径要展示给用户；确认框的默认动作是「取消」，不是「仍然切换」。
 
 ### 登出
 
@@ -93,8 +94,21 @@ flowchart LR
 ### 令牌
 
 - access/refresh token 只存 Windows 凭据管理器，不写 SQLite、日志或备份。
-- 请求前 60 秒主动刷新；`invalid_refresh_token` 清除登录态并提示重新登录。
+- 请求前 60 秒主动刷新；**只有** `invalid_refresh_token` 才清除登录态并提示重新登录。
 - refresh token 每次刷新都会轮换，客户端必须保存新值。
+
+### 账号态的四条硬规则（App 与桌面端同构，见设计文档 §9）
+
+1. **清库与记住账户同事务**：换账户时把新 `sync_account` 写进清库的同一个事务。
+   分两次写会留下「库已清空、`sync_account` 仍为空」的中间态，下次登录再清一遍，
+   把用户换回来时重新同步的数据也一起清掉（A15）。
+2. **只在服务端明确失效时清凭证**：`token_expired` / `unauthorized` 不清 refresh token；
+   拿不到新 access token 时让这次请求失败并保留登录态，不要回落使用已过期的 token 去换 401（A18）。
+3. **被拒的 op 只标记不删除**：`sync_state='rejected'` 的行留在 `op_log` 里，记 `sync_error`，
+   提供「重试被拒操作」入口把它们放回 `pending`。只有确定不可恢复的错误（字段越界、schema 校验失败）
+   才允许丢弃，并且要给用户可见的提示（A19）。
+4. **登录过期必须常驻可见**：状态为 `auth_required` 时在界面常驻一条「登录已过期 · N 条修改待推送」，
+   N 取真实待推送计数；不要只用一次性 Toast（A17）。
 
 ## 五、事件与 DTO
 

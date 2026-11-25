@@ -102,6 +102,50 @@ class OpRepositoryTest {
     }
 
     @Test
+    fun `resetForAccount 在同一事务里写入新 accountKey 并保留 deviceId`() = runBlocking {
+        val deviceBefore = repository.deviceId()
+        repository.setSyncAccount("https://old.example|u-1")
+        repository.appendOps("ws-1") { clock ->
+            listOf(
+                op("op-1", clock.next(), Fields.TITLE, "A"),
+                op("op-2", clock.next(), Fields.TITLE, "B"),
+            )
+        }
+
+        val result = repository.resetForAccount("https://new.example|u-2")
+
+        assertEquals(2, result.removedOps)
+        // 内存库没有落盘文件，backupDatabase() 返回 null；真机上是真实备份路径。
+        if (result.backupPath != null) assertTrue(result.backupPath!!.isNotBlank())
+        // A15：清库与记住新账户必须同时生效，否则下次登录会再清一遍。
+        assertEquals("https://new.example|u-2", repository.syncAccount())
+        assertEquals("deviceId 跨账号稳定，否则服务端会把同一台机当成新设备", deviceBefore, repository.deviceId())
+        assertEquals(0, repository.counts().pending)
+    }
+
+    @Test
+    fun `被拒 op 标记保留 可批量重试回队列`() = runBlocking {
+        repository.appendOps("ws-1") { clock ->
+            listOf(
+                op("op-1", clock.next(), Fields.TITLE, "A"),
+                op("op-2", clock.next(), Fields.TITLE, "B"),
+            )
+        }
+        repository.markRejectedAll(listOf("op-2"), "forbidden: 当前角色无权执行此操作")
+
+        assertEquals(1, repository.counts().rejected)
+        assertEquals(1, repository.counts().pending)
+        // A19：行还在本地，能查到失败原因。
+        val rejected = repository.rejectedOps()
+        assertEquals(listOf("op-2"), rejected.map { it.opId })
+        assertTrue(rejected.single().error.orEmpty().contains("forbidden"))
+
+        assertEquals(1, repository.retryRejected())
+        assertEquals(0, repository.counts().rejected)
+        assertEquals(2, repository.counts().pending)
+    }
+
+    @Test
     fun `pull 落库推进游标并吸收 server_hlc`() = runBlocking {
         val remote = Hlc(physicalMs = 2_000_000, counter = 3, nodeId = "srv")
         val pulled = listOf(PulledOp(op("op-remote", Hlc(2_000_000, 1, "srv"), Fields.TITLE, "远端"), 42))

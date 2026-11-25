@@ -246,6 +246,14 @@ JSON 键名从 `camelCase` 改为 `snake_case`；值不做任何改写。
 
 错误：`401 invalid_refresh_token`（不存在、已吊销、已过期、重复使用）。
 
+客户端处理约束（A18）：
+
+- **只有** `invalid_refresh_token` 才表示「这个 refresh token 不能再用」，此时可以清除本地登录态并要求重新登录。
+- `token_expired` 表示 access token 过期（`retryable=true`），`unauthorized` 是通用 401 —— 两者都**不得**据此删除 refresh token。
+  旧客户端把任意 401 当成登录失效并清空凭证，一次网关误判或网络抖动就会让用户重输密码，
+  并连带丢掉了尚未推送的本地修改。
+- 调用方在 refresh 返回网络错误 / 5xx / 未知错误时必须保留凭证，退避后重试。
+
 ### 4.4 `POST /v1/auth/logout`
 
 请求 `{ "refresh_token": "..." }` → `204`。幂等：未知令牌同样返回 204。

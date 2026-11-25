@@ -108,6 +108,20 @@ class OpRepositoryImpl @Inject constructor(
         opLogDao.markRejected(opId, error)
     }
 
+    override suspend fun markRejectedAll(opIds: List<String>, error: String) {
+        if (opIds.isEmpty()) return
+        db.withTransaction { opLogDao.markRejectedAll(opIds, error) }
+    }
+
+    override suspend fun rejectedOps(limit: Int): List<RejectedOp> =
+        opLogDao.loadRejected(limit).map { RejectedOp(it.opId, it.syncError, it.createdAt) }
+
+    override suspend fun retryRejected(): Int {
+        val count = opLogDao.retryRejected()
+        if (count > 0) syncTrigger.requestSync()
+        return count
+    }
+
     override suspend fun applyPulled(ops: List<PulledOp>, nextSeq: Long, serverHlc: Hlc?): Int {
         val now = wallClock.nowMs()
         val applied = db.withTransaction {
@@ -203,16 +217,24 @@ class OpRepositoryImpl @Inject constructor(
         }
     }
 
-    override suspend fun resetForAccount(): String? {
-        val backup = if (opLogDao.loadAll().isNotEmpty()) backupDatabase() else null
+    override suspend fun resetForAccount(accountKey: String?): ResetResult {
+        val existing = opLogDao.loadAll()
+        val backup = if (existing.isNotEmpty()) backupDatabase() else null
+        // 设备标识与 HLC 节点名必须跨账号稳定：换账号只换数据归属，不是换设备。
+        val device = deviceId()
         db.withTransaction {
             opLogDao.deleteAll()
             metaDao.deleteAll()
-            val device = deviceId()
+            metaDao.put(MetaEntity(KEY_DEVICE_ID, device))
+            // 新 accountKey 必须与清库同一个事务：分开写会留下「已清库但没记住账号」的中间态，
+            // 下次登录会再清一遍（A15 的自我放大）。
+            if (accountKey != null) metaDao.put(MetaEntity(KEY_SYNC_ACCOUNT, accountKey))
             localHlcDao.put(LocalHlcEntity(physicalMs = wallClock.nowMs(), counter = 0, nodeId = device))
         }
-        return backup
+        return ResetResult(backup, existing.size)
     }
+
+    override suspend fun backupNow(): String? = backupDatabase()
 
     override suspend fun deviceId(): String = deviceMutex.withLock {
         metaDao.get(KEY_DEVICE_ID) ?: UUID.randomUUID().toString().also {

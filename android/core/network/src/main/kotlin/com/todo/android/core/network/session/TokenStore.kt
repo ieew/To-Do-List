@@ -36,6 +36,20 @@ data class SessionTokens(
     val deviceId: String = "",
 )
 
+/**
+ * 登录态存取的最小接口。
+ *
+ * [SessionManager] 只依赖这三件事，测试里才能用内存实现替掉 Keystore/DataStore
+ * （A18 的「刷新失败是否误删凭证」必须在 JVM 单测里可复现，不能只靠真机手点）。
+ */
+interface SessionStore {
+    suspend fun current(): SessionTokens?
+
+    suspend fun save(tokens: SessionTokens)
+
+    suspend fun clear()
+}
+
 interface TokenCipher {
     fun encrypt(plain: String): String
 
@@ -95,21 +109,21 @@ class TokenStore @Inject constructor(
     @ApplicationContext private val context: Context,
     private val cipher: TokenCipher,
     private val json: Json,
-) {
+) : SessionStore {
     private val sessionKey = stringPreferencesKey("session")
 
     val session: Flow<SessionTokens?> = context.sessionDataStore.data.map { prefs ->
         prefs[sessionKey]?.let(::decode)
     }
 
-    suspend fun current(): SessionTokens? = session.first()
+    override suspend fun current(): SessionTokens? = session.first()
 
-    suspend fun save(tokens: SessionTokens) {
+    override suspend fun save(tokens: SessionTokens) {
         val encrypted = cipher.encrypt(json.encodeToString(SessionTokens.serializer(), tokens))
         context.sessionDataStore.edit { it[sessionKey] = encrypted }
     }
 
-    suspend fun clear() {
+    override suspend fun clear() {
         context.sessionDataStore.edit { it.remove(sessionKey) }
     }
 

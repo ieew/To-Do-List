@@ -9,8 +9,10 @@ import com.todo.android.core.network.api.MemberApi
 import com.todo.android.core.network.api.SyncApi
 import com.todo.android.core.network.session.AuthInterceptor
 import com.todo.android.core.network.session.KeystoreTokenCipher
+import com.todo.android.core.network.session.SessionStore
 import com.todo.android.core.network.session.TokenAuthenticator
 import com.todo.android.core.network.session.TokenCipher
+import com.todo.android.core.network.session.TokenStore
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
@@ -83,4 +85,8 @@ abstract class NetworkBindings {
     @Binds
     @Singleton
     abstract fun bindTokenCipher(impl: KeystoreTokenCipher): TokenCipher
+
+    @Binds
+    @Singleton
+    abstract fun bindSessionStore(impl: TokenStore): SessionStore
 }

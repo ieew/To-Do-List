@@ -53,6 +53,7 @@ import com.todo.android.core.designsystem.TodoTheme
 import com.todo.android.core.designsystem.TodoToast
 import com.todo.android.core.designsystem.Tokens
 import com.todo.android.core.designsystem.TimeText
+import com.todo.android.core.sync.SwitchPreview
 import com.todo.android.core.sync.SyncStatus
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -178,6 +179,16 @@ fun SettingsScreen(
             },
         )
     }
+
+    // A15：换账号会清空本地未推送修改，必须先让用户看见条数，默认取消。
+    state.switchPreview?.let { preview ->
+        AccountSwitchDialog(
+            preview = preview,
+            onCancel = { viewModel.cancelAccountSwitch() },
+            onExport = { viewModel.exportBackupBeforeSwitch() },
+            onConfirm = { viewModel.confirmAccountSwitch() },
+        )
+    }
 }
 
 @Composable
@@ -192,11 +203,30 @@ private fun CommonPanel(
     var serverEditOpen by remember { mutableStateOf(false) }
 
     SettingsGroup(title = "账户") {
+        // A17：登录过期不能只弹一次 Toast，要常驻并把真实待推送条数摆出来。
+        if (state.sync.status == SyncStatus.AUTH_REQUIRED) {
+            SettingRow(
+                title = "登录已过期 · ${state.sync.pendingCount} 条修改待推送",
+                description = "修改已保存在本地，重新登录后自动推送",
+                danger = true,
+                onClick = onLogin,
+            )
+            SettingDivider()
+        }
         SettingRow(
             title = if (state.signedIn) "我的账号" else "登录 / 注册",
             description = if (state.signedIn) state.accountName else "登录后离线修改会按 HLC 顺序推送",
             onClick = onLogin,
         )
+        // A19：被拒的 op 只标记不删除，这里给一个批量重试入口。
+        if (state.sync.rejectedCount > 0) {
+            SettingDivider()
+            SettingRow(
+                title = "重试被拒操作（${state.sync.rejectedCount} 条）",
+                description = "这些修改仍在本地，重试会重新推送到服务器",
+                onClick = { if (!state.busy) viewModel.retryRejected() },
+            )
+        }
         SettingDivider()
         SettingRow(
             title = "工作区与成员",
@@ -480,3 +510,48 @@ private fun dialogFieldColors(colors: com.todo.android.core.designsystem.TodoCol
     focusedLabelColor = colors.text2,
     unfocusedLabelColor = colors.text3,
 )
+
+/** 换账号确认：展示会被移出工作区的未推送条数；主按钮不放在「仍然切换」上。 */
+@Composable
+private fun AccountSwitchDialog(
+    preview: SwitchPreview,
+    onCancel: () -> Unit,
+    onExport: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    val colors = TodoTheme.colors
+    AlertDialog(
+        onDismissRequest = onCancel,
+        containerColor = colors.card,
+        title = { Text("切换账号会清空本地未推送的修改", style = Tokens.Type.pageTitle, color = colors.text) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "即将以 ${preview.username}@${preview.serverUrl} 登录。",
+                    style = Tokens.Type.body,
+                    color = colors.text,
+                )
+                Text(
+                    "本地还有 ${preview.pendingCount} 条尚未同步的修改，切换账号会把它们移出当前工作区。" +
+                        "换回去之前它们不会出现在列表里。",
+                    style = Tokens.Type.body,
+                    color = colors.text2,
+                )
+                Text(
+                    "不放心可以先导出备份，再决定是否切换。",
+                    style = Tokens.Type.meta,
+                    color = colors.text3,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onExport) { Text("先导出备份", color = colors.text2) }
+        },
+        dismissButton = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = onCancel) { Text("取消", color = colors.primary) }
+                TextButton(onClick = onConfirm) { Text("仍然切换", color = colors.danger) }
+            }
+        },
+    )
+}
